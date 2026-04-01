@@ -1,8 +1,6 @@
 <div align="center">
 
-<br />
-
-# hatch
+# Hatch
 
 A self-hosted deployment platform built on AWS.  
 Dockerfile in. Live HTTPS URL out.
