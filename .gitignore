@@ -1,0 +1,114 @@
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+Desktop.ini
+
+# ─── IDE / Editor ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.iml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*.swo
+.fleet/
+.cursor/
+
+# ─── Environment Variables ────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# ─── Go ───────────────────────────────────────────────────────────────────────
+# Binaries
+apps/api/bin/
+apps/builder/bin/
+apps/deployer/bin/
+**/cmd/**/main
+
+# Test artifacts
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Go workspace sum (auto-generated)
+go.work.sum
+
+# ─── Next.js / Node ───────────────────────────────────────────────────────────
+node_modules/
+apps/web/.next/
+apps/web/out/
+apps/web/.turbo/
+apps/web/build/
+
+# npm / pnpm / yarn
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.yarn/cache
+.yarn/unplugged
+.yarn/install-state.gz
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+# Don't ignore Dockerfiles themselves, only runtime artifacts
+
+# ─── Terraform ────────────────────────────────────────────────────────────────
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.*
+**/terraform.tfvars
+!**/terraform.tfvars.example
+**/tfplan
+**/tfplan.*
+**/crash.log
+**/crash.*.log
+**/override.tf
+**/override.tf.json
+**/*_override.tf
+**/*_override.tf.json
+
+# ─── AWS ──────────────────────────────────────────────────────────────────────
+.aws/
+aws-exports.js
+
+# ─── Database ─────────────────────────────────────────────────────────────────
+*.sql.bak
+dump.sql
+*.dump
+
+# ─── sqlc ─────────────────────────────────────────────────────────────────────
+# Keep generated files in source control so CI doesn't need sqlc installed
+# packages/db/gen/ is intentionally NOT ignored
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+*.pid
+
+# ─── Secrets / Keys ───────────────────────────────────────────────────────────
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+id_rsa
+id_ed25519
+*.secrets
+
+# ─── Misc Build Artifacts ─────────────────────────────────────────────────────
+dist/
+tmp/
+.cache/
