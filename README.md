@@ -2,18 +2,10 @@
 
 <br />
 
-```
-██╗  ██╗ █████╗ ████████╗ ██████╗██╗  ██╗
-██║  ██║██╔══██╗╚══██╔══╝██╔════╝██║  ██║
-███████║███████║   ██║   ██║     ███████║
-██╔══██║██╔══██║   ██║   ██║     ██╔══██║
-██║  ██║██║  ██║   ██║   ╚██████╗██║  ██║
-╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝    ╚═════╝╚═╝  ╚═╝
-```
+# hatch
 
-**Deploy anything. No infra knowledge required.**
-
-Connect your GitHub repo → pick your config → get a live URL in under 2 minutes.
+A self-hosted deployment platform built on AWS.  
+Dockerfile in. Live HTTPS URL out.
 
 <br />
 
