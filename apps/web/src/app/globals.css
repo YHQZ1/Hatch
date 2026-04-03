@@ -1,26 +1,121 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --surface-hover: #111111;
+  --border: #1f1f1f;
+  --border-focus: #444444;
+  --text-main: #ffffff;
+  --text-muted: #888888;
+  --success: #10b981;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg);
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Global Grid Pattern */
+.bg-grid-pattern {
+  background-image:
+    linear-gradient(to right, #111 1px, transparent 1px),
+    linear-gradient(to bottom, #111 1px, transparent 1px);
+  background-size: 4rem 4rem;
+}
+
+/* Engineered UI Utilities */
+.technical-border {
+  border: 1px solid var(--border);
+  transition: border-color 0.2s ease;
+}
+
+.technical-border:hover {
+  border-color: var(--border-focus);
+}
+
+.bg-surface {
+  background-color: var(--surface);
+}
+
+/* Animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.5s ease forwards;
+  opacity: 0;
+}
+
+.delay-100 {
+  animation-delay: 100ms;
+}
+.delay-200 {
+  animation-delay: 200ms;
+}
+.delay-300 {
+  animation-delay: 300ms;
+}
+.delay-400 {
+  animation-delay: 400ms;
+}
+
+/* Blinking cursor for the terminal */
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+/* Dotted Line Data Flow Animation */
+@keyframes data-flow {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+
+.animate-flow {
+  stroke-dasharray: 6 6;
+  animation: data-flow 0.8s linear infinite;
+}
+
+::selection {
+  background: var(--text-main);
+  color: var(--bg);
+}
+
+/* Hide scrollbar for internal components */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Subtle floating animation for tech icons */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.animate-float {
+  animation: float 6s ease-in-out infinite;
 }
