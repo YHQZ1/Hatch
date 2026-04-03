@@ -1,9 +1,11 @@
 /* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import Navbar from "@/app/components/Navbar";
 
 // --- TYPES ---
 interface Project {
@@ -13,10 +15,8 @@ interface Project {
   created_at: string;
 }
 
-// --- MAIN PAGE ---
 export default function Dashboard() {
   const router = useRouter();
-  const [username, setUsername] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
@@ -29,9 +29,6 @@ export default function Dashboard() {
       return;
     }
 
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    setUsername(payload.username);
-
     fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/projects`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -43,75 +40,40 @@ export default function Dashboard() {
       .catch(() => setLoading(false));
   }, [router]);
 
-  if (!mounted) return <div className="min-h-screen bg-black" />;
+  // Use the CSS variable for the loading state background
+  if (!mounted) return <div className="min-h-screen bg-[var(--bg)]" />;
 
   return (
-    <div className="min-h-screen w-full bg-[#000] text-white flex flex-col relative overflow-x-hidden selection:bg-white selection:text-black">
-      {/* Background grid */}
+    <div className="min-h-screen w-full bg-[var(--bg)] text-[var(--text-main)] flex flex-col relative overflow-x-hidden selection:bg-white selection:text-black font-sans">
+      {/* Background grid: Now blends better with the #0a0a0a base */}
       <div className="fixed inset-0 z-0 pointer-events-none">
-        <div className="absolute inset-0 bg-grid-pattern opacity-[0.04]" />
+        <div className="absolute inset-0 bg-grid-pattern opacity-[0.05]" />
       </div>
 
-      {/* Header */}
-      <header className="relative z-20 border-b border-[#1f1f1f] bg-black/80 backdrop-blur-md px-8 lg:px-12 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-8">
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-6 h-6 bg-white flex items-center justify-center transition-transform duration-300 group-hover:scale-90">
-              <div className="w-2.5 h-2.5 bg-black" />
-            </div>
-            <span className="font-bold tracking-tighter text-lg uppercase">
-              Hatch
-            </span>
-          </Link>
-          <div className="hidden md:flex items-center gap-1">
-            <span className="font-mono text-[10px] text-[#333] uppercase tracking-widest">
-              / dashboard
-            </span>
-          </div>
-        </div>
+      <Navbar />
 
-        <div className="flex items-center gap-6">
-          <div className="hidden md:flex items-center gap-2">
-            <div className="w-1.5 h-1.5 bg-[#10b981] rounded-full animate-pulse" />
-            <span className="font-mono text-[10px] text-[#555] uppercase tracking-widest">
-              {username ?? "—"}
-            </span>
-          </div>
-          <button
-            onClick={() => {
-              localStorage.removeItem("hatch_token");
-              router.push("/");
-            }}
-            className="font-mono text-[10px] text-[#444] hover:text-white transition-colors uppercase tracking-[0.2em]"
-          >
-            [ Sign Out ]
-          </button>
-        </div>
-      </header>
-
-      {/* Main */}
       <main className="relative z-10 flex-grow px-8 lg:px-12 py-12">
         {/* Page title row */}
         <div className="flex items-start justify-between mb-12">
           <div className="space-y-2">
-            <p className="font-mono text-[10px] text-[#333] uppercase tracking-[0.3em]">
+            <p className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-[0.3em]">
               Control Plane
             </p>
-            <h1 className="text-4xl md:text-6xl font-medium tracking-tighter leading-none">
+            <h1 className="text-4xl md:text-6xl font-medium tracking-tighter leading-none uppercase">
               Projects
             </h1>
           </div>
           <Link
             href="/new"
-            className="flex items-center gap-3 bg-white text-black px-6 py-3 font-mono text-xs font-bold uppercase tracking-widest hover:bg-[#e5e5e5] transition-colors mt-2"
+            className="flex items-center gap-3 bg-white text-black px-6 py-3 font-mono text-xs font-bold uppercase tracking-widest hover:bg-[#e5e5e5] transition-all duration-300 shadow-xl"
           >
             <span className="text-lg leading-none">+</span>
             New Project
           </Link>
         </div>
 
-        {/* Stats bar */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[#1f1f1f] border border-[#1f1f1f] mb-12">
+        {/* Stats bar: Uses var(--border) for a subtler split */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[var(--border)] border border-[var(--border)] mb-12 shadow-2xl">
           <StatCell
             label="Total Projects"
             value={loading ? "—" : String(projects.length)}
@@ -127,28 +89,19 @@ export default function Dashboard() {
         ) : projects.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {projects.map((project) => (
               <ProjectCard key={project.id} project={project} />
             ))}
           </div>
         )}
       </main>
-
-      {/* Footer bar */}
-      <footer className="relative z-10 border-t border-[#1f1f1f] px-8 lg:px-12 h-10 flex items-center justify-between">
-        <span className="font-mono text-[9px] text-[#333] uppercase tracking-widest">
-          Hatch · Deployment Engine
-        </span>
-        <span className="font-mono text-[9px] text-[#333] uppercase tracking-widest">
-          AWS ECS · ECR · ROUTE53 · ACM
-        </span>
-      </footer>
     </div>
   );
 }
 
-// --- STAT CELL ---
+// --- UPDATED HELPER COMPONENTS ---
+
 function StatCell({
   label,
   value,
@@ -159,12 +112,12 @@ function StatCell({
   mono?: boolean;
 }) {
   return (
-    <div className="bg-black px-6 py-5 flex flex-col gap-2">
-      <span className="font-mono text-[9px] text-[#333] uppercase tracking-[0.25em]">
+    <div className="bg-[var(--bg)] px-6 py-5 flex flex-col gap-2">
+      <span className="font-mono text-[9px] text-[var(--text-muted)] uppercase tracking-[0.25em]">
         {label}
       </span>
       <span
-        className={`text-2xl font-medium text-white leading-none ${mono ? "font-mono text-base" : ""}`}
+        className={`text-2xl font-medium text-white leading-none ${mono ? "font-mono text-base opacity-70" : ""}`}
       >
         {value}
       </span>
@@ -172,7 +125,6 @@ function StatCell({
   );
 }
 
-// --- PROJECT CARD ---
 function ProjectCard({ project }: { project: Project }) {
   const repoOwner = project.repo_url.split("/")[3] ?? "—";
   const repoName = project.repo_name;
@@ -184,21 +136,20 @@ function ProjectCard({ project }: { project: Project }) {
 
   return (
     <Link href={`/projects/${project.id}`}>
-      <div className="border border-[#1f1f1f] bg-[#050505] hover:border-[#444] hover:bg-[#0a0a0a] transition-all duration-200 p-6 flex flex-col gap-5 group cursor-pointer h-full">
-        {/* Top row */}
+      {/* Changed bg-[#050505] to var(--surface) and hover to var(--surface-hover) */}
+      <div className="border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-focus)] hover:bg-[var(--surface-hover)] transition-all duration-300 p-8 flex flex-col gap-6 group cursor-pointer h-full rounded-sm shadow-lg">
         <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+          <div className="flex items-center gap-4">
             <img
               src="https://cdn.simpleicons.org/github/FFFFFF"
               alt="GitHub"
-              className="w-4 h-4 opacity-40 group-hover:opacity-70 transition-opacity"
+              className="w-5 h-5 opacity-30 group-hover:opacity-100 transition-opacity"
             />
             <div>
-              <p className="font-mono text-[9px] text-[#444] uppercase tracking-widest">
+              <p className="font-mono text-[9px] text-[var(--text-muted)] uppercase tracking-widest">
                 {repoOwner}
               </p>
-              <p className="text-sm font-medium text-white leading-tight">
+              <p className="text-lg font-medium text-white leading-tight tracking-tight">
                 {repoName}
               </p>
             </div>
@@ -206,15 +157,13 @@ function ProjectCard({ project }: { project: Project }) {
           <StatusPill status="no deployments" />
         </div>
 
-        {/* Divider */}
-        <div className="h-px bg-[#111] group-hover:bg-[#1f1f1f] transition-colors" />
+        <div className="h-px bg-[var(--border)] opacity-50 transition-colors group-hover:opacity-100" />
 
-        {/* Bottom row */}
         <div className="flex items-center justify-between mt-auto">
-          <span className="font-mono text-[9px] text-[#333] uppercase tracking-widest">
+          <span className="font-mono text-[9px] text-[var(--text-muted)] uppercase tracking-widest">
             Created {createdAt}
           </span>
-          <span className="font-mono text-[9px] text-[#333] group-hover:text-white transition-colors uppercase tracking-widest">
+          <span className="font-mono text-[9px] text-[var(--text-muted)] group-hover:text-white transition-colors uppercase tracking-widest">
             Open →
           </span>
         </div>
@@ -223,51 +172,27 @@ function ProjectCard({ project }: { project: Project }) {
   );
 }
 
-// --- STATUS PILL ---
 function StatusPill({ status }: { status: string }) {
   const isLive = status === "live";
-  const isBuilding = status === "building" || status === "deploying";
-
   return (
-    <div
-      className={`flex items-center gap-1.5 px-2 py-1 border text-[8px] font-mono uppercase tracking-widest ${
-        isLive
-          ? "border-[#10b981]/30 bg-[#10b981]/5 text-[#10b981]"
-          : isBuilding
-            ? "border-[#f59e0b]/30 bg-[#f59e0b]/5 text-[#f59e0b]"
-            : "border-[#1f1f1f] bg-transparent text-[#444]"
-      }`}
-    >
-      <span
-        className={`w-1 h-1 rounded-full ${
-          isLive
-            ? "bg-[#10b981]"
-            : isBuilding
-              ? "bg-[#f59e0b] animate-pulse"
-              : "bg-[#333]"
-        }`}
+    <div className="flex items-center gap-2 px-3 py-1 border border-[var(--border)] text-[9px] font-mono uppercase tracking-widest text-[var(--text-muted)]">
+      <div
+        className={`w-1.5 h-1.5 rounded-full ${isLive ? "bg-[var(--success)]" : "bg-[#333]"} transition-colors`}
       />
       {status}
     </div>
   );
 }
 
-// --- EMPTY STATE ---
 function EmptyState() {
   return (
-    <div className="border border-[#1f1f1f] border-dashed bg-[#050505]/50 flex flex-col items-center justify-center py-32 px-8 text-center gap-6">
-      <div className="w-12 h-12 border border-[#1f1f1f] flex items-center justify-center">
-        <span className="text-[#333] text-2xl font-light">+</span>
-      </div>
-      <div className="space-y-2">
-        <p className="text-white font-medium">No projects yet</p>
-        <p className="text-[#555] text-sm font-light max-w-xs">
-          Connect a GitHub repository to deploy your first service.
-        </p>
-      </div>
+    <div className="border border-[var(--border)] border-dashed bg-[var(--surface)] flex flex-col items-center justify-center py-32 px-8 text-center gap-6">
+      <p className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-[0.4em]">
+        Zero_Projects_Allocated
+      </p>
       <Link
         href="/new"
-        className="font-mono text-xs text-black bg-white px-6 py-3 uppercase tracking-widest font-bold hover:bg-[#e5e5e5] transition-colors"
+        className="font-mono text-xs text-black bg-white px-8 py-3 uppercase tracking-widest font-bold hover:bg-[#e5e5e5] transition-colors"
       >
         Create First Project
       </Link>
@@ -275,26 +200,14 @@ function EmptyState() {
   );
 }
 
-// --- LOADING STATE ---
 function LoadingState() {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
       {[...Array(3)].map((_, i) => (
         <div
           key={i}
-          className="border border-[#1f1f1f] bg-[#050505] p-6 flex flex-col gap-5 h-[140px]"
-          style={{ opacity: 1 - i * 0.2 }}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-4 h-4 bg-[#111] animate-pulse" />
-            <div className="space-y-1.5">
-              <div className="w-16 h-2 bg-[#111] animate-pulse" />
-              <div className="w-32 h-3 bg-[#111] animate-pulse" />
-            </div>
-          </div>
-          <div className="h-px bg-[#111]" />
-          <div className="w-24 h-2 bg-[#111] animate-pulse" />
-        </div>
+          className="border border-[var(--border)] bg-[var(--surface)] p-8 h-[200px] animate-pulse"
+        />
       ))}
     </div>
   );

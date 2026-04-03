@@ -1,11 +1,18 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #000000;
-  --surface: #0a0a0a;
-  --surface-hover: #111111;
+  /* Shifted from #000000 to a deep, technical matte grey */
+  --bg: #0a0a0a;
+
+  /* Elevated surfaces now have a slight lift */
+  --surface: #111111;
+  --surface-hover: #161616;
+
+  /* Borders stay subtle but visible against the new bg */
   --border: #1f1f1f;
   --border-focus: #444444;
+
+  /* Typography remains high-contrast */
   --text-main: #ffffff;
   --text-muted: #888888;
   --success: #10b981;
@@ -113,8 +120,13 @@ body {
 
 /* Subtle floating animation for tech icons */
 @keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
 }
 .animate-float {
   animation: float 6s ease-in-out infinite;
