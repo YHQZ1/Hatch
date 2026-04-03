@@ -57,7 +57,10 @@ export default function AuthPage() {
 
           <div className="flex flex-col gap-8">
             <div className="grid grid-cols-2 gap-px bg-[#1f1f1f] border border-[#1f1f1f]">
-              <button className="flex items-center justify-center gap-3 py-4 bg-black hover:bg-white hover:text-black transition-all group">
+              <a
+                href={`${process.env.NEXT_PUBLIC_API_URL}/auth/github`}
+                className="flex items-center justify-center gap-3 py-4 bg-black hover:bg-white hover:text-black transition-all group"
+              >
                 <img
                   src="https://cdn.simpleicons.org/github/FFFFFF"
                   alt="GitHub"
@@ -66,14 +69,18 @@ export default function AuthPage() {
                 <span className="font-mono text-[9px] uppercase tracking-widest font-bold">
                   GitHub
                 </span>
-              </button>
-              <button className="flex items-center justify-center gap-3 py-4 bg-black hover:bg-white hover:text-black transition-all group">
+              </a>
+              <button
+                disabled
+                title="Coming soon"
+                className="flex items-center justify-center gap-3 py-4 bg-black opacity-40 cursor-not-allowed"
+              >
                 <img
                   src="https://cdn.simpleicons.org/gitlab/FC6D26"
                   alt="GitLab"
-                  className="w-4 h-4 group-hover:grayscale transition-all"
+                  className="w-4 h-4"
                 />
-                <span className="font-mono text-[9px] uppercase tracking-widest font-bold text-[#888] group-hover:text-black">
+                <span className="font-mono text-[9px] uppercase tracking-widest font-bold text-[#888]">
                   GitLab
                 </span>
               </button>
@@ -87,20 +94,25 @@ export default function AuthPage() {
                 <div className="h-px w-full bg-[#111]"></div>
               </div>
               <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-                <div className="space-y-px bg-[#1f1f1f] border border-[#1f1f1f]">
+                <div className="space-y-px bg-[#1f1f1f] border border-[#1f1f1f] opacity-40">
                   <input
                     type="email"
                     placeholder="Email Address"
-                    className="w-full h-12 bg-black px-4 text-sm focus:bg-[#0a0a0a] outline-none transition-colors placeholder-[#444] border-b border-[#1f1f1f]"
+                    disabled
+                    className="w-full h-12 bg-black px-4 text-sm outline-none placeholder-[#444] border-b border-[#1f1f1f] cursor-not-allowed"
                   />
                   <input
                     type="password"
                     placeholder="Password"
-                    className="w-full h-12 bg-black px-4 text-sm focus:bg-[#0a0a0a] outline-none transition-colors placeholder-[#444]"
+                    disabled
+                    className="w-full h-12 bg-black px-4 text-sm outline-none placeholder-[#444] cursor-not-allowed"
                   />
                 </div>
-                <button className="w-full h-14 bg-white text-black font-bold text-xs uppercase tracking-[0.2em] hover:bg-[#e5e5e5] transition-colors">
-                  Continue
+                <button
+                  disabled
+                  className="w-full h-14 bg-white text-black font-bold text-xs uppercase tracking-[0.2em] opacity-40 cursor-not-allowed"
+                >
+                  Coming Soon
                 </button>
               </form>
             </div>

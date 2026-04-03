@@ -50,14 +50,6 @@ function HeroSection() {
             >
               Initialize Stack
             </a>
-            <a
-              href="https://github.com/YHQZ1/Hatch"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="border border-[#333] bg-[#050505] text-white px-8 py-4 font-bold hover:border-white transition-colors uppercase tracking-wider"
-            >
-              View Repository
-            </a>
           </div>
         </div>
 
@@ -593,7 +585,7 @@ function FlowArrow({
       </div>
     );
   }
-  
+
   return (
     <div className="relative w-full h-full flex items-center justify-center self-stretch z-0">
       {label && (
@@ -758,8 +750,7 @@ function Header() {
     <header className="sticky top-0 z-50 bg-[#000000]/90 backdrop-blur-md border-b border-[#1f1f1f] px-6 py-4 flex items-center justify-between">
       <div className="flex items-center gap-8">
         <Link href="/" className="flex items-center gap-3 group cursor-pointer">
-          <div className="w-4 h-4 bg-white flex items-center justify-center transition-transform group-hover:scale-90">
-          </div>
+          <div className="w-4 h-4 bg-white flex items-center justify-center transition-transform group-hover:scale-90"></div>
           <span className="font-bold tracking-tight text-xl">Hatch</span>
         </Link>
         <nav className="hidden lg:flex items-center gap-6 font-mono text-xs uppercase tracking-wider text-[#888]">
