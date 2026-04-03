@@ -170,7 +170,7 @@ function TechRow({
             <img
               src={`https://cdn.simpleicons.org/${tech.slug}/${tech.color}`}
               alt={tech.name}
-              className="w-14 h-14 md:w-16 md:h-16 opacity-50 grayscale group-hover:grayscale-0 group-hover:opacity-100 group-hover:scale-110 transition-all duration-500 drop-shadow-md"
+              className="w-14 h-14 md:w-16 md:h-16 opacity-90 grayscale-20 group-hover:opacity-100 group-hover:scale-110 transition-all duration-500 drop-shadow-md"
             />
           </div>
           <span className="font-mono text-[10px] text-[#555] group-hover:text-white transition-colors duration-300 uppercase tracking-widest">
@@ -746,58 +746,80 @@ function TerminalSimulator() {
 }
 
 function Header() {
-  return (
-    <header className="sticky top-0 z-50 bg-[#000000]/90 backdrop-blur-md border-b border-[#1f1f1f] px-6 py-4 flex items-center justify-between">
-      <div className="flex items-center gap-8">
-        <Link href="/" className="flex items-center gap-3 group cursor-pointer">
-          <div className="w-4 h-4 bg-white flex items-center justify-center transition-transform group-hover:scale-90"></div>
-          <span className="font-bold tracking-tight text-xl">Hatch</span>
-        </Link>
-        <nav className="hidden lg:flex items-center gap-6 font-mono text-xs uppercase tracking-wider text-[#888]">
-          <Link
-            href="#how-it-works"
-            className="hover:text-white transition-colors"
-          >
-            How it works
-          </Link>
-          <Link
-            href="#primitives"
-            className="hover:text-white transition-colors"
-          >
-            Primitives
-          </Link>
-          <Link
-            href="#architecture"
-            className="hover:text-white transition-colors"
-          >
-            Architecture
-          </Link>
-        </nav>
-      </div>
+  const scrollToSection = (id: string) => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth" });
+      window.history.pushState({}, "", window.location.pathname);
+    }
+  };
 
-      {/* STRICTLY SIZED HEADER BUTTONS */}
-      <div className="flex items-center gap-4">
-        <Link
-          href="https://github.com/YHQZ1/Hatch"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hidden md:flex w-36 h-10 items-center justify-center gap-2.5 border border-[#333] bg-[#050505] hover:border-white transition-all duration-300 group"
-        >
-          <img
-            src="https://cdn.simpleicons.org/github/FFFFFF"
-            alt="GitHub"
-            className="w-4 h-4 opacity-70 group-hover:opacity-100 transition-opacity"
-          />
-          <span className="text-sm font-bold text-[#888] group-hover:text-white transition-colors">
-            GitHub
-          </span>
-        </Link>
-        <Link
-          href="/auth"
-          className="w-36 h-10 flex items-center justify-center bg-white text-black border border-white text-sm font-bold transition-colors duration-300"
-        >
-          Deploy Now
-        </Link>
+  return (
+    <header className="sticky top-0 z-50 w-full border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl py-4">
+      <div className="w-full px-8 lg:px-12 flex items-center justify-between">
+        <div className="flex items-center gap-14">
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-4 group cursor-pointer"
+          >
+            <div className="w-7 h-7 bg-white flex items-center justify-center transition-transform group-hover:scale-90">
+              <div className="w-3 h-3 bg-black" />
+            </div>
+            <span className="font-bold tracking-tighter text-2xl uppercase text-white">
+              Hatch
+            </span>
+          </Link>
+
+          <nav className="hidden lg:flex items-center gap-10 font-mono text-[13px] uppercase tracking-[0.2em]">
+            {/* We use buttons instead of Links to prevent the # jump */}
+            <button
+              onClick={() => scrollToSection("how-it-works")}
+              className="text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer uppercase outline-none"
+            >
+              Process
+            </button>
+            <button
+              onClick={() => scrollToSection("primitives")}
+              className="text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer uppercase outline-none"
+            >
+              Primitives
+            </button>
+            <button
+              onClick={() => scrollToSection("architecture")}
+              className="text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer uppercase outline-none"
+            >
+              Architecture
+            </button>
+          </nav>
+        </div>
+
+        {/* RIGHT: Actions */}
+        <div className="flex items-center gap-5">
+          {/* GitHub Button - Sharper & Matte */}
+          <Link
+            href="https://github.com/YHQZ1/Hatch"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden md:flex h-11 px-6 items-center justify-center gap-3 border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-focus)] transition-all duration-300 group cursor-pointer"
+          >
+            <img
+              src="https://cdn.simpleicons.org/github/FFFFFF"
+              alt="GitHub"
+              className="w-4 h-4 opacity-40 group-hover:opacity-100 transition-opacity"
+            />
+            <span className="text-[13px] font-bold text-[var(--text-muted)] group-hover:text-white transition-colors">
+              GitHub
+            </span>
+          </Link>
+
+          {/* Deploy Now - Unified with Dashboard "New Project" button */}
+          <Link
+            href="/auth"
+            className="h-11 px-8 flex items-center justify-center bg-white text-black text-[13px] font-bold uppercase tracking-widest hover:bg-[#e5e5e5] transition-all duration-300 cursor-pointer shadow-[0_0_20px_rgba(255,255,255,0.1)]"
+          >
+            Deploy Now
+          </Link>
+        </div>
       </div>
     </header>
   );
@@ -932,7 +954,8 @@ function Footer() {
           © {new Date().getFullYear()} Hatch · MIT License
         </span>
         <span className="font-mono text-[10px] uppercase tracking-widest text-[#555]">
-          Built on AWS ECS · ECR · RDS · ElastiCache · Route53 · ACM
+          Built on AWS ECS · ECR · RDS · ElastiCache · Route53 · ACM · RabbitMQ
+          · Terraform · Go
         </span>
       </div>
     </footer>
