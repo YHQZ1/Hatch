@@ -1,11 +1,6 @@
-<div align="center">
-
 # Hatch
 
-A self-hosted deployment platform built on AWS.  
-Dockerfile in. Live HTTPS URL out.
-
-<br />
+> A self-hosted deployment platform built on AWS. Dockerfile in. Live HTTPS URL out.
 
 ![Go](https://img.shields.io/badge/Go-1.23-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-15-000000?style=flat-square&logo=next.js&logoColor=white)
@@ -14,10 +9,6 @@ Dockerfile in. Live HTTPS URL out.
 ![RabbitMQ](https://img.shields.io/badge/RabbitMQ-Queue-FF6600?style=flat-square&logo=rabbitmq&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)
-
-<br />
-
-</div>
 
 ---
 
