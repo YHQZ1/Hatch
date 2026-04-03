@@ -4,11 +4,16 @@ go 1.25.0
 
 require (
 	github.com/YHQZ1/hatch/packages/config v0.0.0
+	github.com/YHQZ1/hatch/packages/db v0.0.0-00010101000000-000000000000
 	github.com/gin-gonic/gin v1.12.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/google/uuid v1.6.0
+	github.com/lib/pq v1.12.3
 )
 
 replace github.com/YHQZ1/hatch/packages/config => ../../packages/config
+
+replace github.com/YHQZ1/hatch/packages/db => ../../packages/db
 
 require (
 	github.com/bytedance/gopkg v0.1.3 // indirect

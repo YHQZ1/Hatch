@@ -2,13 +2,16 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
+	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 type GitHubUser struct {
@@ -22,14 +25,16 @@ type Handler struct {
 	clientSecret string
 	redirectURI  string
 	jwtSecret    string
+	queries      *dbpkg.Queries
 }
 
-func NewHandler(clientID, clientSecret, redirectURI, jwtSecret string) *Handler {
+func NewHandler(clientID, clientSecret, redirectURI, jwtSecret string, db *sql.DB) *Handler {
 	return &Handler{
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		redirectURI:  redirectURI,
 		jwtSecret:    jwtSecret,
+		queries:      dbpkg.New(db),
 	}
 }
 
@@ -65,8 +70,19 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	// sign a JWT
-	jwtToken, err := h.signJWT(ghUser.ID, ghUser.Login, token)
+	// upsert user into postgres
+	dbUser, err := h.queries.CreateUser(c.Request.Context(), dbpkg.CreateUserParams{
+		GithubID:       ghUser.ID,
+		GithubUsername: ghUser.Login,
+		AccessToken:    token,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save user"})
+		return
+	}
+
+	// sign JWT with user's UUID
+	jwtToken, err := h.signJWT(dbUser.ID, ghUser.ID, ghUser.Login, token)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sign token"})
 		return
@@ -124,8 +140,9 @@ func (h *Handler) fetchGitHubUser(token string) (*GitHubUser, error) {
 	return &user, nil
 }
 
-func (h *Handler) signJWT(githubID int64, username, accessToken string) (string, error) {
+func (h *Handler) signJWT(userID uuid.UUID, githubID int64, username, accessToken string) (string, error) {
 	claims := jwt.MapClaims{
+		"user_id":      userID.String(),
 		"github_id":    githubID,
 		"username":     username,
 		"access_token": accessToken,

@@ -36,9 +36,9 @@ func Middleware(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
+		c.Set("user_id", claims["user_id"])
 		c.Set("github_id", claims["github_id"])
 		c.Set("username", claims["username"])
 		c.Set("access_token", claims["access_token"])
-		c.Next()
 	}
 }

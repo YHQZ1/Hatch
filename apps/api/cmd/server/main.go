@@ -4,12 +4,17 @@ import (
 	"log"
 
 	"github.com/YHQZ1/hatch/apps/api/internal/auth"
+	dbconn "github.com/YHQZ1/hatch/apps/api/internal/db"
+	"github.com/YHQZ1/hatch/apps/api/internal/handlers"
 	"github.com/YHQZ1/hatch/packages/config"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	cfg := config.Load()
+
+	db := dbconn.Connect(cfg.DatabaseURL)
+	defer db.Close()
 
 	r := gin.Default()
 
@@ -18,7 +23,10 @@ func main() {
 		cfg.GitHubClientSecret,
 		cfg.GitHubRedirectURI,
 		cfg.JWTSecret,
+		db,
 	)
+
+	projectHandler := handlers.NewProjectHandler(db)
 
 	// public routes
 	r.GET("/health", func(c *gin.Context) {
@@ -33,10 +41,13 @@ func main() {
 	{
 		protected.GET("/me", func(c *gin.Context) {
 			c.JSON(200, gin.H{
-				"github_id": c.GetFloat64("github_id"),
-				"username":  c.MustGet("username"),
+				"user_id":  c.MustGet("user_id"),
+				"username": c.MustGet("username"),
 			})
 		})
+		protected.GET("/projects", projectHandler.ListProjects)
+		protected.POST("/projects", projectHandler.CreateProject)
+		protected.GET("/projects/:id", projectHandler.GetProject)
 	}
 
 	log.Printf("api server starting on :%s", cfg.Port)
