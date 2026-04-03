@@ -27,6 +27,7 @@ func main() {
 	)
 
 	projectHandler := handlers.NewProjectHandler(db)
+	githubHandler := handlers.NewGitHubHandler()
 
 	// public routes
 	r.GET("/health", func(c *gin.Context) {
@@ -48,6 +49,7 @@ func main() {
 		protected.GET("/projects", projectHandler.ListProjects)
 		protected.POST("/projects", projectHandler.CreateProject)
 		protected.GET("/projects/:id", projectHandler.GetProject)
+		protected.GET("/github/repos", githubHandler.ListRepos)
 	}
 
 	log.Printf("api server starting on :%s", cfg.Port)
