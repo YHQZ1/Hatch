@@ -1,3 +1,7 @@
 go 1.25.5
 
-use ./packages/events
+use (
+	./apps/api
+	./packages/db
+	./packages/events
+)
