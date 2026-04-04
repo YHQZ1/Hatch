@@ -1,0 +1,144 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: hatch-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hatch
+      POSTGRES_PASSWORD: hatch
+      POSTGRES_DB: hatch
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - hatch
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hatch"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: hatch-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - hatch
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: hatch-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - hatch
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: hatch-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./apps/api/.env
+    environment:
+      DATABASE_URL: postgres://hatch:hatch@postgres:5432/hatch?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - hatch
+
+  builder:
+    build:
+      context: ./apps/builder
+      dockerfile: Dockerfile
+    container_name: hatch-builder
+    restart: unless-stopped
+    env_file:
+      - ./apps/builder/.env
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - hatch
+
+  deployer:
+    build:
+      context: ./apps/deployer
+      dockerfile: Dockerfile
+    container_name: hatch-deployer
+    restart: unless-stopped
+    env_file:
+      - ./apps/deployer/.env
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      DATABASE_URL: postgres://hatch:hatch@postgres:5432/hatch?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - hatch
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: hatch-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    depends_on:
+      - api
+    networks:
+      - hatch
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+
+networks:
+  hatch:
+    driver: bridge
