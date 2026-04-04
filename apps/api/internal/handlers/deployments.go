@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"database/sql"
+	"log"
 	"net/http"
 
+	"github.com/YHQZ1/hatch/apps/api/internal/queue"
 	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -58,12 +60,14 @@ func toDeploymentResponse(d dbpkg.Deployment) DeploymentResponse {
 }
 
 type DeploymentHandler struct {
-	queries *dbpkg.Queries
+	queries   *dbpkg.Queries
+	publisher *queue.Publisher
 }
 
-func NewDeploymentHandler(db *sql.DB) *DeploymentHandler {
+func NewDeploymentHandler(db *sql.DB, publisher *queue.Publisher) *DeploymentHandler {
 	return &DeploymentHandler{
-		queries: dbpkg.New(db),
+		queries:   dbpkg.New(db),
+		publisher: publisher,
 	}
 }
 
@@ -110,7 +114,35 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, toDeploymentResponse(deployment))
+	response := toDeploymentResponse(deployment)
+	c.JSON(http.StatusCreated, response)
+
+	// fetch project to get repo URL
+	project, err := h.queries.GetProjectByID(c.Request.Context(), projectID)
+	if err != nil {
+		log.Printf("failed to fetch project for build job: %v", err)
+		return
+	}
+
+	// get access token from JWT
+	accessToken, _ := c.Get("access_token")
+	tokenStr, _ := accessToken.(string)
+
+	// publish build job to RabbitMQ
+	job := queue.BuildJobEvent{
+		DeploymentID: deployment.ID.String(),
+		RepoURL:      project.RepoUrl,
+		Branch:       body.Branch,
+		UserToken:    tokenStr,
+		Port:         int(body.Port),
+	}
+
+	if err := h.publisher.PublishBuildJob(c.Request.Context(), job); err != nil {
+		log.Printf("failed to publish build job: %v", err)
+	}
+
+	log.Printf("build job queued for deployment %s", deployment.ID)
+
 }
 
 // GET /api/deployments/:id

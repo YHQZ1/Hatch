@@ -50,7 +50,6 @@ const MEMORY_OPTIONS: Record<string, { label: string; value: string }[]> = {
   ],
 };
 
-// Languages that almost always have a Dockerfile
 const DOCKER_LIKELY = [
   "Go",
   "Rust",
@@ -103,7 +102,6 @@ export default function NewProject() {
       .catch(() => setReposLoading(false));
   }, []);
 
-  // when cpu changes, reset memory to first valid option
   useEffect(() => {
     const opts = MEMORY_OPTIONS[cpu];
     if (opts) setMemory(opts[0].value);
@@ -116,12 +114,8 @@ export default function NewProject() {
   const handleSelectRepo = (repo: Repo) => {
     setSelectedRepo(repo);
     setBranch(repo.default_branch || "main");
-    // infer port from language
     if (repo.language === "Go") setPort("8080");
     else if (repo.language === "Python") setPort("8000");
-    else if (repo.language === "Ruby") setPort("3000");
-    else if (repo.language === "Java" || repo.language === "Kotlin")
-      setPort("8080");
     else setPort("3000");
     setStep(2);
   };
@@ -161,6 +155,7 @@ export default function NewProject() {
     CPU_OPTIONS.find((o) => o.value === cpu)?.label ?? cpu;
   const selectedMemoryLabel =
     MEMORY_OPTIONS[cpu]?.find((o) => o.value === memory)?.label ?? memory;
+
   const updatedAt = selectedRepo
     ? new Date(selectedRepo.updated_at).toLocaleDateString("en-US", {
         month: "short",
@@ -177,28 +172,27 @@ export default function NewProject() {
 
       <main className="relative z-10 flex-grow flex flex-col lg:flex-row h-[calc(100vh-64px)] overflow-hidden">
         {/* ── LEFT PANEL ── */}
-        <section className="w-full lg:w-[460px] border-r border-[var(--border)] bg-[var(--bg)] flex flex-col overflow-hidden z-20">
-          {/* Panel header */}
-          <div className="px-8 py-5 border-b border-[var(--border)] flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3">
+        <section className="w-full lg:w-[480px] border-r border-[var(--border)] bg-[var(--bg)] flex flex-col overflow-hidden z-20">
+          <div className="px-8 py-6 border-b border-[var(--border)] flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-4">
               <StepDot active={step === 1} done={step === 2} n={1} />
               <StepDot active={step === 2} done={false} n={2} />
             </div>
-            <span className="font-mono text-[9px] text-[var(--text-muted)] uppercase tracking-[0.25em]">
-              {step === 1 ? "Select_Source" : "Configure_Runtime"}
+            <span className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-[0.2em] font-medium">
+              {step === 1 ? "01 / Source" : "02 / Configure"}
             </span>
           </div>
 
           <div className="flex-grow overflow-y-auto no-scrollbar">
-            {/* ── STEP 1: REPO SELECT ── */}
             {step === 1 && (
-              <div className="p-8 space-y-6">
+              <div className="p-10 space-y-8">
                 <div>
-                  <h1 className="text-3xl font-medium tracking-tighter">
+                  <h1 className="text-4xl font-medium tracking-tighter text-white">
                     Source
                   </h1>
-                  <p className="text-[11px] text-[var(--text-muted)] mt-1 font-light">
-                    Select the repository to deploy.
+                  <p className="text-[13px] text-[var(--text-muted)] mt-2 font-light leading-relaxed">
+                    Select a GitHub repository to initialize your deployment
+                    pipeline.
                   </p>
                 </div>
 
@@ -207,22 +201,21 @@ export default function NewProject() {
                   placeholder="Filter repositories..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-[var(--surface)] border border-[var(--border)] px-4 h-11 text-sm font-mono outline-none focus:border-[var(--border-focus)] transition-all placeholder-[#333]"
+                  className="w-full bg-[var(--surface)] border border-[var(--border)] px-4 h-12 text-sm font-mono outline-none focus:border-white transition-all placeholder-[#444] text-white"
                 />
 
-                <div className="border border-[var(--border)] overflow-hidden">
+                <div className="border border-[var(--border)]">
                   {reposLoading ? (
                     [...Array(7)].map((_, i) => (
                       <div
                         key={i}
-                        className="h-14 bg-[var(--bg)] border-b border-[var(--border)] animate-pulse"
-                        style={{ opacity: 1 - i * 0.12 }}
+                        className="h-16 bg-[var(--bg)] border-b border-[var(--border)] animate-pulse"
                       />
                     ))
                   ) : filteredRepos.length === 0 ? (
-                    <div className="h-24 flex items-center justify-center">
-                      <span className="font-mono text-[9px] text-[#333] uppercase tracking-widest">
-                        No repositories found
+                    <div className="h-32 flex items-center justify-center">
+                      <span className="font-mono text-[10px] text-[#555] uppercase tracking-widest">
+                        No matching repositories
                       </span>
                     </div>
                   ) : (
@@ -230,25 +223,25 @@ export default function NewProject() {
                       <button
                         key={repo.id}
                         onClick={() => handleSelectRepo(repo)}
-                        className="w-full flex items-center justify-between px-5 py-3.5 bg-[var(--bg)] hover:bg-[var(--surface)] border-b border-[var(--border)] last:border-0 transition-all text-left group"
+                        className="w-full flex items-center justify-between px-6 py-4 bg-[var(--bg)] hover:bg-[var(--surface)] border-b border-[var(--border)] last:border-0 transition-all text-left group cursor-pointer"
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-4">
                           <img
                             src="https://cdn.simpleicons.org/github/FFFFFF"
-                            className="w-3.5 h-3.5 opacity-20 group-hover:opacity-70 transition-opacity"
+                            className="w-4 h-4 opacity-30 group-hover:opacity-100 transition-opacity"
                             alt=""
                           />
                           <div>
-                            <p className="text-sm font-medium text-[#ccc] group-hover:text-white transition-colors">
+                            <p className="text-[14px] font-medium text-[#eee] group-hover:text-white transition-colors">
                               {repo.name}
                             </p>
-                            <p className="font-mono text-[8px] text-[#333] uppercase tracking-widest mt-0.5">
-                              {repo.language || "—"}
-                              {repo.private ? " · Private" : ""}
+                            <p className="font-mono text-[9px] text-[#666] uppercase tracking-wider mt-1 font-bold group-hover:text-[#999]">
+                              {repo.language || "Unknown"}{" "}
+                              {repo.private ? "· Private" : "· Public"}
                             </p>
                           </div>
                         </div>
-                        <span className="font-mono text-[10px] text-[#444] group-hover:text-white transition-colors">
+                        <span className="font-mono text-xs text-[#444] group-hover:text-white transition-colors pr-2">
                           →
                         </span>
                       </button>
@@ -258,92 +251,88 @@ export default function NewProject() {
               </div>
             )}
 
-            {/* ── STEP 2: CONFIGURE ── */}
             {step === 2 && selectedRepo && (
-              <div className="p-8 space-y-8">
+              <div className="p-10 space-y-10">
                 <div>
-                  <h1 className="text-3xl font-medium tracking-tighter">
+                  <h1 className="text-4xl font-medium tracking-tighter text-white">
                     Configure
                   </h1>
-                  <p className="text-[11px] text-[var(--text-muted)] mt-1 font-light">
-                    Set runtime parameters for{" "}
-                    <span className="text-white font-mono">
+                  <p className="text-[13px] text-[var(--text-muted)] mt-2 font-light leading-relaxed">
+                    Runtime parameters for{" "}
+                    <span className="text-white font-mono bg-white/5 px-1.5 py-0.5 rounded-sm">
                       {selectedRepo.name}
                     </span>
                   </p>
                 </div>
 
-                {/* Dockerfile warning */}
                 {!dockerLikely && (
-                  <div className="border border-yellow-900/50 bg-yellow-900/10 px-4 py-3 flex items-start gap-3">
-                    <span className="text-yellow-500 text-xs mt-0.5">⚠</span>
-                    <p className="font-mono text-[9px] text-yellow-500/80 leading-relaxed uppercase tracking-wider">
-                      Ensure a Dockerfile exists at the root of this repository.
-                      Hatch requires it to build your image.
+                  <div className="border border-white/10 bg-white/[0.02] px-5 py-4 flex items-start gap-4">
+                    <span className="text-white text-xs mt-0.5">!</span>
+                    <p className="font-mono text-[10px] text-[var(--text-muted)] leading-relaxed uppercase tracking-wider">
+                      Dockerfile not detected. Ensure one exists at the root or
+                      deployment will fail.
                     </p>
                   </div>
                 )}
 
-                <div className="space-y-6">
-                  <Field label="Branch" sub="Source branch to deploy from">
+                <div className="space-y-8">
+                  <Field
+                    label="Target Branch"
+                    sub="The branch pushed to AWS ECR"
+                  >
                     <input
                       value={branch}
                       onChange={(e) => setBranch(e.target.value)}
-                      className="w-full bg-transparent border-b border-[var(--border)] py-2 text-sm font-mono outline-none focus:border-white transition-colors"
+                      className="w-full bg-transparent border-b border-[var(--border)] py-3 text-sm font-mono outline-none focus:border-white transition-colors text-white"
                     />
                   </Field>
 
-                  <Field
-                    label="Exposed Port"
-                    sub="Port your container listens on"
-                  >
-                    <input
-                      value={port}
-                      onChange={(e) => setPort(e.target.value)}
-                      className="w-full bg-transparent border-b border-[var(--border)] py-2 text-sm font-mono outline-none focus:border-white transition-colors"
-                    />
-                  </Field>
+                  <div className="grid grid-cols-2 gap-8">
+                    <Field label="Port" sub="Container mapping">
+                      <input
+                        value={port}
+                        onChange={(e) => setPort(e.target.value)}
+                        className="w-full bg-transparent border-b border-[var(--border)] py-3 text-sm font-mono outline-none focus:border-white transition-colors text-white"
+                      />
+                    </Field>
+                    <Field label="Health" sub="ALB endpoint">
+                      <input
+                        value={healthCheck}
+                        onChange={(e) => setHealthCheck(e.target.value)}
+                        className="w-full bg-transparent border-b border-[var(--border)] py-3 text-sm font-mono outline-none focus:border-white transition-colors text-white"
+                      />
+                    </Field>
+                  </div>
 
-                  <Field
-                    label="Health Check Path"
-                    sub="Used by ALB to verify container health"
-                  >
-                    <input
-                      value={healthCheck}
-                      onChange={(e) => setHealthCheck(e.target.value)}
-                      className="w-full bg-transparent border-b border-[var(--border)] py-2 text-sm font-mono outline-none focus:border-white transition-colors"
-                    />
-                  </Field>
-
-                  <div className="grid grid-cols-2 gap-6">
-                    <Field label="CPU" sub="Fargate CPU units">
+                  <div className="grid grid-cols-2 gap-8">
+                    <Field label="Compute" sub="vCPU Allocation">
                       <select
                         value={cpu}
                         onChange={(e) => setCpu(e.target.value)}
-                        className="w-full bg-transparent border-b border-[var(--border)] py-2 text-sm font-mono outline-none focus:border-white transition-colors cursor-pointer appearance-none"
+                        className="w-full bg-transparent border-b border-[var(--border)] py-3 text-sm font-mono outline-none focus:border-white transition-colors cursor-pointer appearance-none text-white"
                       >
                         {CPU_OPTIONS.map((o) => (
                           <option
                             key={o.value}
                             value={o.value}
-                            className="bg-black"
+                            className="bg-[#0a0a0a]"
                           >
                             {o.label}
                           </option>
                         ))}
                       </select>
                     </Field>
-                    <Field label="Memory" sub="Container RAM">
+                    <Field label="Memory" sub="RAM Allocation">
                       <select
                         value={memory}
                         onChange={(e) => setMemory(e.target.value)}
-                        className="w-full bg-transparent border-b border-[var(--border)] py-2 text-sm font-mono outline-none focus:border-white transition-colors cursor-pointer appearance-none"
+                        className="w-full bg-transparent border-b border-[var(--border)] py-3 text-sm font-mono outline-none focus:border-white transition-colors cursor-pointer appearance-none text-white"
                       >
                         {(MEMORY_OPTIONS[cpu] ?? []).map((o) => (
                           <option
                             key={o.value}
                             value={o.value}
-                            className="bg-black"
+                            className="bg-[#0a0a0a]"
                           >
                             {o.label}
                           </option>
@@ -352,16 +341,12 @@ export default function NewProject() {
                     </Field>
                   </div>
 
-                  {/* Env vars */}
-                  <Field
-                    label="Environment Variables"
-                    sub="Encrypted at rest via AWS Secrets Manager"
-                  >
-                    <div className="space-y-px mt-2">
+                  <Field label="Secrets" sub="AWS Secrets Manager Integration">
+                    <div className="space-y-2 mt-4">
                       {envVars.map((e, i) => (
                         <div
                           key={i}
-                          className="grid grid-cols-[1fr_1fr_auto] gap-px bg-[var(--border)]"
+                          className="flex gap-px bg-[var(--border)] border border-[var(--border)]"
                         >
                           <input
                             type="text"
@@ -370,20 +355,20 @@ export default function NewProject() {
                             onChange={(ev) =>
                               updateEnvVar(i, "key", ev.target.value)
                             }
-                            className="h-9 bg-[var(--bg)] px-3 font-mono text-xs text-white placeholder-[#333] outline-none focus:bg-[var(--surface)]"
+                            className="flex-1 h-10 bg-[var(--bg)] px-4 font-mono text-[11px] text-white outline-none focus:bg-[var(--surface)]"
                           />
                           <input
                             type="text"
-                            placeholder="value"
+                            placeholder="VALUE"
                             value={e.value}
                             onChange={(ev) =>
                               updateEnvVar(i, "value", ev.target.value)
                             }
-                            className="h-9 bg-[var(--bg)] px-3 font-mono text-xs text-white placeholder-[#333] outline-none focus:bg-[var(--surface)]"
+                            className="flex-1 h-10 bg-[var(--bg)] px-4 font-mono text-[11px] text-white outline-none focus:bg-[var(--surface)]"
                           />
                           <button
                             onClick={() => removeEnvVar(i)}
-                            className="h-9 w-9 bg-[var(--bg)] hover:bg-red-950 flex items-center justify-center text-[#444] hover:text-red-400 transition-colors font-mono text-xs"
+                            className="h-10 w-10 bg-[var(--bg)] hover:bg-white hover:text-black flex items-center justify-center transition-colors font-mono text-xs cursor-pointer"
                           >
                             ×
                           </button>
@@ -391,27 +376,27 @@ export default function NewProject() {
                       ))}
                       <button
                         onClick={addEnvVar}
-                        className="w-full h-9 border border-dashed border-[var(--border)] hover:border-[var(--border-focus)] font-mono text-[9px] text-[#444] hover:text-white transition-colors uppercase tracking-widest"
+                        className="w-full h-11 border border-dashed border-[var(--border)] hover:border-white font-mono text-[10px] text-[#666] hover:text-white transition-all uppercase tracking-widest cursor-pointer"
                       >
-                        + Add Variable
+                        + Add Environment Variable
                       </button>
                     </div>
                   </Field>
                 </div>
 
-                <div className="pt-6 border-t border-[var(--border)] space-y-3">
+                <div className="pt-8 border-t border-[var(--border)] space-y-4">
                   <button
                     onClick={handleDeploy}
                     disabled={deploying}
-                    className="w-full bg-white text-black h-13 py-4 font-bold font-mono text-[11px] uppercase tracking-[0.2em] hover:bg-[#e5e5e5] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full bg-white text-black h-14 font-bold font-mono text-[12px] uppercase tracking-[0.2em] hover:invert transition-all disabled:opacity-20 cursor-pointer"
                   >
-                    {deploying ? "Initializing Stack..." : "Begin Deployment →"}
+                    {deploying ? "Provisioning..." : "Launch Infrastructure →"}
                   </button>
                   <button
                     onClick={() => setStep(1)}
-                    className="w-full text-center font-mono text-[9px] text-[#444] hover:text-white uppercase tracking-widest transition-colors py-1"
+                    className="w-full text-center font-mono text-[10px] text-[#555] hover:text-white uppercase tracking-widest transition-colors cursor-pointer"
                   >
-                    [ Change Repository ]
+                    [ Back to Source ]
                   </button>
                 </div>
               </div>
@@ -419,165 +404,110 @@ export default function NewProject() {
           </div>
         </section>
 
-        {/* ── RIGHT PANEL ── */}
-        <section className="flex-grow bg-[#050505] relative flex flex-col items-center justify-center p-8 lg:p-16 overflow-hidden">
-          <div className="absolute inset-0 bg-grid-pattern opacity-[0.025]" />
+        {/* ── RIGHT PANEL (PREVIEW) ── */}
+        <section className="flex-grow bg-[#050505] relative flex flex-col items-center justify-center p-12 lg:p-24 overflow-hidden">
+          <div className="absolute inset-0 bg-grid-pattern opacity-[0.03]" />
 
-          <div className="w-full max-w-2xl border border-[var(--border)] bg-[var(--bg)] flex flex-col relative z-10 shadow-2xl">
-            {/* Panel header */}
-            <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between bg-[#050505]">
-              <div className="flex items-center gap-2">
+          <div className="w-full max-w-2xl border border-[var(--border)] bg-[var(--bg)] flex flex-col relative z-10 shadow-[0_0_100px_rgba(0,0,0,1)]">
+            <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between bg-black/40">
+              <div className="flex items-center gap-3">
                 <div
-                  className={`w-1.5 h-1.5 rounded-full transition-colors ${selectedRepo ? "bg-white" : "bg-[#1a1a1a]"}`}
+                  className={`w-2 h-2 rounded-full transition-colors ${selectedRepo ? "bg-white animate-pulse" : "bg-[#222]"}`}
                 />
-                <span className="font-mono text-[9px] text-[var(--text-muted)] uppercase tracking-widest">
-                  {selectedRepo ? "Entity_Locked" : "Awaiting_Source"}
+                <span className="font-mono text-[10px] text-[#666] uppercase tracking-[0.2em]">
+                  {selectedRepo ? "Manifest_Valid" : "Wait_For_Input"}
                 </span>
               </div>
-              <span className="font-mono text-[9px] text-[#333] uppercase tracking-widest">
-                {step === 1 ? "Step_01 / Select" : "Step_02 / Configure"}
-              </span>
             </div>
 
             {!selectedRepo ? (
-              /* ── No repo selected ── */
-              <div className="flex flex-col items-center justify-center py-24 gap-4">
-                <div className="w-10 h-10 border border-[#1a1a1a] flex items-center justify-center">
+              <div className="flex flex-col items-center justify-center py-32 gap-6 opacity-20">
+                <div className="w-12 h-12 border border-[#333] flex items-center justify-center">
                   <img
                     src="https://cdn.simpleicons.org/github/FFFFFF"
-                    className="w-4 h-4 opacity-10"
+                    className="w-5 h-5"
                     alt=""
                   />
                 </div>
-                <p className="font-mono text-[9px] text-[#333] uppercase tracking-widest">
-                  Select a repository to begin
+                <p className="font-mono text-[10px] text-white uppercase tracking-[0.3em]">
+                  Awaiting Source Selection
                 </p>
               </div>
             ) : (
-              /* ── Repo selected ── */
               <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-[var(--border)]">
-                {/* Left: repo metadata */}
-                <div className="p-8 space-y-8">
+                <div className="p-10 space-y-10">
                   <div>
-                    <p className="font-mono text-[8px] text-[#333] uppercase tracking-widest mb-2">
-                      Repository
+                    <p className="font-mono text-[10px] text-[#555] uppercase tracking-widest mb-3">
+                      Service
                     </p>
-                    <h2 className="text-3xl font-medium tracking-tighter text-white leading-none">
+                    <h2 className="text-4xl font-medium tracking-tighter text-white leading-none">
                       {selectedRepo.name}
                     </h2>
-                    {selectedRepo.description && (
-                      <p className="text-[11px] text-[var(--text-muted)] mt-2 leading-relaxed">
-                        {selectedRepo.description}
-                      </p>
-                    )}
+                    <p className="text-[12px] text-[#777] mt-4 leading-relaxed font-light">
+                      {selectedRepo.description ||
+                        "No project description provided."}
+                    </p>
                   </div>
 
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <MetaRow
-                      label="Language"
-                      value={selectedRepo.language || "—"}
+                      label="Stack"
+                      value={selectedRepo.language || "Unknown"}
                     />
                     <MetaRow
-                      label="Default Branch"
-                      value={selectedRepo.default_branch || "main"}
-                    />
-                    <MetaRow
-                      label="Stars"
-                      value={selectedRepo.stargazers_count?.toString() ?? "0"}
-                    />
-                    <MetaRow
-                      label="Open Issues"
-                      value={selectedRepo.open_issues_count?.toString() ?? "0"}
-                    />
-                    <MetaRow
-                      label="Visibility"
+                      label="Access"
                       value={selectedRepo.private ? "Private" : "Public"}
                     />
-                    <MetaRow label="Last Updated" value={updatedAt ?? "—"} />
+                    <MetaRow label="Modified" value={updatedAt ?? "—"} />
                   </div>
                 </div>
 
-                {/* Right: deployment preview */}
-                <div className="p-8 bg-[#080808] flex flex-col gap-8">
+                <div className="p-10 bg-[#080808] flex flex-col justify-between">
                   <div>
-                    <p className="font-mono text-[8px] text-[#333] uppercase tracking-widest mb-4">
-                      Deployment_Manifest
+                    <p className="font-mono text-[10px] text-[#555] uppercase tracking-widest mb-5">
+                      Build_Spec
                     </p>
-                    <div className="font-mono text-[10px] leading-relaxed space-y-1 bg-black border border-[var(--border)] p-5">
-                      <p className="text-blue-400">
-                        manifest <span className="text-[#555]">=</span> {"{"}
-                      </p>
+                    <div className="font-mono text-[11px] leading-loose space-y-1 bg-black/50 border border-white/5 p-6">
+                      <p className="text-blue-500/80">{"{"}</p>
                       <p className="pl-4 text-[#555]">
-                        repo:{" "}
-                        <span className="text-white">
+                        target:{" "}
+                        <span className="text-[#eee]">
                           "{selectedRepo.name}"
                         </span>
                         ,
                       </p>
                       <p className="pl-4 text-[#555]">
-                        branch: <span className="text-white">"{branch}"</span>,
+                        branch: <span className="text-[#eee]">"{branch}"</span>,
                       </p>
                       <p className="pl-4 text-[#555]">
-                        port: <span className="text-green-400">{port}</span>,
+                        port: <span className="text-white">{port}</span>,
                       </p>
                       <p className="pl-4 text-[#555]">
-                        cpu:{" "}
-                        <span className="text-yellow-400">
+                        fargate:{" "}
+                        <span className="text-yellow-500/80">
                           "{selectedCpuLabel}"
                         </span>
                         ,
                       </p>
                       <p className="pl-4 text-[#555]">
-                        memory:{" "}
-                        <span className="text-yellow-400">
+                        ram:{" "}
+                        <span className="text-yellow-500/80">
                           "{selectedMemoryLabel}"
                         </span>
                         ,
                       </p>
                       <p className="pl-4 text-[#555]">
-                        health:{" "}
-                        <span className="text-white">"{healthCheck}"</span>,
+                        handshake: <span className="text-white">"SSL/TLS"</span>
                       </p>
-                      <p className="pl-4 text-[#555]">
-                        env_vars:{" "}
-                        <span className="text-green-400">
-                          {envVars.filter((e) => e.key).length}
-                        </span>
-                        ,
-                      </p>
-                      <p className="pl-4 text-[#555]">
-                        runtime:{" "}
-                        <span className="text-white">"aws_fargate"</span>,
-                      </p>
-                      <p className="pl-4 text-[#555]">
-                        region: <span className="text-white">"ap-south-1"</span>
-                      </p>
-                      <p className="text-blue-400">{"}"}</p>
+                      <p className="text-blue-500/80">{"}"}</p>
                     </div>
-                  </div>
-
-                  {/* Dockerfile status */}
-                  <div
-                    className={`flex items-center gap-3 px-4 py-3 border ${dockerLikely ? "border-green-900/40 bg-green-900/5" : "border-yellow-900/40 bg-yellow-900/5"}`}
-                  >
-                    <div
-                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${dockerLikely ? "bg-[#10b981]" : "bg-yellow-500"}`}
-                    />
-                    <p
-                      className={`font-mono text-[8px] uppercase tracking-wider ${dockerLikely ? "text-[#10b981]/70" : "text-yellow-500/70"}`}
-                    >
-                      {dockerLikely
-                        ? "Dockerfile likely present for this language"
-                        : "Verify Dockerfile exists at repo root"}
-                    </p>
                   </div>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Watermark */}
-          <div className="absolute -bottom-8 right-8 text-[160px] font-bold text-white/[0.012] select-none pointer-events-none tracking-tighter">
+          <div className="absolute -bottom-10 right-10 text-[160px] font-bold text-white/[0.05] select-none pointer-events-none tracking-tighter">
             HATCH
           </div>
         </section>
@@ -586,7 +516,7 @@ export default function NewProject() {
   );
 }
 
-// --- HELPERS ---
+// --- REFINED HELPERS ---
 
 function StepDot({
   n,
@@ -598,18 +528,16 @@ function StepDot({
   done: boolean;
 }) {
   return (
-    <div className={`flex items-center gap-1.5`}>
-      <div
-        className={`w-4 h-4 flex items-center justify-center font-mono text-[8px] font-bold border transition-colors ${
-          done
-            ? "bg-[#10b981] border-[#10b981] text-black"
-            : active
-              ? "bg-white border-white text-black"
-              : "bg-transparent border-[#333] text-[#333]"
-        }`}
-      >
-        {done ? "✓" : n}
-      </div>
+    <div
+      className={`w-5 h-5 flex items-center justify-center font-mono text-[9px] font-bold border transition-all ${
+        done
+          ? "bg-white border-white text-black"
+          : active
+            ? "bg-white border-white text-black"
+            : "bg-transparent border-[#333] text-[#444]"
+      }`}
+    >
+      {done ? "✓" : n}
     </div>
   );
 }
@@ -624,25 +552,27 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1">
-      <p className="font-mono text-[9px] text-white uppercase tracking-widest">
+    <div className="space-y-2">
+      <p className="font-mono text-[10px] text-white uppercase tracking-widest font-bold leading-none">
         {label}
       </p>
-      <p className="font-mono text-[8px] text-[#444] uppercase tracking-wider">
+      <p className="font-mono text-[9px] text-[#666] uppercase tracking-wider leading-none">
         {sub}
       </p>
-      {children}
+      <div className="pt-1">{children}</div>
     </div>
   );
 }
 
 function MetaRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between border-b border-[#0f0f0f] pb-2">
-      <span className="font-mono text-[8px] text-[#333] uppercase tracking-widest">
+    <div className="flex items-center justify-between border-b border-white/5 pb-3">
+      <span className="font-mono text-[9px] text-[#555] uppercase tracking-widest font-bold">
         {label}
       </span>
-      <span className="font-mono text-[10px] text-[#888]">{value}</span>
+      <span className="font-mono text-[11px] text-[#aaa] font-medium">
+        {value}
+      </span>
     </div>
   );
 }

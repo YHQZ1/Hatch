@@ -6,6 +6,7 @@ import (
 	"github.com/YHQZ1/hatch/apps/api/internal/auth"
 	dbconn "github.com/YHQZ1/hatch/apps/api/internal/db"
 	"github.com/YHQZ1/hatch/apps/api/internal/handlers"
+	"github.com/YHQZ1/hatch/apps/api/internal/queue"
 	wsHub "github.com/YHQZ1/hatch/apps/api/internal/ws"
 	"github.com/YHQZ1/hatch/packages/config"
 	"github.com/gin-contrib/cors"
@@ -17,6 +18,9 @@ func main() {
 
 	db := dbconn.Connect(cfg.DatabaseURL)
 	defer db.Close()
+
+	publisher := queue.NewPublisher(cfg.RabbitMQURL)
+	defer publisher.Close()
 
 	hub := wsHub.NewHub(cfg.RedisURL)
 
@@ -40,7 +44,7 @@ func main() {
 
 	projectHandler := handlers.NewProjectHandler(db)
 	githubHandler := handlers.NewGitHubHandler()
-	deploymentHandler := handlers.NewDeploymentHandler(db)
+	deploymentHandler := handlers.NewDeploymentHandler(db, publisher)
 
 	// public routes
 	r.GET("/health", func(c *gin.Context) {
