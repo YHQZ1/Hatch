@@ -6,6 +6,7 @@ import (
 	"github.com/YHQZ1/hatch/apps/api/internal/auth"
 	dbconn "github.com/YHQZ1/hatch/apps/api/internal/db"
 	"github.com/YHQZ1/hatch/apps/api/internal/handlers"
+	wsHub "github.com/YHQZ1/hatch/apps/api/internal/ws"
 	"github.com/YHQZ1/hatch/packages/config"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,8 @@ func main() {
 
 	db := dbconn.Connect(cfg.DatabaseURL)
 	defer db.Close()
+
+	hub := wsHub.NewHub(cfg.RedisURL)
 
 	r := gin.Default()
 
@@ -45,6 +48,7 @@ func main() {
 	})
 	r.GET("/auth/github", authHandler.RedirectToGitHub)
 	r.GET("/auth/callback", authHandler.HandleCallback)
+	r.GET("/ws/deployments/:id", hub.HandleDeploymentLogs)
 
 	// protected routes (JWT required)
 	protected := r.Group("/api")
