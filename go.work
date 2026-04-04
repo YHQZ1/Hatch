@@ -3,6 +3,7 @@ go 1.25.5
 use (
 	./apps/api
 	./apps/builder
+	./apps/deployer
 	./packages/config
 	./packages/db
 	./packages/events

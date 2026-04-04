@@ -58,7 +58,11 @@ func (b *Builder) BuildAndPush(ctx context.Context, deploymentID, repoDir string
 }
 
 func (b *Builder) runDockerBuild(ctx context.Context, deploymentID, repoDir, imageTag string) error {
-	cmd := exec.CommandContext(ctx, "docker", "build", "-t", imageTag, repoDir)
+	cmd := exec.CommandContext(ctx, "docker", "build",
+		"--platform", "linux/amd64", // add this
+		"-t", imageTag,
+		repoDir,
+	)
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 
@@ -66,7 +70,6 @@ func (b *Builder) runDockerBuild(ctx context.Context, deploymentID, repoDir, ima
 		return err
 	}
 
-	// stream stdout
 	go b.streamOutput(ctx, deploymentID, stdout)
 	go b.streamOutput(ctx, deploymentID, stderr)
 

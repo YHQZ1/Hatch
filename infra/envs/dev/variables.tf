@@ -7,5 +7,5 @@ variable "project_name" {
 }
 
 variable "ecr_registry" {
-  default = "396913726010.dkr.ecr.ap-south-1.amazonaws.com"
+  default = "362041633362.dkr.ecr.ap-south-1.amazonaws.com"
 }

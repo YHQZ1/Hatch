@@ -22,10 +22,21 @@ type BuildJobEvent struct {
 	Port         int    `json:"port"`
 }
 
+type DeployJobEvent struct {
+	DeploymentID string `json:"deployment_id"`
+	ImageURI     string `json:"image_uri"`
+	CPU          int32  `json:"cpu"`
+	MemoryMB     int32  `json:"memory_mb"`
+	Port         int32  `json:"port"`
+	HealthCheck  string `json:"health_check"`
+	Subdomain    string `json:"subdomain"`
+}
+
 type Worker struct {
 	rabbitmqURL string
 	streamer    *logs.Streamer
 	builder     *docker.Builder
+	amqpCh      *amqp.Channel
 }
 
 func NewWorker(rabbitmqURL, redisURL, ecrRegistry, ecrRepo, awsRegion string) *Worker {
@@ -51,17 +62,32 @@ func (w *Worker) Start() error {
 	}
 	defer ch.Close()
 
-	// declare queue (idempotent)
+	w.amqpCh = ch
+
+	// declare build queue
 	q, err := ch.QueueDeclare(
 		"hatch.build.jobs",
-		true,  // durable
-		false, // auto-delete
-		false, // exclusive
-		false, // no-wait
+		true,
+		false,
+		false,
+		false,
 		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to declare queue: %w", err)
+		return fmt.Errorf("failed to declare build queue: %w", err)
+	}
+
+	// declare deploy queue (so it exists before we publish to it)
+	_, err = ch.QueueDeclare(
+		"hatch.deploy.jobs",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to declare deploy queue: %w", err)
 	}
 
 	msgs, err := ch.Consume(q.Name, "", false, false, false, false, nil)
@@ -106,7 +132,7 @@ func (w *Worker) processJob(job BuildJobEvent) {
 
 	w.streamer.Publish(ctx, deploymentID, "✓ Repository cloned")
 
-	// build and push
+	// build and push to ECR
 	imageURI, err := w.builder.BuildAndPush(ctx, deploymentID, destDir)
 	if err != nil {
 		w.streamer.Publish(ctx, deploymentID, fmt.Sprintf("✗ Build failed: %v", err))
@@ -116,4 +142,40 @@ func (w *Worker) processJob(job BuildJobEvent) {
 
 	w.streamer.Publish(ctx, deploymentID, fmt.Sprintf("✓ Build complete. Image: %s", imageURI))
 	w.streamer.Publish(ctx, deploymentID, "→ Handing off to deployer service...")
+
+	// publish deploy job to hatch.deploy.jobs
+	deployJob := DeployJobEvent{
+		DeploymentID: deploymentID,
+		ImageURI:     imageURI,
+		CPU:          512,
+		MemoryMB:     1024,
+		Port:         int32(job.Port),
+		HealthCheck:  "/",
+		Subdomain:    deploymentID[:8],
+	}
+
+	body, err := json.Marshal(deployJob)
+	if err != nil {
+		log.Printf("failed to marshal deploy job: %v", err)
+		return
+	}
+
+	if err := w.amqpCh.PublishWithContext(ctx,
+		"",
+		"hatch.deploy.jobs",
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Body:         body,
+		},
+	); err != nil {
+		w.streamer.Publish(ctx, deploymentID, fmt.Sprintf("✗ Failed to queue deploy job: %v", err))
+		log.Printf("failed to publish deploy job: %v", err)
+		return
+	}
+
+	w.streamer.Publish(ctx, deploymentID, "→ Deploy job queued")
+	log.Printf("deploy job queued for deployment %s", deploymentID)
 }

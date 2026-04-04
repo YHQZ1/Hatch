@@ -1,9 +1,9 @@
 terraform {
   backend "s3" {
-    bucket = "hatch-terraform-state-396913726010"
+    bucket = "hatch-terraform-state-362041633362"
     key    = "hatch/dev/terraform.tfstate"
     region = "ap-south-1"
-  }
+  } 
 
   required_providers {
     aws = {

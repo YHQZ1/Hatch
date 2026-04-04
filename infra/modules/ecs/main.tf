@@ -38,6 +38,27 @@ resource "aws_iam_role_policy_attachment" "ecr_read" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+resource "aws_iam_role_policy" "ecs_cloudwatch_logs" {
+  name = "${var.project_name}-ecs-cloudwatch-logs"
+  role = aws_iam_role.ecs_task_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams"
+        ]
+        Resource = "arn:aws:logs:*:*:*"
+      }
+    ]
+  })
+}
+
 output "cluster_arn"            { value = aws_ecs_cluster.main.arn }
 output "cluster_name"           { value = aws_ecs_cluster.main.name }
 output "task_execution_role_arn" { value = aws_iam_role.ecs_task_execution.arn }
