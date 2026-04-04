@@ -171,7 +171,6 @@ export default function NewProject() {
       <Navbar />
 
       <main className="relative z-10 flex-grow flex flex-col lg:flex-row h-[calc(100vh-64px)] overflow-hidden">
-        {/* ── LEFT PANEL ── */}
         <section className="w-full lg:w-[480px] border-r border-[var(--border)] bg-[var(--bg)] flex flex-col overflow-hidden z-20">
           <div className="px-8 py-6 border-b border-[var(--border)] flex items-center justify-between shrink-0">
             <div className="flex items-center gap-4">
@@ -404,7 +403,6 @@ export default function NewProject() {
           </div>
         </section>
 
-        {/* ── RIGHT PANEL (PREVIEW) ── */}
         <section className="flex-grow bg-[#050505] relative flex flex-col items-center justify-center p-12 lg:p-24 overflow-hidden">
           <div className="absolute inset-0 bg-grid-pattern opacity-[0.03]" />
 
@@ -515,8 +513,6 @@ export default function NewProject() {
     </div>
   );
 }
-
-// --- REFINED HELPERS ---
 
 function StepDot({
   n,

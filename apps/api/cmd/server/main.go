@@ -46,7 +46,6 @@ func main() {
 	githubHandler := handlers.NewGitHubHandler()
 	deploymentHandler := handlers.NewDeploymentHandler(db, publisher)
 
-	// public routes
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
@@ -54,7 +53,6 @@ func main() {
 	r.GET("/auth/callback", authHandler.HandleCallback)
 	r.GET("/ws/deployments/:id", hub.HandleDeploymentLogs)
 
-	// protected routes (JWT required)
 	protected := r.Group("/api")
 	protected.Use(auth.Middleware(cfg.JWTSecret))
 	{

@@ -111,7 +111,6 @@ func (w *Worker) Start() error {
 func (w *Worker) processJob(job DeployJobEvent) {
 	ctx := context.Background()
 
-	// update status to deploying
 	w.updateStatus(ctx, job.DeploymentID, "deploying")
 
 	output, err := w.deployer.Deploy(ctx, ecsdeploy.DeployInput{
@@ -131,7 +130,6 @@ func (w *Worker) processJob(job DeployJobEvent) {
 		return
 	}
 
-	// update deployment record with live URL
 	w.updateDeploymentLive(ctx, job.DeploymentID, job.ImageURI, output.ServiceARN, output.URL)
 	w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("✓ Live at: http://%s", output.URL))
 }

@@ -26,7 +26,6 @@ type Repo struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
-// GET /api/github/repos
 func (h *GitHubHandler) ListRepos(c *gin.Context) {
 	token, exists := c.Get("access_token")
 	if !exists {

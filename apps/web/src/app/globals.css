@@ -1,18 +1,11 @@
 @import "tailwindcss";
 
 :root {
-  /* Shifted from #000000 to a deep, technical matte grey */
   --bg: #0a0a0a;
-
-  /* Elevated surfaces now have a slight lift */
   --surface: #111111;
   --surface-hover: #161616;
-
-  /* Borders stay subtle but visible against the new bg */
   --border: #1f1f1f;
   --border-focus: #444444;
-
-  /* Typography remains high-contrast */
   --text-main: #ffffff;
   --text-muted: #888888;
   --success: #10b981;
@@ -26,7 +19,6 @@ body {
   overflow-x: hidden;
 }
 
-/* Global Grid Pattern */
 .bg-grid-pattern {
   background-image:
     linear-gradient(to right, #111 1px, transparent 1px),
@@ -34,7 +26,6 @@ body {
   background-size: 4rem 4rem;
 }
 
-/* Engineered UI Utilities */
 .technical-border {
   border: 1px solid var(--border);
   transition: border-color 0.2s ease;
@@ -48,7 +39,6 @@ body {
   background-color: var(--surface);
 }
 
-/* Animations */
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -78,7 +68,6 @@ body {
   animation-delay: 400ms;
 }
 
-/* Blinking cursor for the terminal */
 @keyframes blink {
   0%,
   100% {
@@ -92,7 +81,6 @@ body {
   animation: blink 1s step-end infinite;
 }
 
-/* Dotted Line Data Flow Animation */
 @keyframes data-flow {
   to {
     stroke-dashoffset: -12;
@@ -109,7 +97,6 @@ body {
   color: var(--bg);
 }
 
-/* Hide scrollbar for internal components */
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
@@ -118,7 +105,6 @@ body {
   scrollbar-width: none;
 }
 
-/* Subtle floating animation for tech icons */
 @keyframes float {
   0%,
   100% {

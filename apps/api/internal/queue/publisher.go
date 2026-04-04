@@ -33,10 +33,9 @@ func NewPublisher(rabbitmqURL string) *Publisher {
 		log.Fatalf("failed to open channel: %v", err)
 	}
 
-	// declare queue (idempotent — safe to call if already exists)
 	_, err = ch.QueueDeclare(
 		"hatch.build.jobs",
-		true, // durable
+		true,
 		false,
 		false,
 		false,
@@ -57,8 +56,8 @@ func (p *Publisher) PublishBuildJob(ctx context.Context, job BuildJobEvent) erro
 	}
 
 	return p.ch.PublishWithContext(ctx,
-		"",                 // exchange
-		"hatch.build.jobs", // routing key
+		"",
+		"hatch.build.jobs",
 		false,
 		false,
 		amqp.Publishing{

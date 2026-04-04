@@ -29,12 +29,8 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans min-h-screen flex flex-col relative bg-black text-white`}
       >
-        {/* The Grid remains fixed in the background */}
         <div className="fixed inset-0 bg-grid-pattern [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,#000_20%,transparent_100%)] pointer-events-none -z-10 opacity-20"></div>
 
-        {/* REMOVED: w-[95%], max-w-[2400px], mx-auto, and the borders.
-            The main content now touches the edges of the screen.
-        */}
         <main className="flex-grow flex flex-col w-full">{children}</main>
       </body>
     </html>

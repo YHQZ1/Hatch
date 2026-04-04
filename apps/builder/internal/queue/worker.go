@@ -64,7 +64,6 @@ func (w *Worker) Start() error {
 
 	w.amqpCh = ch
 
-	// declare build queue
 	q, err := ch.QueueDeclare(
 		"hatch.build.jobs",
 		true,
@@ -77,7 +76,6 @@ func (w *Worker) Start() error {
 		return fmt.Errorf("failed to declare build queue: %w", err)
 	}
 
-	// declare deploy queue (so it exists before we publish to it)
 	_, err = ch.QueueDeclare(
 		"hatch.deploy.jobs",
 		true,
@@ -120,7 +118,6 @@ func (w *Worker) processJob(job BuildJobEvent) {
 	w.streamer.Publish(ctx, deploymentID, fmt.Sprintf("→ Starting build for deployment %s", deploymentID[:8]))
 	w.streamer.Publish(ctx, deploymentID, fmt.Sprintf("→ Cloning %s (branch: %s)...", job.RepoURL, job.Branch))
 
-	// clone repo to temp dir
 	destDir := filepath.Join(os.TempDir(), "hatch-builds", deploymentID)
 	defer os.RemoveAll(destDir)
 
@@ -132,7 +129,6 @@ func (w *Worker) processJob(job BuildJobEvent) {
 
 	w.streamer.Publish(ctx, deploymentID, "✓ Repository cloned")
 
-	// build and push to ECR
 	imageURI, err := w.builder.BuildAndPush(ctx, deploymentID, destDir)
 	if err != nil {
 		w.streamer.Publish(ctx, deploymentID, fmt.Sprintf("✗ Build failed: %v", err))
@@ -143,7 +139,6 @@ func (w *Worker) processJob(job BuildJobEvent) {
 	w.streamer.Publish(ctx, deploymentID, fmt.Sprintf("✓ Build complete. Image: %s", imageURI))
 	w.streamer.Publish(ctx, deploymentID, "→ Handing off to deployer service...")
 
-	// publish deploy job to hatch.deploy.jobs
 	deployJob := DeployJobEvent{
 		DeploymentID: deploymentID,
 		ImageURI:     imageURI,

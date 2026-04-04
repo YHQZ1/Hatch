@@ -38,7 +38,6 @@ func NewHandler(clientID, clientSecret, redirectURI, jwtSecret string, db *sql.D
 	}
 }
 
-// GET /auth/github → redirects user to GitHub login page
 func (h *Handler) RedirectToGitHub(c *gin.Context) {
 	url := fmt.Sprintf(
 		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&scope=repo,user",
@@ -48,7 +47,6 @@ func (h *Handler) RedirectToGitHub(c *gin.Context) {
 	c.Redirect(http.StatusTemporaryRedirect, url)
 }
 
-// GET /auth/callback → GitHub redirects here with a code
 func (h *Handler) HandleCallback(c *gin.Context) {
 	code := c.Query("code")
 	if code == "" {
@@ -56,21 +54,18 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	// exchange code for access token
 	token, err := h.exchangeCodeForToken(code)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to exchange token"})
 		return
 	}
 
-	// fetch github user info
 	ghUser, err := h.fetchGitHubUser(token)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch github user"})
 		return
 	}
 
-	// upsert user into postgres
 	dbUser, err := h.queries.CreateUser(c.Request.Context(), dbpkg.CreateUserParams{
 		GithubID:       ghUser.ID,
 		GithubUsername: ghUser.Login,
@@ -81,14 +76,12 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	// sign JWT with user's UUID
 	jwtToken, err := h.signJWT(dbUser.ID, ghUser.ID, ghUser.Login, token)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sign token"})
 		return
 	}
 
-	// redirect to frontend with JWT
 	c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("http://localhost:3000/auth/success?token=%s", jwtToken))
 }
 

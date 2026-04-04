@@ -68,7 +68,6 @@ type DeployOutput struct {
 func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (*DeployOutput, error) {
 	deploymentID := input.DeploymentID
 
-	// 1. Register ECS Task Definition
 	d.streamer.Publish(ctx, deploymentID, "→ Registering ECS task definition...")
 	taskDefARN, err := d.registerTaskDefinition(ctx, input)
 	if err != nil {
@@ -76,7 +75,6 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (*DeployOutput
 	}
 	d.streamer.Publish(ctx, deploymentID, fmt.Sprintf("✓ Task definition registered: %s", taskDefARN))
 
-	// 2. Create ALB Target Group
 	d.streamer.Publish(ctx, deploymentID, "→ Creating ALB target group...")
 	tgARN, err := d.createTargetGroup(ctx, input)
 	if err != nil {
@@ -84,7 +82,6 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (*DeployOutput
 	}
 	d.streamer.Publish(ctx, deploymentID, "✓ Target group created")
 
-	// 3. Add ALB Listener Rule
 	d.streamer.Publish(ctx, deploymentID, "→ Configuring load balancer routing...")
 	albURL, err := d.createListenerRule(ctx, input.DeploymentID[:8], tgARN)
 	if err != nil {
@@ -92,7 +89,6 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (*DeployOutput
 	}
 	d.streamer.Publish(ctx, deploymentID, "✓ Load balancer routing configured")
 
-	// 4. Create ECS Service
 	d.streamer.Publish(ctx, deploymentID, "→ Launching ECS Fargate service...")
 	serviceARN, err := d.createECSService(ctx, input, taskDefARN, tgARN)
 	if err != nil {
@@ -100,7 +96,6 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (*DeployOutput
 	}
 	d.streamer.Publish(ctx, deploymentID, "✓ ECS service launched")
 
-	// 5. Wait for service to be stable
 	d.streamer.Publish(ctx, deploymentID, "→ Waiting for container health checks...")
 	if err := d.waitForService(ctx, deploymentID, input.DeploymentID[:8]); err != nil {
 		return nil, fmt.Errorf("service stability failed: %w", err)
@@ -176,7 +171,6 @@ func (d *Deployer) createTargetGroup(ctx context.Context, input DeployInput) (st
 }
 
 func (d *Deployer) createListenerRule(ctx context.Context, subdomain, tgARN string) (string, error) {
-	// get ALB DNS name from listener ARN
 	listenerOutput, err := d.elbClient.DescribeListeners(ctx, &elbv2.DescribeListenersInput{
 		ListenerArns: []string{d.albListenerARN},
 	})
@@ -194,8 +188,6 @@ func (d *Deployer) createListenerRule(ctx context.Context, subdomain, tgARN stri
 
 	albDNS := *lbOutput.LoadBalancers[0].DNSName
 
-	// use path-based routing since we don't have a custom domain
-	// route /subdomain/* to this target group
 	_, err = d.elbClient.CreateRule(ctx, &elbv2.CreateRuleInput{
 		ListenerArn: aws.String(d.albListenerARN),
 		Priority:    aws.Int32(int32(time.Now().Unix() % 50000)),
@@ -223,13 +215,11 @@ func (d *Deployer) createListenerRule(ctx context.Context, subdomain, tgARN stri
 func (d *Deployer) createECSService(ctx context.Context, input DeployInput, taskDefARN, tgARN string) (string, error) {
 	serviceName := fmt.Sprintf("hatch-%s", input.DeploymentID[:8])
 
-	// check if service already exists
 	existing, err := d.ecsClient.DescribeServices(ctx, &ecs.DescribeServicesInput{
 		Cluster:  aws.String(d.clusterName),
 		Services: []string{serviceName},
 	})
 	if err == nil && len(existing.Services) > 0 && existing.Services[0].Status != nil && *existing.Services[0].Status != "INACTIVE" {
-		// update existing service
 		output, err := d.ecsClient.UpdateService(ctx, &ecs.UpdateServiceInput{
 			Service:        aws.String(serviceName),
 			Cluster:        aws.String(d.clusterName),
@@ -242,7 +232,6 @@ func (d *Deployer) createECSService(ctx context.Context, input DeployInput, task
 		return *output.Service.ServiceArn, nil
 	}
 
-	// create new service
 	output, err := d.ecsClient.CreateService(ctx, &ecs.CreateServiceInput{
 		ServiceName:    aws.String(serviceName),
 		Cluster:        aws.String(d.clusterName),

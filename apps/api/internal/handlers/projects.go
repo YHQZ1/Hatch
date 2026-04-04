@@ -19,7 +19,6 @@ func NewProjectHandler(db *sql.DB) *ProjectHandler {
 	}
 }
 
-// GET /api/projects
 func (h *ProjectHandler) ListProjects(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -36,7 +35,6 @@ func (h *ProjectHandler) ListProjects(c *gin.Context) {
 	c.JSON(http.StatusOK, projects)
 }
 
-// POST /api/projects
 func (h *ProjectHandler) CreateProject(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -66,7 +64,6 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 	c.JSON(http.StatusCreated, project)
 }
 
-// GET /api/projects/:id
 func (h *ProjectHandler) GetProject(c *gin.Context) {
 	projectID, err := uuid.Parse(c.Param("id"))
 	if err != nil {

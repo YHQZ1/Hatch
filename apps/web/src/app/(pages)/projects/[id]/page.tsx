@@ -7,7 +7,6 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import Navbar from "@/app/components/Navbar";
 
-// --- TYPES ---
 interface Project {
   id: string;
   repo_name: string;
@@ -36,7 +35,6 @@ interface LogLine {
   type: "info" | "success" | "error" | "muted";
 }
 
-// --- MAIN PAGE ---
 export default function ProjectDetail() {
   const params = useParams();
   const router = useRouter();
@@ -93,7 +91,6 @@ export default function ProjectDetail() {
       .catch(() => setLoading(false));
   }, [projectId, router]);
 
-  // WebSocket connection for live logs
   const connectWebSocket = useCallback((deploymentId: string) => {
     if (wsRef.current) wsRef.current.close();
 
@@ -207,9 +204,7 @@ export default function ProjectDetail() {
         </div>
       ) : (
         <main className="relative z-10 flex-grow flex flex-col lg:flex-row h-[calc(100vh-64px)] overflow-hidden">
-          {/* ── LEFT PANEL ── */}
           <section className="w-full lg:w-[380px] border-r border-[var(--border)] flex flex-col overflow-hidden shrink-0">
-            {/* Project header */}
             <div className="px-8 py-6 border-b border-[var(--border)] space-y-4">
               <div className="flex items-center gap-2">
                 <Link
@@ -235,7 +230,6 @@ export default function ProjectDetail() {
                 </div>
               </div>
 
-              {/* Status */}
               <div className="flex items-center justify-between">
                 <StatusBadge
                   status={latestDeployment?.status ?? "no deployments"}
@@ -253,7 +247,6 @@ export default function ProjectDetail() {
               </div>
             </div>
 
-            {/* Deploy button */}
             <div className="px-8 py-5 border-b border-[var(--border)]">
               <button
                 onClick={handleDeploy}
@@ -271,7 +264,6 @@ export default function ProjectDetail() {
               </button>
             </div>
 
-            {/* Project metadata */}
             <div className="px-8 py-6 border-b border-[var(--border)] space-y-4">
               <p className="font-mono text-[8px] text-[#333] uppercase tracking-[0.3em]">
                 Configuration
@@ -300,7 +292,6 @@ export default function ProjectDetail() {
               )}
             </div>
 
-            {/* Deployment history */}
             <div className="flex-grow overflow-y-auto no-scrollbar">
               <div className="px-8 py-4 border-b border-[var(--border)]">
                 <p className="font-mono text-[8px] text-[#333] uppercase tracking-[0.3em]">
@@ -345,9 +336,7 @@ export default function ProjectDetail() {
             </div>
           </section>
 
-          {/* ── RIGHT PANEL: LOG TERMINAL ── */}
           <section className="flex-grow bg-[#050505] flex flex-col overflow-hidden">
-            {/* Terminal header */}
             <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between shrink-0 bg-[var(--bg)]">
               <div className="flex items-center gap-3">
                 <div className="flex gap-1.5">
@@ -381,7 +370,6 @@ export default function ProjectDetail() {
               </div>
             </div>
 
-            {/* Log output */}
             <div className="flex-grow overflow-y-auto p-6 font-mono text-sm scrollbar-hide">
               {logs.length === 0 && !deploying ? (
                 <EmptyTerminal hasDeployments={deployments.length > 0} />
@@ -403,7 +391,6 @@ export default function ProjectDetail() {
               )}
             </div>
 
-            {/* Live URL banner */}
             {activeDeployment?.url && (
               <div className="px-6 py-4 border-t border-[var(--border)] bg-[var(--bg)] flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2">
@@ -438,8 +425,6 @@ export default function ProjectDetail() {
     </div>
   );
 }
-
-// --- HELPERS ---
 
 function StatusBadge({ status, small }: { status: string; small?: boolean }) {
   const isLive = status === "live";

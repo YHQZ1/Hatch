@@ -48,7 +48,6 @@ export default function Navbar() {
   return (
     <nav className="sticky top-0 z-50 w-full border-b border-[var(--border)] bg-[var(--bg)]/90 backdrop-blur-md py-4 selection:bg-white selection:text-black">
       <div className="w-full px-8 lg:px-12 flex items-center justify-between">
-        {/* LEFT SECTION: BRAND + GLOBAL TABS */}
         <div className="flex items-center gap-14">
           <Link
             href="/dashboard"
@@ -78,7 +77,6 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* RIGHT SECTION: USER & DROPDOWN */}
         <div className="relative flex items-center" ref={menuRef}>
           <button
             onClick={() => setMenuOpen(!menuOpen)}
@@ -98,7 +96,6 @@ export default function Navbar() {
             )}
           </button>
 
-          {/* DROPDOWN MENU */}
           {menuOpen && (
             <div className="absolute right-0 top-full mt-5 w-56 bg-[#080808] border border-[var(--border)] shadow-[0_30px_60px_rgba(0,0,0,1)] py-3 z-[60] animate-in fade-in zoom-in-95 duration-100">
               <div className="px-5 py-3 border-b border-[var(--border)] mb-2">
@@ -136,8 +133,6 @@ export default function Navbar() {
     </nav>
   );
 }
-
-// --- REUSABLE COMPONENTS ---
 
 function NavLink({
   href,

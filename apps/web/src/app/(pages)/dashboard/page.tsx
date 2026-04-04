@@ -7,7 +7,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Navbar from "@/app/components/Navbar";
 
-// --- TYPES ---
 interface Project {
   id: string;
   repo_name: string;
@@ -40,12 +39,10 @@ export default function Dashboard() {
       .catch(() => setLoading(false));
   }, [router]);
 
-  // Use the CSS variable for the loading state background
   if (!mounted) return <div className="min-h-screen bg-[var(--bg)]" />;
 
   return (
     <div className="min-h-screen w-full bg-[var(--bg)] text-[var(--text-main)] flex flex-col relative overflow-x-hidden selection:bg-white selection:text-black font-sans">
-      {/* Background grid: Now blends better with the #0a0a0a base */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <div className="absolute inset-0 bg-grid-pattern opacity-[0.05]" />
       </div>
@@ -53,7 +50,6 @@ export default function Dashboard() {
       <Navbar />
 
       <main className="relative z-10 flex-grow px-8 lg:px-12 py-12">
-        {/* Page title row */}
         <div className="flex items-start justify-between mb-12">
           <div className="space-y-2">
             <p className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-[0.3em]">
@@ -72,7 +68,6 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {/* Stats bar: Uses var(--border) for a subtler split */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[var(--border)] border border-[var(--border)] mb-12 shadow-2xl">
           <StatCell
             label="Total Projects"
@@ -83,7 +78,6 @@ export default function Dashboard() {
           <StatCell label="Region" value="AP-SOUTH-1" mono />
         </div>
 
-        {/* Projects grid */}
         {loading ? (
           <LoadingState />
         ) : projects.length === 0 ? (
@@ -99,8 +93,6 @@ export default function Dashboard() {
     </div>
   );
 }
-
-// --- UPDATED HELPER COMPONENTS ---
 
 function StatCell({
   label,
@@ -136,7 +128,6 @@ function ProjectCard({ project }: { project: Project }) {
 
   return (
     <Link href={`/projects/${project.id}`}>
-      {/* Changed bg-[#050505] to var(--surface) and hover to var(--surface-hover) */}
       <div className="border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-focus)] hover:bg-[var(--surface-hover)] transition-all duration-300 p-8 flex flex-col gap-6 group cursor-pointer h-full rounded-sm shadow-lg">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">

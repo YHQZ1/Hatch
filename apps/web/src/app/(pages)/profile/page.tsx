@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
@@ -27,7 +28,6 @@ export default function ProfilePage() {
       <Navbar />
 
       <main className="max-w-[1400px] mx-auto px-8 lg:px-12 py-20">
-        {/* --- PROFILE HEADER --- */}
         <div className="flex flex-col md:flex-row items-center gap-12 mb-20 pb-12 border-b border-[var(--border)]">
           <div className="relative group">
             <div className="absolute -inset-1 bg-gradient-to-tr from-white/20 to-transparent rounded-full opacity-0 group-hover:opacity-100 transition-opacity blur-md"></div>
@@ -55,9 +55,7 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* --- SYSTEM RECORDS SECTION --- */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-16">
-          {/* Left: Identity Specs */}
           <div className="lg:col-span-4 space-y-12">
             <div className="space-y-6">
               <h3 className="font-mono text-[11px] text-white uppercase tracking-widest border-b border-[var(--border)] pb-4">
@@ -75,7 +73,6 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* Right: Activity Log Placeholder */}
           <div className="lg:col-span-8">
             <div className="border border-[var(--border)] bg-[#050505] p-10 space-y-8">
               <div className="flex items-center justify-between">

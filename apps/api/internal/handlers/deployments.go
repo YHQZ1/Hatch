@@ -71,7 +71,6 @@ func NewDeploymentHandler(db *sql.DB, publisher *queue.Publisher) *DeploymentHan
 	}
 }
 
-// POST /api/deployments
 func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 	var body struct {
 		ProjectID       string `json:"project_id"       binding:"required"`
@@ -97,7 +96,6 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		healthCheck = "/"
 	}
 
-	// generate subdomain from project id (first 8 chars)
 	subdomain := uuid.New().String()[:8]
 
 	deployment, err := h.queries.CreateDeployment(c.Request.Context(), dbpkg.CreateDeploymentParams{
@@ -117,18 +115,15 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 	response := toDeploymentResponse(deployment)
 	c.JSON(http.StatusCreated, response)
 
-	// fetch project to get repo URL
 	project, err := h.queries.GetProjectByID(c.Request.Context(), projectID)
 	if err != nil {
 		log.Printf("failed to fetch project for build job: %v", err)
 		return
 	}
 
-	// get access token from JWT
 	accessToken, _ := c.Get("access_token")
 	tokenStr, _ := accessToken.(string)
 
-	// publish build job to RabbitMQ
 	job := queue.BuildJobEvent{
 		DeploymentID: deployment.ID.String(),
 		RepoURL:      project.RepoUrl,
@@ -145,7 +140,6 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 
 }
 
-// GET /api/deployments/:id
 func (h *DeploymentHandler) GetDeployment(c *gin.Context) {
 	deploymentID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -162,7 +156,6 @@ func (h *DeploymentHandler) GetDeployment(c *gin.Context) {
 	c.JSON(http.StatusOK, toDeploymentResponse(deployment))
 }
 
-// GET /api/projects/:id/deployments
 func (h *DeploymentHandler) ListDeployments(c *gin.Context) {
 	projectID, err := uuid.Parse(c.Param("id"))
 	if err != nil {

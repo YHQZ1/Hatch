@@ -34,20 +34,17 @@ func NewBuilder(ecrRegistry, ecrRepo, awsRegion string, streamer *logs.Streamer)
 func (b *Builder) BuildAndPush(ctx context.Context, deploymentID, repoDir string) (string, error) {
 	imageTag := fmt.Sprintf("%s/%s:%s", b.ecrRegistry, b.ecrRepo, deploymentID[:8])
 
-	// docker build
 	b.streamer.Publish(ctx, deploymentID, "→ Building Docker image...")
 	if err := b.runDockerBuild(ctx, deploymentID, repoDir, imageTag); err != nil {
 		return "", fmt.Errorf("docker build failed: %w", err)
 	}
 
-	// authenticate to ECR
 	b.streamer.Publish(ctx, deploymentID, "→ Authenticating with AWS ECR...")
 	authToken, err := b.getECRAuthToken(ctx)
 	if err != nil {
 		return "", fmt.Errorf("ecr auth failed: %w", err)
 	}
 
-	// docker push
 	b.streamer.Publish(ctx, deploymentID, "→ Pushing image to ECR...")
 	if err := b.runDockerPush(ctx, deploymentID, imageTag, authToken); err != nil {
 		return "", fmt.Errorf("docker push failed: %w", err)
@@ -59,7 +56,7 @@ func (b *Builder) BuildAndPush(ctx context.Context, deploymentID, repoDir string
 
 func (b *Builder) runDockerBuild(ctx context.Context, deploymentID, repoDir, imageTag string) error {
 	cmd := exec.CommandContext(ctx, "docker", "build",
-		"--platform", "linux/amd64", // add this
+		"--platform", "linux/amd64",
 		"-t", imageTag,
 		repoDir,
 	)
@@ -106,7 +103,6 @@ func (b *Builder) getECRAuthToken(ctx context.Context) (string, error) {
 }
 
 func (b *Builder) runDockerPush(ctx context.Context, deploymentID, imageTag, authToken string) error {
-	// decode base64 token → user:password
 	decoded, err := base64.StdEncoding.DecodeString(authToken)
 	if err != nil {
 		return err
@@ -116,7 +112,6 @@ func (b *Builder) runDockerPush(ctx context.Context, deploymentID, imageTag, aut
 		return fmt.Errorf("invalid auth token format")
 	}
 
-	// docker login
 	loginCmd := exec.CommandContext(ctx, "docker", "login",
 		"--username", parts[0],
 		"--password-stdin",
@@ -127,7 +122,6 @@ func (b *Builder) runDockerPush(ctx context.Context, deploymentID, imageTag, aut
 		return fmt.Errorf("docker login failed: %s", string(out))
 	}
 
-	// docker push
 	pushCmd := exec.CommandContext(ctx, "docker", "push", imageTag)
 	stdout, _ := pushCmd.StdoutPipe()
 	stderr, _ := pushCmd.StderrPipe()
@@ -142,7 +136,6 @@ func (b *Builder) runDockerPush(ctx context.Context, deploymentID, imageTag, aut
 	return pushCmd.Wait()
 }
 
-// JSONMessage is used to parse docker build output
 type JSONMessage struct {
 	Stream string `json:"stream"`
 	Error  string `json:"error"`

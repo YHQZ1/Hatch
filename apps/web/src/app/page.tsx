@@ -20,8 +20,6 @@ export default function Hatch() {
   );
 }
 
-// --- 1. HERO SECTION ---
-
 function HeroSection() {
   return (
     <section className="min-h-[85vh] flex items-center px-6 lg:px-12 py-24 border-b border-[#1f1f1f] relative">
@@ -60,8 +58,6 @@ function HeroSection() {
     </section>
   );
 }
-
-// --- 2. HOW IT WORKS ---
 
 function HowItWorks() {
   return (
@@ -102,8 +98,6 @@ function HowItWorks() {
   );
 }
 
-// --- 3. TECHNOLOGIES ---
-
 const TECHNOLOGIES = [
   { name: "Node.js", slug: "nodedotjs", color: "339933" },
   { name: "Python", slug: "python", color: "3776AB" },
@@ -124,6 +118,7 @@ const TECHNOLOGIES = [
   { name: "Terraform", slug: "terraform", color: "844FBA" },
   { name: "Nginx", slug: "nginx", color: "009639" },
 ];
+
 function SupportedTechnologies() {
   return (
     <section className="px-6 lg:px-12 py-12 border-b border-[#1f1f1f] bg-black relative overflow-hidden">
@@ -137,7 +132,6 @@ function SupportedTechnologies() {
         </p>
       </div>
 
-      {/* Staggered Rows Layout */}
       <div className="max-w-5xl mx-auto flex flex-col gap-12 lg:gap-16 relative z-10">
         <TechRow items={TECHNOLOGIES.slice(0, 5)} offset={0} />
         <TechRow items={TECHNOLOGIES.slice(5, 12)} offset={1} />
@@ -147,7 +141,6 @@ function SupportedTechnologies() {
   );
 }
 
-// Helper component for the staggered rows
 function TechRow({
   items,
   offset,
@@ -164,7 +157,6 @@ function TechRow({
           style={{ animationDelay: `${(i + offset) * 0.4}s` }}
         >
           <div className="relative">
-            {/* Glow effect behind the icon on hover */}
             <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 blur-xl transition-opacity duration-100 rounded-full"></div>
 
             <img
@@ -181,8 +173,6 @@ function TechRow({
     </div>
   );
 }
-
-// --- 4. PRIMITIVES ---
 
 function WorkloadPrimitives() {
   return (
@@ -226,8 +216,6 @@ function WorkloadPrimitives() {
     </section>
   );
 }
-
-// --- 5. DEV EXPERIENCE ---
 
 function ProductFeatures() {
   return (
@@ -293,8 +281,6 @@ function ProductFeatures() {
   );
 }
 
-// --- 6. ARCHITECTURE DIAGRAM ---
-
 function ArchitectureDiagram() {
   return (
     <section
@@ -317,7 +303,6 @@ function ArchitectureDiagram() {
 
       <div className="w-full border border-[#1f1f1f] bg-[#050505] py-16 overflow-x-auto relative shadow-2xl flex justify-center">
         <div className="flex flex-col items-center w-[900px]">
-          {/* ROW 1: Entry */}
           <div className="grid grid-cols-[180px_1fr_180px_1fr_180px] w-full items-center h-[100px]">
             <ArchNode
               title="GitHub"
@@ -341,7 +326,6 @@ function ArchitectureDiagram() {
             />
           </div>
 
-          {/* ROW 2: Vertical connectors */}
           <div className="grid grid-cols-[180px_1fr_180px_1fr_180px] w-full h-16">
             <div />
             <div />
@@ -350,9 +334,7 @@ function ArchitectureDiagram() {
             <FlowArrow direction="down" label="Consume" />
           </div>
 
-          {/* ROW 3: Data layer + Workers */}
           <div className="grid grid-cols-[180px_1fr_180px_1fr_180px] w-full items-start">
-            {/* Postgres + Redis stacked on left */}
             <div className="flex flex-col gap-3">
               <ArchNode
                 title="PostgreSQL"
@@ -380,7 +362,6 @@ function ArchitectureDiagram() {
               className="h-[200px]"
             />
             <div />
-            {/* Builder + Deployer stacked on right */}
             <div className="flex flex-col w-[180px]">
               <ArchNode
                 title="Builder"
@@ -401,7 +382,6 @@ function ArchitectureDiagram() {
             </div>
           </div>
 
-          {/* ROW 4: Down to infra */}
           <div className="grid grid-cols-[180px_1fr_180px_1fr_180px] w-full h-16">
             <div />
             <div />
@@ -410,7 +390,6 @@ function ArchitectureDiagram() {
             <FlowArrow direction="down" label="Provision" />
           </div>
 
-          {/* ROW 5: Target infra */}
           <div className="relative w-full mt-5">
             <div className="absolute inset-x-[-32px] inset-y-[-24px] border border-[#333] bg-[#0a0a0a] pointer-events-none rounded-xl"></div>
             <span className="absolute -top-10 left-[-16px] bg-[#050505] px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-[#888] border border-[#333] rounded-md z-10">
@@ -444,8 +423,6 @@ function ArchitectureDiagram() {
     </section>
   );
 }
-
-// --- HELPER COMPONENTS ---
 
 function StepCard({
   step,
@@ -562,7 +539,6 @@ function FlowArrow({
     return (
       <div className="relative w-full h-full flex items-center justify-center self-stretch z-0">
         {label && (
-          // CHANGED: Positioned exactly at the center (top-1/2) and shifted up to rest on the line
           <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full -mt-1 bg-[#050505] px-2 py-0.5 font-mono text-[9px] text-[#888] border border-[#222] rounded whitespace-nowrap z-10">
             {label}
           </span>
@@ -615,8 +591,6 @@ function FlowArrow({
 function AwsIcon() {
   return <img src="/aws.svg" alt="AWS" width={24} height={24} />;
 }
-
-// --- TERMINAL SIMULATOR ---
 
 const TERMINAL_STEPS = [
   { text: "Initializing deployment environment...", delay: 500 },
@@ -771,7 +745,6 @@ function Header() {
           </Link>
 
           <nav className="hidden lg:flex items-center gap-10 font-mono text-[13px] uppercase tracking-[0.2em]">
-            {/* We use buttons instead of Links to prevent the # jump */}
             <button
               onClick={() => scrollToSection("how-it-works")}
               className="text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer uppercase outline-none"
@@ -793,9 +766,7 @@ function Header() {
           </nav>
         </div>
 
-        {/* RIGHT: Actions */}
         <div className="flex items-center gap-5">
-          {/* GitHub Button - Sharper & Matte */}
           <Link
             href="https://github.com/YHQZ1/Hatch"
             target="_blank"
@@ -812,7 +783,6 @@ function Header() {
             </span>
           </Link>
 
-          {/* Deploy Now - Unified with Dashboard "New Project" button */}
           <Link
             href="/auth"
             className="h-11 px-8 flex items-center justify-center bg-white text-black text-[13px] font-bold uppercase tracking-widest hover:bg-[#e5e5e5] transition-all duration-300 cursor-pointer shadow-[0_0_20px_rgba(255,255,255,0.1)]"
@@ -829,7 +799,6 @@ function Footer() {
   return (
     <footer className="border-t border-[#1f1f1f] bg-[#050505] pt-20 pb-10 relative z-10 overflow-hidden mt-auto">
       <div className="px-6 lg:px-12 flex flex-col lg:flex-row justify-between gap-16 mb-20">
-        {/* Brand */}
         <div className="lg:w-1/3 flex flex-col gap-6">
           <div className="flex items-center gap-3">
             <div className="w-5 h-5 bg-white flex items-center justify-center">
@@ -860,7 +829,6 @@ function Footer() {
           </a>
         </div>
 
-        {/* Links */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-12 lg:gap-16 lg:w-2/3">
           <div className="flex flex-col">
             <span className="font-mono text-[10px] uppercase tracking-widest text-white mb-6">
@@ -948,7 +916,6 @@ function Footer() {
         </div>
       </div>
 
-      {/* Bottom bar */}
       <div className="px-6 lg:px-12 pt-8 border-t border-[#1f1f1f] flex flex-col md:flex-row items-center justify-between gap-6">
         <span className="font-mono text-[10px] uppercase tracking-widest text-[#555]">
           © {new Date().getFullYear()} Hatch · MIT License

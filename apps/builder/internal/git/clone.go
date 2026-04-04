@@ -8,9 +8,7 @@ import (
 )
 
 func Clone(ctx context.Context, repoURL, token, destDir string) error {
-	// inject token into URL for auth
-	// https://github.com/user/repo → https://token@github.com/user/repo
-	authedURL := fmt.Sprintf("https://%s@%s", token, repoURL[8:]) // strip https://
+	authedURL := fmt.Sprintf("https://%s@%s", token, repoURL[8:])
 
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return fmt.Errorf("failed to create dest dir: %w", err)
