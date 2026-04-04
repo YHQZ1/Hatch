@@ -1,6 +1,6 @@
 <div align="center">
 
-# hatch
+# Hatch
 
 A self-hosted deployment platform built on AWS.
 Dockerfile in. Live URL out.
@@ -403,9 +403,3 @@ make migrate  # run pending DB migrations
 - [ ] Custom domains with automatic TLS provisioning
 - [ ] One-click rollbacks to any previous deployment
 - [ ] Built-in observability — logs, metrics, traces via OpenTelemetry
-
----
-
-## License
-
-MIT
