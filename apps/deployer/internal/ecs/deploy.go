@@ -27,9 +27,10 @@ type Deployer struct {
 	ecsSgID        string
 	taskExecRole   string
 	awsRegion      string
+	baseDomain     string
 }
 
-func NewDeployer(awsRegion, clusterName, albListenerARN, vpcID, subnetA, subnetB, ecsSgID, taskExecRole string, streamer *logs.Streamer) *Deployer {
+func NewDeployer(awsRegion, clusterName, albListenerARN, vpcID, subnetA, subnetB, ecsSgID, taskExecRole, baseDomain string, streamer *logs.Streamer) *Deployer {
 	cfg, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(awsRegion))
 	if err != nil {
 		log.Fatalf("failed to load aws config: %v", err)
@@ -47,6 +48,7 @@ func NewDeployer(awsRegion, clusterName, albListenerARN, vpcID, subnetA, subnetB
 		ecsSgID:        ecsSgID,
 		taskExecRole:   taskExecRole,
 		awsRegion:      awsRegion,
+		baseDomain:     baseDomain,
 	}
 }
 
@@ -83,7 +85,7 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (*DeployOutput
 	d.streamer.Publish(ctx, deploymentID, "✓ Target group created")
 
 	d.streamer.Publish(ctx, deploymentID, "→ Configuring load balancer routing...")
-	albURL, err := d.createListenerRule(ctx, input.DeploymentID[:8], tgARN)
+	url, err := d.createListenerRule(ctx, input.DeploymentID[:8], tgARN)
 	if err != nil {
 		return nil, fmt.Errorf("listener rule failed: %w", err)
 	}
@@ -101,11 +103,11 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (*DeployOutput
 		return nil, fmt.Errorf("service stability failed: %w", err)
 	}
 
-	d.streamer.Publish(ctx, deploymentID, fmt.Sprintf("✓ Deployment live at: %s", albURL))
+	d.streamer.Publish(ctx, deploymentID, fmt.Sprintf("✓ Deployment live at: %s", url))
 
 	return &DeployOutput{
 		ServiceARN: serviceARN,
-		URL:        albURL,
+		URL:        url,
 	}, nil
 }
 
@@ -171,30 +173,15 @@ func (d *Deployer) createTargetGroup(ctx context.Context, input DeployInput) (st
 }
 
 func (d *Deployer) createListenerRule(ctx context.Context, subdomain, tgARN string) (string, error) {
-	listenerOutput, err := d.elbClient.DescribeListeners(ctx, &elbv2.DescribeListenersInput{
-		ListenerArns: []string{d.albListenerARN},
-	})
-	if err != nil {
-		return "", err
-	}
-
-	lbARN := *listenerOutput.Listeners[0].LoadBalancerArn
-	lbOutput, err := d.elbClient.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{
-		LoadBalancerArns: []string{lbARN},
-	})
-	if err != nil {
-		return "", err
-	}
-
-	albDNS := *lbOutput.LoadBalancers[0].DNSName
-
-	_, err = d.elbClient.CreateRule(ctx, &elbv2.CreateRuleInput{
+	_, err := d.elbClient.CreateRule(ctx, &elbv2.CreateRuleInput{
 		ListenerArn: aws.String(d.albListenerARN),
 		Priority:    aws.Int32(int32(time.Now().Unix() % 50000)),
 		Conditions: []elbv2types.RuleCondition{
 			{
-				Field:  aws.String("path-pattern"),
-				Values: []string{fmt.Sprintf("/%s*", subdomain)},
+				Field: aws.String("host-header"),
+				HostHeaderConfig: &elbv2types.HostHeaderConditionConfig{
+					Values: []string{fmt.Sprintf("%s.%s", subdomain, d.baseDomain)},
+				},
 			},
 		},
 		Actions: []elbv2types.Action{
@@ -208,8 +195,7 @@ func (d *Deployer) createListenerRule(ctx context.Context, subdomain, tgARN stri
 		return "", err
 	}
 
-	url := fmt.Sprintf("%s/%s", albDNS, subdomain)
-	return url, nil
+	return fmt.Sprintf("%s.%s", subdomain, d.baseDomain), nil
 }
 
 func (d *Deployer) createECSService(ctx context.Context, input DeployInput, taskDefARN, tgARN string) (string, error) {

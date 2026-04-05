@@ -26,6 +26,7 @@ func main() {
 		TaskExecutionRoleARN: mustGetEnv("TASK_EXECUTION_ROLE_ARN"),
 		ECRRegistry:          mustGetEnv("ECR_REGISTRY"),
 		DatabaseURL:          mustGetEnv("DATABASE_URL"),
+		BaseDomain:           mustGetEnv("BASE_DOMAIN"),
 	}
 
 	log.Println("deployer worker starting...")

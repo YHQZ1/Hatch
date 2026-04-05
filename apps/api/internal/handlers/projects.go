@@ -79,3 +79,18 @@ func (h *ProjectHandler) GetProject(c *gin.Context) {
 
 	c.JSON(http.StatusOK, project)
 }
+
+func (h *ProjectHandler) DeleteProject(c *gin.Context) {
+	projectID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid project id"})
+		return
+	}
+
+	if err := h.queries.DeleteProject(c.Request.Context(), projectID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete project"})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}

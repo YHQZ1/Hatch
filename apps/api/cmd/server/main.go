@@ -62,10 +62,12 @@ func main() {
 				"username": c.MustGet("username"),
 			})
 		})
+		protected.DELETE("/projects/:id", projectHandler.DeleteProject)
 		protected.GET("/projects", projectHandler.ListProjects)
 		protected.POST("/projects", projectHandler.CreateProject)
 		protected.GET("/projects/:id", projectHandler.GetProject)
 		protected.GET("/github/repos", githubHandler.ListRepos)
+		protected.GET("/github/repos/:owner/:repo/dockerfile", githubHandler.CheckDockerfile)
 		protected.POST("/deployments", deploymentHandler.CreateDeployment)
 		protected.GET("/deployments/:id", deploymentHandler.GetDeployment)
 		protected.GET("/projects/:id/deployments", deploymentHandler.ListDeployments)

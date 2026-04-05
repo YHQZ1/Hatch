@@ -62,23 +62,26 @@ func toDeploymentResponse(d dbpkg.Deployment) DeploymentResponse {
 type DeploymentHandler struct {
 	queries   *dbpkg.Queries
 	publisher *queue.Publisher
+	db        *sql.DB
 }
 
 func NewDeploymentHandler(db *sql.DB, publisher *queue.Publisher) *DeploymentHandler {
 	return &DeploymentHandler{
 		queries:   dbpkg.New(db),
 		publisher: publisher,
+		db:        db,
 	}
 }
 
 func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 	var body struct {
-		ProjectID       string `json:"project_id"       binding:"required"`
-		Branch          string `json:"branch"           binding:"required"`
-		CPU             int32  `json:"cpu"              binding:"required"`
-		MemoryMB        int32  `json:"memory_mb"        binding:"required"`
-		Port            int32  `json:"port"             binding:"required"`
-		HealthCheckPath string `json:"health_check_path"`
+		ProjectID       string            `json:"project_id"       binding:"required"`
+		Branch          string            `json:"branch"           binding:"required"`
+		CPU             int32             `json:"cpu"              binding:"required"`
+		MemoryMB        int32             `json:"memory_mb"        binding:"required"`
+		Port            int32             `json:"port"             binding:"required"`
+		HealthCheckPath string            `json:"health_check_path"`
+		EnvVars         map[string]string `json:"env_vars"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -108,8 +111,24 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		Subdomain:   sql.NullString{String: subdomain, Valid: true},
 	})
 	if err != nil {
+		log.Printf("failed to create deployment: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create deployment"})
 		return
+	}
+
+	if len(body.EnvVars) > 0 {
+		for key, value := range body.EnvVars {
+			if key == "" {
+				continue
+			}
+			_, err := h.db.ExecContext(c.Request.Context(),
+				"INSERT INTO env_vars (deployment_id, key, secret_arn) VALUES ($1, $2, $3)",
+				deployment.ID, key, value,
+			)
+			if err != nil {
+				log.Printf("failed to store env var %s: %v", key, err)
+			}
+		}
 	}
 
 	response := toDeploymentResponse(deployment)
@@ -134,10 +153,10 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 
 	if err := h.publisher.PublishBuildJob(c.Request.Context(), job); err != nil {
 		log.Printf("failed to publish build job: %v", err)
+		return
 	}
 
 	log.Printf("build job queued for deployment %s", deployment.ID)
-
 }
 
 func (h *DeploymentHandler) GetDeployment(c *gin.Context) {

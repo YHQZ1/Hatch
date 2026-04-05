@@ -7,7 +7,7 @@ import Link from "next/link";
 
 export default function Hatch() {
   return (
-    <div className="flex flex-col w-full">
+    <div className="flex flex-col w-full" style={{ background: "#030303" }}>
       <Header />
       <HeroSection />
       <HowItWorks />
@@ -63,7 +63,8 @@ function HowItWorks() {
   return (
     <section
       id="how-it-works"
-      className="px-6 lg:px-12 py-12 border-b border-[#1f1f1f] bg-[#030303]/80 backdrop-blur-sm"
+      className="px-6 lg:px-12 py-12 border-b border-[#1f1f1f]"
+      style={{ background: "#030303" }}
     >
       <div className="max-w-3xl mb-20">
         <h2 className="text-4xl md:text-5xl font-medium tracking-tight text-white mb-6">
@@ -121,7 +122,10 @@ const TECHNOLOGIES = [
 
 function SupportedTechnologies() {
   return (
-    <section className="px-6 lg:px-12 py-12 border-b border-[#1f1f1f] bg-black relative overflow-hidden">
+    <section
+      className="px-6 lg:px-12 py-12 border-b border-[#1f1f1f] relative overflow-hidden"
+      style={{ background: "#030303" }}
+    >
       <div className="flex flex-col items-center text-center gap-4 mb-24 relative z-10">
         <h2 className="text-4xl md:text-5xl font-medium tracking-tight text-white mb-2">
           Universal Support
@@ -178,7 +182,8 @@ function WorkloadPrimitives() {
   return (
     <section
       id="primitives"
-      className="px-6 lg:px-12 py-12 border-b border-[#1f1f1f] bg-[#030303]/80 backdrop-blur-sm"
+      className="px-6 lg:px-12 py-12 border-b border-[#1f1f1f]"
+      style={{ background: "#030303" }}
     >
       <div className="max-w-3xl mb-20">
         <h2 className="text-4xl md:text-5xl font-medium tracking-tight text-white mb-6">
@@ -219,7 +224,10 @@ function WorkloadPrimitives() {
 
 function ProductFeatures() {
   return (
-    <section className="px-6 lg:px-12 py-12 border-b border-[#1f1f1f] bg-black">
+    <section
+      className="px-6 lg:px-12 py-12 border-b border-[#1f1f1f]"
+      style={{ background: "#030303" }}
+    >
       <div className="grid grid-cols-1 md:grid-cols-2 gap-16 items-center">
         <div>
           <h2 className="text-3xl md:text-5xl font-medium tracking-tight text-white mb-8">
@@ -268,11 +276,6 @@ function ProductFeatures() {
               <br />
               <span className="text-[#555]">→</span> Provisioning Fargate
               task...
-              <br />
-              <span className="text-white mt-4 block flex items-center gap-2">
-                <span className="w-1.5 h-1.5 bg-[#10b981] inline-block mr-2"></span>
-                Live: api.hatch.dev
-              </span>
             </div>
           </div>
         </div>
@@ -285,7 +288,8 @@ function ArchitectureDiagram() {
   return (
     <section
       id="architecture"
-      className="px-6 lg:px-12 py-12 bg-[#030303]/80 backdrop-blur-sm"
+      className="px-6 lg:px-12 py-12"
+      style={{ background: "#030303" }}
     >
       <div className="max-w-4xl mb-20">
         <h2 className="font-mono text-xs tracking-widest uppercase text-[#888] mb-6">
@@ -690,35 +694,10 @@ function TerminalSimulator() {
             <span className="w-2 h-4 bg-[#888] animate-blink inline-block"></span>
           </div>
         )}
-
-        {isDone && (
-          <div className="mt-8 p-4 border border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between animate-fade-in">
-            <span className="text-[#10b981] font-bold text-xs uppercase tracking-wider">
-              Status: Live
-            </span>
-            <a
-              href="#"
-              className="text-white hover:underline flex items-center gap-2 text-sm"
-            >
-              https://api-gateway.hatch.dev
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
-              </svg>
-            </a>
-          </div>
-        )}
       </div>
     </div>
   );
 }
-
 function Header() {
   const scrollToSection = (id: string) => {
     const element = document.getElementById(id);
@@ -729,15 +708,23 @@ function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl py-4">
+    <header
+      className="sticky top-0 z-50 w-full border-b border-[var(--border)] backdrop-blur-xl py-4"
+      style={{ background: "#020202" }}
+    >
       <div className="w-full px-8 lg:px-12 flex items-center justify-between">
         <div className="flex items-center gap-14">
           <Link
             href="/dashboard"
             className="flex items-center gap-4 group cursor-pointer"
           >
-            <div className="w-7 h-7 bg-white flex items-center justify-center transition-transform group-hover:scale-90">
-              <div className="w-3 h-3 bg-black" />
+            {/* HABR LOGO INTEGRATION */}
+            <div className="w-8 h-8 flex items-center justify-center transition-transform group-hover:rotate-[30deg] duration-500 ease-in-out">
+              <img
+                src="https://cdn.simpleicons.org/habr/FFFFFF"
+                alt="Hatch Logo"
+                className="w-full h-full"
+              />
             </div>
             <span className="font-bold tracking-tighter text-2xl uppercase text-white">
               Hatch
@@ -797,7 +784,10 @@ function Header() {
 
 function Footer() {
   return (
-    <footer className="border-t border-[#1f1f1f] bg-[#050505] pt-20 pb-10 relative z-10 overflow-hidden mt-auto">
+    <footer
+      className="border-t border-[#1f1f1f] pt-20 pb-10 relative z-10 overflow-hidden mt-auto"
+      style={{ background: "#030303" }}
+    >
       <div className="px-6 lg:px-12 flex flex-col lg:flex-row justify-between gap-16 mb-20">
         <div className="lg:w-1/3 flex flex-col gap-6">
           <div className="flex items-center gap-3">

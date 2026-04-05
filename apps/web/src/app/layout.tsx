@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
@@ -14,9 +15,15 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Hatch | Universal Deployment Engine",
+  title: {
+    default: "Hatch | Stop Configuring. Start Shipping.",
+    template: "%s",
+  },
   description:
     "Self-hosted AWS deployment platform. Dockerfile in. Live URL out.",
+  icons: {
+    icon: "/hatch.svg",
+  },
 };
 
 export default function RootLayout({
@@ -27,11 +34,29 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark scroll-smooth">
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} font-sans min-h-screen flex flex-col relative bg-black text-white`}
+        className={`${inter.variable} ${jetbrainsMono.variable} font-sans min-h-screen flex flex-col relative bg-black text-white selection:bg-white selection:text-black`}
       >
-        <div className="fixed inset-0 bg-grid-pattern [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,#000_20%,transparent_100%)] pointer-events-none -z-10 opacity-20"></div>
+        {/* --- GLOBAL BACKGROUND LAYER --- */}
+        <div className="fixed inset-0 z-[-1] pointer-events-none overflow-hidden">
+          {/* Grid Pattern */}
+          <div className="absolute inset-0 bg-grid-pattern [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,#000_20%,transparent_100%)] opacity-20"></div>
 
-        <main className="flex-grow flex flex-col w-full">{children}</main>
+          {/* LOGO WATERMARK (The Habr Icon) */}
+          <div className="absolute -bottom-24 -right-24 opacity-[0.03] select-none">
+            <img
+              src="https://cdn.simpleicons.org/habr/FFFFFF"
+              alt=""
+              className="w-[600px] h-[600px] rotate-12"
+            />
+          </div>
+
+          {/* SUBTLE ACCENT BLOOM (Optional: Matches the Navbar glow) */}
+          <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-white opacity-[0.02] blur-[120px] rounded-full"></div>
+        </div>
+
+        <main className="flex-grow flex flex-col w-full relative z-0">
+          {children}
+        </main>
       </body>
     </html>
   );

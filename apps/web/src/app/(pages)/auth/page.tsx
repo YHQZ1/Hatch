@@ -12,10 +12,10 @@ export default function AuthPage() {
     setMounted(true);
   }, []);
 
-  if (!mounted) return <div className="min-h-screen bg-[var(--bg)]" />;
+  if (!mounted) return <div className="min-h-screen bg-[#030303]" />;
 
   return (
-    <div className="min-h-screen w-full bg-[var(--bg)] text-white flex flex-col relative overflow-hidden selection:bg-white selection:text-black font-sans">
+    <div className="min-h-screen w-full bg-[#030303] text-white flex flex-col relative overflow-hidden selection:bg-white selection:text-black font-sans">
       <div className="fixed inset-0 z-0 pointer-events-none">
         <div className="absolute inset-0 bg-grid-pattern opacity-10 [mask-image:radial-gradient(ellipse_at_center,black,transparent_80%)]"></div>
         <div className="absolute left-[40%] top-0 bottom-0 w-px bg-[#1f1f1f]"></div>
@@ -42,9 +42,9 @@ export default function AuthPage() {
         <div className="w-full lg:w-[450px] flex flex-col justify-center gap-10 py-12 lg:py-0 h-full">
           <Link
             href="/"
-            className="font-mono text-[11px] text-[#333] hover:text-white transition-colors uppercase tracking-[0.3em] cursor-pointer w-fit"
+            className="font-mono text-[12px] text-[#333] hover:text-white transition-colors uppercase tracking-[0.3em] cursor-pointer w-fit"
           >
-            [ Go_Back ]
+            [ Go Back ]
           </Link>
 
           <div className="space-y-4">
@@ -61,7 +61,7 @@ export default function AuthPage() {
             <div className="grid grid-cols-2 gap-px bg-[#1f1f1f] border border-[#1f1f1f]">
               <a
                 href={`${process.env.NEXT_PUBLIC_API_URL}/auth/github`}
-                className="flex items-center justify-center gap-3 py-4 bg-[var(--bg)] hover:bg-white hover:text-black transition-all group cursor-pointer"
+                className="flex items-center justify-center gap-3 py-4 bg-[#030303] hover:bg-white hover:text-black transition-all group cursor-pointer"
               >
                 <img
                   src="https://cdn.simpleicons.org/github/FFFFFF"
@@ -74,7 +74,7 @@ export default function AuthPage() {
               </a>
               <button
                 disabled
-                className="flex items-center justify-center gap-3 py-4 bg-[var(--bg)] opacity-40 cursor-not-allowed"
+                className="flex items-center justify-center gap-3 py-4 bg-[#030303] opacity-40 cursor-not-allowed"
               >
                 <img
                   src="https://cdn.simpleicons.org/gitlab/FC6D26"
@@ -101,13 +101,13 @@ export default function AuthPage() {
                     type="email"
                     placeholder="Email Address"
                     disabled
-                    className="w-full h-12 bg-[var(--bg)] px-4 text-sm outline-none placeholder-[#444] border-b border-[#1f1f1f] cursor-not-allowed"
+                    className="w-full h-12 bg-[#030303] px-4 text-sm outline-none placeholder-[#444] border-b border-[#1f1f1f] cursor-not-allowed"
                   />
                   <input
                     type="password"
                     placeholder="Password"
                     disabled
-                    className="w-full h-12 bg-[var(--bg)] px-4 text-sm outline-none placeholder-[#444] cursor-not-allowed"
+                    className="w-full h-12 bg-[#030303] px-4 text-sm outline-none placeholder-[#444] cursor-not-allowed"
                   />
                 </div>
                 <button
@@ -123,7 +123,10 @@ export default function AuthPage() {
 
         <div className="hidden lg:flex flex-grow items-center justify-center h-full">
           <div className="w-[550px] border border-[#1f1f1f] bg-[#050505]/50 flex flex-col relative overflow-hidden shadow-2xl">
-            <div className="p-6 border-b border-[#1f1f1f] flex justify-between items-center bg-[var(--bg)]/40">
+            <div
+              className="p-6 border-b border-[#1f1f1f] flex justify-between items-center"
+              style={{ background: "#030303" }}
+            >
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 bg-white animate-pulse"></div>
                 <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-white">
@@ -160,7 +163,7 @@ export default function AuthPage() {
                 <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#050505] to-transparent pointer-events-none"></div>
               </div>
 
-              <div className="flex-grow p-8 flex flex-col justify-between relative bg-[var(--bg)]/20">
+              <div className="flex-grow p-8 flex flex-col justify-between relative bg-[#030303]/20">
                 <div className="space-y-6">
                   <div className="flex justify-between items-center">
                     <span className="font-mono text-[9px] text-[#333] uppercase tracking-widest">
@@ -180,7 +183,7 @@ export default function AuthPage() {
               </div>
             </div>
 
-            <div className="p-8 border-t border-[#1f1f1f] bg-[var(--bg)]/40 grid grid-cols-3 gap-8">
+            <div className="p-8 border-t border-[#1f1f1f] bg-[#030303] grid grid-cols-3 gap-8">
               <TelemetryStat label="CPU_CORE_01" value="32%" />
               <TelemetryStat label="RAM_ALLOC" value="1.2GB" />
               <TelemetryStat label="I/O_SPEED" value="840MB/S" />

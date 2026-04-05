@@ -1,14 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #0a0a0a;
-  --surface: #111111;
-  --surface-hover: #161616;
-  --border: #1f1f1f;
-  --border-focus: #444444;
-  --text-main: #ffffff;
-  --text-muted: #888888;
-  --success: #10b981;
+  --bg: #030303;
+  --surface: #0d0d0d;
+  --surface-hover: #121212;
+  --border: #161616;
+  --border-focus: #2a2a2a;
+  --accent: #8880ff;
+  --accent-muted: #3b386b;
+  --text-main: #fafafa;
+  --text-muted: #666666;
 }
 
 body {
@@ -21,28 +22,29 @@ body {
 
 .bg-grid-pattern {
   background-image:
-    linear-gradient(to right, #111 1px, transparent 1px),
-    linear-gradient(to bottom, #111 1px, transparent 1px);
-  background-size: 4rem 4rem;
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.accent-glow {
+  box-shadow: 0 0 20px -5px var(--accent);
 }
 
 .technical-border {
   border: 1px solid var(--border);
-  transition: border-color 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .technical-border:hover {
   border-color: var(--border-focus);
-}
-
-.bg-surface {
-  background-color: var(--surface);
+  background-color: var(--surface-hover);
 }
 
 @keyframes fade-in {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -51,7 +53,7 @@ body {
 }
 
 .animate-fade-in {
-  animation: fade-in 0.5s ease forwards;
+  animation: fade-in 0.4s ease-out forwards;
   opacity: 0;
 }
 
@@ -64,9 +66,6 @@ body {
 .delay-300 {
   animation-delay: 300ms;
 }
-.delay-400 {
-  animation-delay: 400ms;
-}
 
 @keyframes blink {
   0%,
@@ -78,23 +77,24 @@ body {
   }
 }
 .animate-blink {
-  animation: blink 1s step-end infinite;
+  animation: blink 0.8s step-end infinite;
 }
 
-@keyframes data-flow {
-  to {
-    stroke-dashoffset: -12;
+@keyframes progress-loading {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
   }
 }
-
-.animate-flow {
-  stroke-dasharray: 6 6;
-  animation: data-flow 0.8s linear infinite;
+.animate-progress {
+  animation: progress-loading 2s linear infinite;
 }
 
 ::selection {
-  background: var(--text-main);
-  color: var(--bg);
+  background: var(--accent);
+  color: #000;
 }
 
 .scrollbar-hide::-webkit-scrollbar {
@@ -105,15 +105,15 @@ body {
   scrollbar-width: none;
 }
 
-@keyframes float {
+@keyframes pulse-subtle {
   0%,
   100% {
-    transform: translateY(0);
+    opacity: 1;
   }
   50% {
-    transform: translateY(-8px);
+    opacity: 0.5;
   }
 }
-.animate-float {
-  animation: float 6s ease-in-out infinite;
+.animate-pulse-subtle {
+  animation: pulse-subtle 3s ease-in-out infinite;
 }

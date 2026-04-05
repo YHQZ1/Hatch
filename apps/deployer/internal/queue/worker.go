@@ -26,6 +26,7 @@ type Config struct {
 	TaskExecutionRoleARN string
 	ECRRegistry          string
 	DatabaseURL          string
+	BaseDomain           string
 }
 
 type DeployJobEvent struct {
@@ -56,6 +57,7 @@ func NewWorker(cfg Config) *Worker {
 		cfg.SubnetB,
 		cfg.ECSSgID,
 		cfg.TaskExecutionRoleARN,
+		cfg.BaseDomain,
 		streamer,
 	)
 
@@ -146,7 +148,7 @@ func (w *Worker) updateStatus(ctx context.Context, deploymentID, status string) 
 
 func (w *Worker) updateDeploymentLive(ctx context.Context, deploymentID, imageURI, ecsARN, url string) {
 	_, err := w.db.ExecContext(ctx,
-		`UPDATE deployments SET 
+		`UPDATE deployments SET
 			status = 'live',
 			image_uri = $2,
 			ecs_task_arn = $3,

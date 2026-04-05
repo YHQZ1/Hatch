@@ -69,3 +69,42 @@ func fetchGitHubRepos(token string) ([]Repo, error) {
 
 	return repos, nil
 }
+
+func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
+	token, exists := c.Get("access_token")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing access token"})
+		return
+	}
+
+	owner := c.Param("owner")
+	repo := c.Param("repo")
+
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/Dockerfile", owner, repo)
+
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, url, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
+		return
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token.(string))
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "network error"})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		c.JSON(http.StatusOK, gin.H{"exists": true})
+		return
+	} else if resp.StatusCode == http.StatusNotFound {
+		c.JSON(http.StatusNotFound, gin.H{"exists": false, "error": "Dockerfile not found at root"})
+		return
+	}
+
+	c.JSON(resp.StatusCode, gin.H{"exists": false, "error": "unexpected github response"})
+}
