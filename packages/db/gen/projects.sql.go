@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/google/uuid"
 )
@@ -14,7 +15,7 @@ import (
 const createProject = `-- name: CreateProject :one
 INSERT INTO projects (user_id, repo_name, repo_url)
 VALUES ($1, $2, $3)
-RETURNING id, user_id, repo_name, repo_url, created_at
+RETURNING id, user_id, repo_name, repo_url, created_at, webhook_secret, auto_deploy, branch
 `
 
 type CreateProjectParams struct {
@@ -32,6 +33,9 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 		&i.RepoName,
 		&i.RepoUrl,
 		&i.CreatedAt,
+		&i.WebhookSecret,
+		&i.AutoDeploy,
+		&i.Branch,
 	)
 	return i, err
 }
@@ -46,7 +50,7 @@ func (q *Queries) DeleteProject(ctx context.Context, id uuid.UUID) error {
 }
 
 const getProjectByID = `-- name: GetProjectByID :one
-SELECT id, user_id, repo_name, repo_url, created_at FROM projects WHERE id = $1
+SELECT id, user_id, repo_name, repo_url, created_at, webhook_secret, auto_deploy, branch FROM projects WHERE id = $1
 `
 
 func (q *Queries) GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error) {
@@ -58,12 +62,35 @@ func (q *Queries) GetProjectByID(ctx context.Context, id uuid.UUID) (Project, er
 		&i.RepoName,
 		&i.RepoUrl,
 		&i.CreatedAt,
+		&i.WebhookSecret,
+		&i.AutoDeploy,
+		&i.Branch,
+	)
+	return i, err
+}
+
+const getProjectByRepoURL = `-- name: GetProjectByRepoURL :one
+SELECT id, user_id, repo_name, repo_url, created_at, webhook_secret, auto_deploy, branch FROM projects WHERE repo_url = $1 LIMIT 1
+`
+
+func (q *Queries) GetProjectByRepoURL(ctx context.Context, repoUrl string) (Project, error) {
+	row := q.db.QueryRowContext(ctx, getProjectByRepoURL, repoUrl)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.RepoName,
+		&i.RepoUrl,
+		&i.CreatedAt,
+		&i.WebhookSecret,
+		&i.AutoDeploy,
+		&i.Branch,
 	)
 	return i, err
 }
 
 const getProjectsByUserID = `-- name: GetProjectsByUserID :many
-SELECT id, user_id, repo_name, repo_url, created_at FROM projects WHERE user_id = $1 ORDER BY created_at DESC
+SELECT id, user_id, repo_name, repo_url, created_at, webhook_secret, auto_deploy, branch FROM projects WHERE user_id = $1 ORDER BY created_at DESC
 `
 
 func (q *Queries) GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]Project, error) {
@@ -81,6 +108,9 @@ func (q *Queries) GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]
 			&i.RepoName,
 			&i.RepoUrl,
 			&i.CreatedAt,
+			&i.WebhookSecret,
+			&i.AutoDeploy,
+			&i.Branch,
 		); err != nil {
 			return nil, err
 		}
@@ -93,4 +123,20 @@ func (q *Queries) GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateProjectWebhook = `-- name: UpdateProjectWebhook :exec
+UPDATE projects
+SET webhook_secret = $2
+WHERE id = $1
+`
+
+type UpdateProjectWebhookParams struct {
+	ID            uuid.UUID      `json:"id"`
+	WebhookSecret sql.NullString `json:"webhook_secret"`
+}
+
+func (q *Queries) UpdateProjectWebhook(ctx context.Context, arg UpdateProjectWebhookParams) error {
+	_, err := q.db.ExecContext(ctx, updateProjectWebhook, arg.ID, arg.WebhookSecret)
+	return err
 }

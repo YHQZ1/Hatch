@@ -37,11 +37,14 @@ type EnvVar struct {
 }
 
 type Project struct {
-	ID        uuid.UUID `json:"id"`
-	UserID    uuid.UUID `json:"user_id"`
-	RepoName  string    `json:"repo_name"`
-	RepoUrl   string    `json:"repo_url"`
-	CreatedAt time.Time `json:"created_at"`
+	ID            uuid.UUID      `json:"id"`
+	UserID        uuid.UUID      `json:"user_id"`
+	RepoName      string         `json:"repo_name"`
+	RepoUrl       string         `json:"repo_url"`
+	CreatedAt     time.Time      `json:"created_at"`
+	WebhookSecret sql.NullString `json:"webhook_secret"`
+	AutoDeploy    bool           `json:"auto_deploy"`
+	Branch        string         `json:"branch"`
 }
 
 type User struct {

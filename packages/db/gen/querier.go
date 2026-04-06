@@ -18,11 +18,13 @@ type Querier interface {
 	GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployment, error)
 	GetDeploymentsByProjectID(ctx context.Context, projectID uuid.UUID) ([]Deployment, error)
 	GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error)
+	GetProjectByRepoURL(ctx context.Context, repoUrl string) (Project, error)
 	GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]Project, error)
 	GetUserByGithubID(ctx context.Context, githubID int64) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	UpdateDeploymentLive(ctx context.Context, arg UpdateDeploymentLiveParams) (Deployment, error)
 	UpdateDeploymentStatus(ctx context.Context, arg UpdateDeploymentStatusParams) (Deployment, error)
+	UpdateProjectWebhook(ctx context.Context, arg UpdateProjectWebhookParams) error
 }
 
 var _ Querier = (*Queries)(nil)
