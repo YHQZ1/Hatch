@@ -1,9 +1,13 @@
+/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react/no-unescaped-entities */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { debounce } from "lodash";
 
 interface Repo {
   id: number;
@@ -57,16 +61,19 @@ export default function NewProject() {
   const [deploying, setDeploying] = useState(false);
   const [mounted, setMounted] = useState(false);
 
+  // Configuration States
+  const [projectName, setProjectName] = useState("");
+  const [subdomain, setSubdomain] = useState("");
   const [branch, setBranch] = useState("main");
   const [port, setPort] = useState("80");
   const [cpu, setCpu] = useState("512");
   const [memory, setMemory] = useState("1024");
   const [healthCheck, setHealthCheck] = useState("/health");
-  const [dockerfilePath, setDockerfilePath] = useState("Dockerfile");
+  // Changed from Dockerfile to Build Context Path
+  const [rootPath, setRootPath] = useState("./");
   const [envVars, setEnvVars] = useState<EnvVar[]>([]);
   const [hasDockerfile, setHasDockerfile] = useState<boolean | null>(null);
   const [checkingDocker, setCheckingDocker] = useState(false);
-  const [subdomain, setSubdomain] = useState("");
 
   useEffect(() => {
     setMounted(true);
@@ -93,36 +100,39 @@ export default function NewProject() {
     if (opts) setMemory(opts[0].value);
   }, [cpu]);
 
-  const checkDockerfile = async (
-    repoFullName: string,
-    t: string,
-    path: string,
-  ) => {
-    setCheckingDocker(true);
-    try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/github/repos/${repoFullName}/dockerfile?path=${encodeURIComponent(path)}`,
-        { headers: { Authorization: `Bearer ${t}` } },
-      );
-      setHasDockerfile(res.status === 200);
-    } catch {
-      setHasDockerfile(false);
-    } finally {
-      setCheckingDocker(false);
-    }
-  };
+  const debouncedCheck = useCallback(
+    debounce(async (repoFullName: string, t: string, path: string) => {
+      setCheckingDocker(true);
+      // Clean path: remove trailing slash and ensure it points to a Dockerfile
+      const cleanPath = path.endsWith("/") ? path : `${path}/`;
+      const fullDockerPath = `${cleanPath}Dockerfile`.replace("./", "");
+
+      try {
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/github/repos/${repoFullName}/dockerfile?path=${encodeURIComponent(fullDockerPath)}`,
+          { headers: { Authorization: `Bearer ${t}` } },
+        );
+        setHasDockerfile(res.status === 200);
+      } catch {
+        setHasDockerfile(false);
+      } finally {
+        setCheckingDocker(false);
+      }
+    }, 600),
+    [],
+  );
 
   const handleSelectRepo = (repo: Repo) => {
     setSelectedRepo(repo);
+    setProjectName(repo.name);
     setBranch(repo.default_branch || "main");
+    setSubdomain("");
 
-    const webLanguages = ["TypeScript", "JavaScript", "HTML", "CSS", "Vue"];
     if (repo.language === "Go") setPort("8080");
     else if (repo.language === "Python") setPort("8000");
-    else if (webLanguages.includes(repo.language || "")) setPort("80");
     else setPort("80");
 
-    if (token) checkDockerfile(repo.full_name, token, dockerfilePath);
+    if (token) debouncedCheck(repo.full_name, token, rootPath);
     setStep(2);
   };
 
@@ -134,6 +144,9 @@ export default function NewProject() {
       if (key.trim()) envVarsMap[key.trim()] = value;
     });
 
+    const cleanPath = rootPath.endsWith("/") ? rootPath : `${rootPath}/`;
+    const finalDockerPath = `${cleanPath}Dockerfile`.replace("./", "");
+
     try {
       const projectRes = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/projects`,
@@ -144,16 +157,15 @@ export default function NewProject() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            repo_name: selectedRepo.name,
+            repo_name: projectName || selectedRepo.name,
             repo_url: selectedRepo.html_url,
-            subdomain: subdomain,
-            branch: branch,
-            dockerfile_path: dockerfilePath,
+            subdomain,
+            branch,
+            dockerfile_path: finalDockerPath,
             port: parseInt(port),
           }),
         },
       );
-      if (!projectRes.ok) throw new Error();
       const project = await projectRes.json();
       const deployRes = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/deployments`,
@@ -182,377 +194,317 @@ export default function NewProject() {
 
   if (!mounted) return null;
 
-  const filteredRepos = repos.filter((r) =>
-    r.full_name.toLowerCase().includes(search.toLowerCase()),
-  );
-
   return (
-    <div className="w-full min-h-screen bg-black text-white flex flex-col items-center relative z-20">
-      <div className="fixed inset-0 z-0 pointer-events-none">
-        <div
-          className="absolute inset-0 opacity-20"
-          style={{
-            backgroundImage: `radial-gradient(rgba(255, 255, 255, 0.15) 1px, transparent 1px)`,
-            backgroundSize: "30px 30px",
-            maskImage:
-              "radial-gradient(circle at center, white 0%, transparent 80%)",
-            WebkitMaskImage:
-              "radial-gradient(circle at center, white 0%, transparent 80%)",
-          }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-black via-transparent to-black opacity-60" />
-      </div>
-
-      <header className="w-full max-w-4xl px-6 py-12 flex flex-col gap-4 relative z-10">
-        <nav className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.3em] text-zinc-600">
-          <span className={step >= 1 ? "text-white" : ""}>01 Source</span>
-          <span>/</span>
-          <span className={step >= 2 ? "text-white" : ""}>02 Configure</span>
-        </nav>
-        <h1 className="text-4xl font-medium tracking-tighter uppercase">
-          {step === 1 ? "Import Source" : "Build Config"}
-        </h1>
+    <div className="w-full h-screen bg-black text-white flex flex-col font-sans overflow-hidden">
+      <header className="w-full border-b border-zinc-900 px-8 py-4 flex justify-between items-center shrink-0 bg-black z-20">
+        <div className="flex items-center gap-4">
+          <h1 className="text-md font-bold uppercase tracking-tight">
+            Provision New Service
+          </h1>
+        </div>
       </header>
 
-      <main className="w-full max-w-4xl px-6 pb-24 relative z-10">
-        {step === 1 ? (
-          <div className="space-y-6 animate-in">
-            <input
-              type="text"
-              placeholder="Search repositories..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-black/40 backdrop-blur-md border border-[#1a1a1a] px-5 py-4 text-sm font-mono outline-none focus:border-white transition-all rounded-[2px] placeholder-zinc-800"
-            />
-            <div className="border border-[#1a1a1a] rounded-[2px] overflow-hidden bg-[#050505]/80 backdrop-blur-xl">
-              {loading ? (
-                [...Array(6)].map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-16 animate-pulse border-b border-[#1a1a1a] last:border-0 bg-white/5"
-                  />
-                ))
-              ) : (
-                <div className="divide-y divide-[#1a1a1a]">
-                  {filteredRepos.map((repo) => (
-                    <div
-                      key={repo.id}
-                      onClick={() => handleSelectRepo(repo)}
-                      className="flex items-center justify-between px-6 py-4 hover:bg-white/[0.03] transition-colors cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 border border-[#1a1a1a] rounded-sm flex items-center justify-center bg-black group-hover:border-zinc-700">
-                          <img
-                            src="https://cdn.simpleicons.org/github/FFFFFF"
-                            className="w-4 h-4 opacity-40 group-hover:opacity-100"
-                            alt=""
-                          />
-                        </div>
-                        <div>
-                          <h3 className="text-[15px] font-semibold text-zinc-100 group-hover:text-white">
-                            {repo.name}
-                          </h3>
-                          <span className="text-[10px] font-mono text-zinc-600 uppercase tracking-tighter">
-                            {repo.language || "Web"}
-                          </span>
-                        </div>
-                      </div>
-                      <button className="text-[10px] font-bold uppercase tracking-widest text-zinc-700 group-hover:text-white border border-zinc-900 group-hover:border-zinc-600 px-4 py-1.5 rounded-sm transition-all cursor-pointer">
-                        Import
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 animate-in">
-            <div className="lg:col-span-7 space-y-10">
-              {!checkingDocker && hasDockerfile === false && (
-                <div className="border border-red-900/30 bg-red-900/5 px-4 py-3 rounded-sm backdrop-blur-md">
-                  <p className="font-mono text-[10px] text-red-500 uppercase tracking-wider">
-                    Critical: No Dockerfile detected. Deployment will fail.
-                  </p>
-                </div>
-              )}
-              <ConfigSection title="Project Details">
-                <ConfigField
-                  label="Repository Path"
-                  value={selectedRepo?.full_name || ""}
-                  disabled
-                />
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">
-                    Custom Subdomain
-                  </label>
-                  <div className="flex items-center gap-2 border-b border-zinc-800 focus-within:border-white transition-colors">
-                    <input
-                      placeholder="my-app-name"
-                      value={subdomain}
-                      onChange={(e) =>
-                        setSubdomain(
-                          e.target.value.toLowerCase().replace(/\s+/g, "-"),
-                        )
-                      }
-                      className="flex-1 bg-transparent py-2 text-sm font-mono outline-none text-white"
-                    />
-                    <span className="text-zinc-600 text-xs font-mono lowercase">
-                      .hatchcloud.xyz
-                    </span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">
-                      Deployment Branch
-                    </label>
-                    <input
-                      value={branch}
-                      onChange={(e) => setBranch(e.target.value)}
-                      className="w-full bg-transparent border-b border-zinc-800 py-2 text-sm font-mono outline-none focus:border-white transition-colors"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">
-                      Dockerfile Path
-                    </label>
-                    <input
-                      value={dockerfilePath}
-                      onChange={(e) => {
-                        setDockerfilePath(e.target.value);
-                        if (token && selectedRepo)
-                          checkDockerfile(
-                            selectedRepo.full_name,
-                            token,
-                            e.target.value,
-                          );
-                      }}
-                      className="w-full bg-transparent border-b border-zinc-800 py-2 text-sm font-mono outline-none focus:border-white transition-colors"
-                    />
-                  </div>
-                </div>
-              </ConfigSection>
-              <ConfigSection title="Instance Specs">
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">
-                      vCPU Unit
-                    </label>
-                    <select
-                      value={cpu}
-                      onChange={(e) => setCpu(e.target.value)}
-                      className="w-full bg-transparent border-b border-zinc-800 py-2 text-sm font-mono outline-none cursor-pointer appearance-none"
-                    >
-                      {CPU_OPTIONS.map((o) => (
-                        <option
-                          key={o.value}
-                          value={o.value}
-                          className="bg-black"
-                        >
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">
-                      Memory (RAM)
-                    </label>
-                    <select
-                      value={memory}
-                      onChange={(e) => setMemory(e.target.value)}
-                      className="w-full bg-transparent border-b border-zinc-800 py-2 text-sm font-mono outline-none cursor-pointer appearance-none"
-                    >
-                      {(MEMORY_OPTIONS[cpu] || []).map((o) => (
-                        <option
-                          key={o.value}
-                          value={o.value}
-                          className="bg-black"
-                        >
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">
-                      Exposed Port
-                    </label>
-                    <input
-                      value={port}
-                      onChange={(e) => setPort(e.target.value)}
-                      className="w-full bg-transparent border-b border-zinc-800 py-2 text-sm font-mono outline-none focus:border-white"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">
-                      Health Check
-                    </label>
-                    <input
-                      value={healthCheck}
-                      onChange={(e) => setHealthCheck(e.target.value)}
-                      className="w-full bg-transparent border-b border-zinc-800 py-2 text-sm font-mono outline-none focus:border-white"
-                    />
-                  </div>
-                </div>
-              </ConfigSection>
-              <ConfigSection title="Secrets & Variables">
-                <div className="space-y-3">
-                  {envVars.map((e, i) => (
-                    <div
-                      key={i}
-                      className="flex gap-px bg-zinc-800 border border-zinc-800 rounded-sm overflow-hidden"
-                    >
-                      <input
-                        placeholder="KEY"
-                        value={e.key}
-                        onChange={(ev) => {
-                          const n = [...envVars];
-                          n[i].key = ev.target.value;
-                          setEnvVars(n);
-                        }}
-                        className="flex-1 bg-black px-3 py-2 text-xs font-mono outline-none"
-                      />
-                      <input
-                        placeholder="VALUE"
-                        value={e.value}
-                        onChange={(ev) => {
-                          const n = [...envVars];
-                          n[i].value = ev.target.value;
-                          setEnvVars(n);
-                        }}
-                        className="flex-1 bg-black px-3 py-2 text-xs font-mono outline-none text-white"
-                      />
-                      <button
-                        onClick={() =>
-                          setEnvVars(envVars.filter((_, idx) => idx !== i))
-                        }
-                        className="bg-black px-4 text-zinc-600 hover:text-red-500 cursor-pointer transition-colors"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+      <main className="flex-1 flex overflow-hidden">
+        {/* LEFT PANEL: CONFIGURATION */}
+        <div className="w-3/5 border-r border-zinc-900 flex flex-col overflow-y-auto scrollbar-hide bg-black">
+          <div className="p-12 space-y-16">
+            {/* SECTION 01: SOURCE */}
+            <section className="space-y-6">
+              <div className="flex justify-between items-end border-b border-zinc-900 pb-4">
+                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">
+                  Source Selection
+                </h2>
+                {step === 2 && (
                   <button
-                    onClick={() =>
-                      setEnvVars([...envVars, { key: "", value: "" }])
-                    }
-                    className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest hover:text-white transition-colors cursor-pointer py-2"
+                    onClick={() => {
+                      setStep(1);
+                      setSelectedRepo(null);
+                    }}
+                    className="text-[12px] font-bold text-zinc-600 hover:text-white uppercase transition-colors cursor-pointer"
                   >
-                    + Register Variable
+                    [ Switch Repository ]
                   </button>
-                </div>
-              </ConfigSection>
-              <div className="pt-10 border-t border-zinc-900 flex items-center gap-6">
-                <button
-                  onClick={() => setStep(1)}
-                  className="text-[11px] font-bold uppercase tracking-widest text-zinc-600 hover:text-white transition-colors cursor-pointer"
-                >
-                  [ Back ]
-                </button>
-                <button
-                  onClick={handleDeploy}
-                  disabled={
-                    deploying || checkingDocker || hasDockerfile === false
-                  }
-                  className="flex-1 bg-white text-black font-bold text-[11px] uppercase tracking-[0.2em] py-4 rounded-[2px] hover:bg-zinc-200 transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  {deploying ? "Initializing..." : "Begin Deployment →"}
-                </button>
+                )}
               </div>
+
+              {step === 1 ? (
+                <div className="space-y-4">
+                  <input
+                    type="text"
+                    placeholder="Search GitHub repositories..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full bg-zinc-900/40 border border-zinc-800 px-5 py-3 text-sm font-mono outline-none focus:border-zinc-500 transition-all rounded-sm"
+                  />
+                  <div className="border border-zinc-900 rounded-sm overflow-hidden divide-y divide-zinc-900 bg-zinc-950/20">
+                    {loading ? (
+                      <div className="p-10 text-center text-zinc-800 font-mono text-[10px] uppercase tracking-[0.3em] animate-pulse">
+                        Fetching_Registry...
+                      </div>
+                    ) : (
+                      repos
+                        .filter((r) =>
+                          r.full_name
+                            .toLowerCase()
+                            .includes(search.toLowerCase()),
+                        )
+                        .map((repo) => (
+                          <div
+                            key={repo.id}
+                            onClick={() => handleSelectRepo(repo)}
+                            className="flex items-center justify-between px-6 py-4 hover:bg-zinc-900 transition-all cursor-pointer group"
+                          >
+                            <div className="flex items-center gap-4">
+                              <img
+                                src="https://cdn.simpleicons.org/github/666666"
+                                className="w-3.5 h-3.5 group-hover:invert transition-all"
+                                alt=""
+                              />
+                              <span className="text-sm font-medium text-zinc-400 group-hover:text-white transition-colors">
+                                {repo.name}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-800 group-hover:text-zinc-500">
+                              Import
+                            </span>
+                          </div>
+                        ))
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-6 bg-zinc-900/20 border border-zinc-800 rounded-sm flex items-center gap-4">
+                  <img
+                    src="https://cdn.simpleicons.org/github/FFFFFF"
+                    className="w-5 h-5 opacity-50"
+                    alt=""
+                  />
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-white">
+                      {selectedRepo?.name}
+                    </p>
+                    <p className="text-[10px] font-mono text-zinc-600">
+                      {selectedRepo?.html_url}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* SECTION 02: CORE CONFIG */}
+            <div
+              className={
+                step === 2
+                  ? "opacity-100 space-y-16 pb-20"
+                  : "opacity-10 pointer-events-none space-y-16"
+              }
+            >
+              <section className="space-y-8">
+                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500 border-b border-zinc-900 pb-4">
+                  Service Identity
+                </h2>
+                <div className="grid grid-cols-2 gap-10">
+                  <InputField
+                    label="Project Name"
+                    value={projectName}
+                    onChange={setProjectName}
+                    placeholder="Production API"
+                  />
+                  <div className="space-y-2 group">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-700 group-focus-within:text-white transition-colors">
+                      Subdomain Prefix
+                    </label>
+                    <div className="flex items-center border-b border-zinc-800 focus-within:border-white transition-colors">
+                      <input
+                        value={subdomain}
+                        onChange={(e) =>
+                          setSubdomain(
+                            e.target.value.toLowerCase().replace(/\s+/g, "-"),
+                          )
+                        }
+                        className="flex-1 bg-transparent py-3 text-sm font-mono outline-none"
+                      />
+                      <span className="text-[10px] font-mono text-zinc-700">
+                        .hatchcloud.xyz
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-8">
+                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500 border-b border-zinc-900 pb-4">
+                  Resource Allocation
+                </h2>
+                <div className="grid grid-cols-2 gap-10">
+                  <SelectField
+                    label="Compute (vCPU)"
+                    value={cpu}
+                    options={CPU_OPTIONS}
+                    onChange={setCpu}
+                  />
+                  <SelectField
+                    label="Memory (RAM)"
+                    value={memory}
+                    options={MEMORY_OPTIONS[cpu] || []}
+                    onChange={setMemory}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-10">
+                  <InputField
+                    label="Ingress Port"
+                    value={port}
+                    onChange={setPort}
+                    placeholder="80"
+                  />
+                  <InputField
+                    label="Health Check Path"
+                    value={healthCheck}
+                    onChange={setHealthCheck}
+                    placeholder="/health"
+                  />
+                </div>
+              </section>
+
+              <section className="space-y-8">
+                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500 border-b border-zinc-900 pb-4">
+                  Build Definitions
+                </h2>
+                <div className="grid grid-cols-2 gap-10">
+                  {/* CHANGED: Dockerfile Path -> Build Context */}
+                  <InputField
+                    label="Root Directory"
+                    value={rootPath}
+                    onChange={(v) => {
+                      setRootPath(v);
+                      if (token && selectedRepo)
+                        debouncedCheck(selectedRepo.full_name, token, v);
+                    }}
+                    placeholder="./"
+                  />
+                  <InputField
+                    label="Deployment Branch"
+                    value={branch}
+                    onChange={setBranch}
+                  />
+                </div>
+              </section>
+
+              <button
+                onClick={handleDeploy}
+                disabled={deploying || !hasDockerfile}
+                className="w-full bg-white text-black py-5 font-bold uppercase tracking-[0.3em] text-[11px] rounded-sm hover:bg-zinc-200 transition-all disabled:opacity-10 shadow-[0_0_20px_rgba(255,255,255,0.05)] cursor-pointer"
+              >
+                {deploying ? "Initializing Deployment..." : "Deploy Service"}
+              </button>
             </div>
-            <aside className="lg:col-span-5">
-              <div className="sticky top-32 border border-[#1a1a1a] bg-[#050505]/80 backdrop-blur-md p-8 rounded-[2px] space-y-8 shadow-2xl">
-                <div className="space-y-1">
-                  <p className="text-[10px] font-mono text-zinc-600 uppercase tracking-widest">
-                    Reviewing_Entity
-                  </p>
-                  <h3 className="text-3xl font-medium tracking-tighter truncate">
-                    {selectedRepo?.name}
-                  </h3>
-                </div>
-                <div className="space-y-5">
-                  <SummaryRow label="Region" value="ap-south-1 (Mumbai)" />
-                  <SummaryRow label="Provisioning" value="AWS Fargate" />
-                  <SummaryRow label="Auto-SSL" value="Enabled" />
-                  <SummaryRow
-                    label="Language"
-                    value={selectedRepo?.language || "Detected"}
-                  />
-                </div>
-                <div
-                  className={`p-4 border ${hasDockerfile ? "border-zinc-800 bg-zinc-900/10" : "border-red-900/20 bg-red-900/5"} rounded-sm flex items-center gap-3 transition-colors`}
-                >
-                  <div
-                    className={`w-1.5 h-1.5 rounded-full ${checkingDocker ? "bg-zinc-600 animate-pulse" : hasDockerfile ? "bg-white shadow-[0_0_8px_white]" : "bg-red-500 shadow-[0_0_8px_red]"}`}
-                  />
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-400">
-                    {checkingDocker
-                      ? "Scanning..."
-                      : hasDockerfile
-                        ? "Dockerfile_Verified"
-                        : "Dockerfile_Missing"}
-                  </span>
-                </div>
-              </div>
-            </aside>
           </div>
-        )}
+        </div>
+
+        {/* RIGHT PANEL: BLUEPRINT MANIFEST */}
+        <div className="w-2/5 bg-[#030303] p-12 lg:p-20 flex flex-col justify-between">
+          <div className="space-y-12">
+            <div className="space-y-3">
+              <span className="text-[9px] font-mono text-zinc-700 uppercase tracking-[0.5em]">
+                Service Manifest
+              </span>
+              <h3 className="text-4xl font-bold tracking-tight uppercase truncate">
+                {projectName || "Untitled_Service"}
+              </h3>
+            </div>
+
+            <div className="space-y-6">
+              <ManifestRow
+                label="Ingress URL"
+                value={`${subdomain || "..."}.hatchcloud.xyz`}
+              />
+              <ManifestRow label="Port Protocol" value={`TCP/${port}`} />
+              <ManifestRow
+                label="CPU Allocation"
+                value={CPU_OPTIONS.find((o) => o.value === cpu)?.label || "..."}
+              />
+              <ManifestRow
+                label="Memory Limit"
+                value={
+                  MEMORY_OPTIONS[cpu]?.find((o) => o.value === memory)?.label ||
+                  "..."
+                }
+              />
+              <ManifestRow label="Root Context" value={rootPath} />
+              <ManifestRow
+                label="Build Status"
+                value={
+                  checkingDocker
+                    ? "Scanning..."
+                    : hasDockerfile
+                      ? "Verified"
+                      : "Pending"
+                }
+              />
+            </div>
+
+            {/* IMPROVED: Simple, decent message without the red */}
+            {hasDockerfile === false && !checkingDocker && (
+              <div className="p-5 border border-zinc-800 bg-zinc-900/20 rounded-sm">
+                <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest leading-relaxed">
+                  Notice: Dockerfile not detected in "{rootPath}". Deployment
+                  requires a valid Dockerfile in your root directory.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
       </main>
     </div>
   );
 }
 
-function ConfigSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+/* Internal Components */
+
+function ManifestRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="space-y-6 relative z-10">
-      <h2 className="text-[11px] font-bold uppercase tracking-[0.3em] text-zinc-500 border-b border-zinc-900 pb-2">
-        {title}
-      </h2>
-      <div className="space-y-6">{children}</div>
+    <div className="flex justify-between items-center border-b border-zinc-900 pb-4">
+      <span className="text-[10px] font-mono text-zinc-700 uppercase tracking-widest">
+        {label}
+      </span>
+      <span className="text-xs font-bold text-zinc-300">{value}</span>
     </div>
   );
 }
 
-function ConfigField({
-  label,
-  value,
-  disabled,
-}: {
-  label: string;
-  value: string;
-  disabled?: boolean;
-}) {
+function InputField({ label, value, onChange, placeholder }: any) {
   return (
-    <div className="space-y-2">
-      <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">
+    <div className="space-y-2 group">
+      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-700 group-focus-within:text-white transition-colors">
         {label}
       </label>
       <input
-        defaultValue={value}
-        disabled={disabled}
-        className={`w-full bg-transparent border-b border-zinc-800 py-2 text-sm font-mono outline-none ${disabled ? "text-zinc-600 cursor-not-allowed" : "text-white"}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full bg-transparent border-b border-zinc-800 py-3 text-sm font-mono outline-none focus:border-white transition-colors"
       />
     </div>
   );
 }
 
-function SummaryRow({ label, value }: { label: string; value: string }) {
+function SelectField({ label, value, options, onChange }: any) {
   return (
-    <div className="flex justify-between items-center border-b border-zinc-900 pb-3">
-      <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono">
+    <div className="space-y-2 group">
+      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-700 group-focus-within:text-white transition-colors">
         {label}
-      </span>
-      <span className="text-xs font-medium text-white">{value}</span>
+      </label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-transparent border-b border-zinc-800 py-3 text-sm font-mono outline-none cursor-pointer appearance-none text-zinc-400 focus:text-white"
+      >
+        {options.map((o: any) => (
+          <option key={o.value} value={o.value} className="bg-black">
+            {o.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

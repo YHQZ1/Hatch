@@ -20,7 +20,7 @@ interface Deployment {
   branch: string;
 }
 
-export default function DashboardClient() {
+export default function ConsoleClient() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [deployments, setDeployments] = useState<Record<string, Deployment[]>>(

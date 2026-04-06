@@ -1,9 +1,8 @@
 import ActivityClient from "./ActivityClient";
 
 export const metadata = {
-  title: "Activity Audit",
-  description:
-    "Global timeline of deployment events and configuration changes.",
+  title: "Trace",
+  description: "Infrastructure event stream.",
 };
 
 export default function Page() {

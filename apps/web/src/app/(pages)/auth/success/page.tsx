@@ -16,7 +16,7 @@ function AuthSuccessContent() {
 
       const t1 = setTimeout(() => setStatus("Authorizing..."), 400);
       const t2 = setTimeout(() => setStatus("Verified"), 800);
-      const t3 = setTimeout(() => router.push("/dashboard"), 1500);
+      const t3 = setTimeout(() => router.push("/console"), 1500);
 
       return () => {
         clearTimeout(t1);
@@ -40,7 +40,7 @@ function AuthSuccessContent() {
             <div className="flex items-center justify-center gap-3">
               <div className="w-1 h-1 bg-white animate-pulse"></div>
               <h1 className="text-white font-mono text-[10px] uppercase tracking-[0.6em] opacity-40">
-                Protocol_Handshake_Secure
+                Redirecting to Console
               </h1>
             </div>
 

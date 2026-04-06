@@ -100,24 +100,23 @@ function HowItWorks() {
 }
 
 const TECHNOLOGIES = [
+  // Core Runtimes
   { name: "Node.js", slug: "nodedotjs", color: "339933" },
-  { name: "Python", slug: "python", color: "3776AB" },
   { name: "Go", slug: "go", color: "00ADD8" },
+  { name: "Python", slug: "python", color: "3776AB" },
   { name: "Rust", slug: "rust", color: "FFFFFF" },
-  { name: "Spring", slug: "spring", color: "6DB33F" },
-  { name: "Ruby", slug: "ruby", color: "CC342D" },
-  { name: "Docker", slug: "docker", color: "2496ED" },
-  { name: "PHP", slug: "php", color: "777BB4" },
-  { name: "Elixir", slug: "elixir", color: "4B275F" },
-  { name: ".NET", slug: "dotnet", color: "512BD4" },
-  { name: "Bun", slug: "bun", color: "FBF0DF" },
+  
+  // Frameworks (Web Services)
   { name: "Next.js", slug: "nextdotjs", color: "FFFFFF" },
+  { name: "FastAPI", slug: "fastapi", color: "009688" },
+  { name: "NestJS", slug: "nestjs", color: "E0234E" },
+  { name: "Spring Boot", slug: "spring", color: "6DB33F" },
+
+  // Infrastructure (Private Services/Workers)
   { name: "PostgreSQL", slug: "postgresql", color: "4169E1" },
   { name: "Redis", slug: "redis", color: "FF4438" },
   { name: "RabbitMQ", slug: "rabbitmq", color: "FF6600" },
-  { name: "FastAPI", slug: "fastapi", color: "009688" },
-  { name: "Terraform", slug: "terraform", color: "844FBA" },
-  { name: "Nginx", slug: "nginx", color: "009639" },
+  { name: "NGINX", slug: "nginx", color: "009639" },
 ];
 
 function SupportedTechnologies() {
@@ -709,7 +708,7 @@ function Header() {
 
   return (
     <header
-      className="sticky top-0 z-50 w-full border-b border-[var(--border)] backdrop-blur-xl py-4"
+      className="sticky top-0 z-50 w-full border-b border-white/50 backdrop-blur-xl py-4"
       style={{ background: "#020202" }}
     >
       <div className="w-full px-8 lg:px-12 flex items-center justify-between">
@@ -760,7 +759,7 @@ function Header() {
             <img
               src="https://cdn.simpleicons.org/github/FFFFFF"
               alt="GitHub"
-              className="w-4 h-4 opacity-40 group-hover:opacity-100 transition-opacity"
+              className="w-4 h-4 opacity-80 group-hover:opacity-100 transition-opacity"
             />
             <span className="text-[13px] font-bold text-[var(--text-muted)] group-hover:text-white transition-colors">
               GitHub

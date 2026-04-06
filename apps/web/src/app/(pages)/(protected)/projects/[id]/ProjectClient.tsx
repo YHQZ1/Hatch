@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
@@ -32,7 +33,8 @@ interface Deployment {
 
 interface LogLine {
   text: string;
-  type: "info" | "success" | "error" | "muted";
+  type: "info" | "success" | "error" | "muted" | "system";
+  timestamp: string;
 }
 
 export default function ProjectDetail() {
@@ -56,14 +58,12 @@ export default function ProjectDetail() {
   const activeIdRef = useRef<string | null>(null);
 
   const scrollToBottom = useCallback(() => {
-    setTimeout(() => {
-      logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 50);
+    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [logs.length, scrollToBottom]);
+  }, [logs.length]);
 
   useEffect(() => {
     setMounted(true);
@@ -136,11 +136,7 @@ export default function ProjectDetail() {
         const line = event.data;
         if (line === "READY" || activeIdRef.current !== currentId) return;
 
-        setLogs((prev) => {
-          if (prev.length > 0 && prev[prev.length - 1].text === line)
-            return prev;
-          return [...prev, parseLogLine(line)];
-        });
+        setLogs((prev) => [...prev, parseLogLine(line)]);
 
         if (line.includes("✓ Build complete") || line.includes("Live at")) {
           updateDeploymentStatus(currentId, "live");
@@ -165,10 +161,15 @@ export default function ProjectDetail() {
   }, [activeDeployment?.id, token]);
 
   const parseLogLine = (line: string): LogLine => {
-    const isSuccess = line.startsWith("✓") || line.includes("Live at");
+    const isSuccess =
+      line.includes("✓") ||
+      line.includes("successfully") ||
+      line.includes("Live at");
     const isError =
-      line.startsWith("✗") || line.toLowerCase().includes("error");
-    const isInfo = line.startsWith("[");
+      line.includes("✗") ||
+      line.toLowerCase().includes("error") ||
+      line.toLowerCase().includes("failed");
+    const isSystem = line.startsWith("[") || line.includes("STEP");
 
     return {
       text: line,
@@ -176,9 +177,15 @@ export default function ProjectDetail() {
         ? "success"
         : isError
           ? "error"
-          : isInfo
-            ? "info"
+          : isSystem
+            ? "system"
             : "muted",
+      timestamp: new Date().toLocaleTimeString([], {
+        hour12: false,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
     };
   };
 
@@ -222,173 +229,224 @@ export default function ProjectDetail() {
     setDeploying(false);
   };
 
-  const copyLogs = () => {
-    navigator.clipboard.writeText(logs.map((l) => l.text).join("\n"));
-  };
-
   if (!mounted) return null;
 
   return (
-    <div className="relative z-10 flex flex-col lg:flex-row h-[calc(100vh-80px)] overflow-hidden bg-black text-white">
-      {loading ? (
-        <div className="flex-grow flex items-center justify-center font-mono text-[10px] uppercase tracking-widest animate-pulse">
-          Loading...
+    <div className="flex h-[calc(100vh-64px)] bg-black text-zinc-400 overflow-hidden font-sans selection:bg-white selection:text-black">
+      {/* SIDEBAR */}
+      <aside className="w-80 border-r border-white/5 flex flex-col bg-[#020202] shrink-0">
+        {/* Top Header */}
+        <div className="p-6 border-b border-white/5 space-y-6">
+          <Link
+            href="/console"
+            className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 hover:text-white transition-colors flex items-center gap-2 group"
+          >
+            <span className="transition-transform group-hover:-translate-x-1 font-bold">
+              ←
+            </span>{" "}
+            GO back to registry
+          </Link>
+          <div className="space-y-1">
+            <h1 className="text-xl font-bold text-white tracking-tighter truncate">
+              {project?.repo_name}
+            </h1>
+            <p className="text-[10px] font-mono text-zinc-700 uppercase tracking-widest truncate">
+              {project?.repo_url.split("github.com/")[1] ?? "Repository"}
+            </p>
+          </div>
+
+          <button
+            onClick={handleDeploy}
+            disabled={deploying}
+            className="w-full bg-white text-black text-[10px] font-bold uppercase tracking-widest py-3 hover:bg-zinc-200 transition-all disabled:opacity-20 cursor-pointer"
+          >
+            {deploying ? "Deploying" : "Redeploy"}
+          </button>
         </div>
-      ) : (
-        <>
-          <aside className="w-full lg:w-[380px] border-r border-zinc-900 flex flex-col shrink-0 bg-[#050505]">
-            <div className="px-8 py-6 border-b border-zinc-900 space-y-4">
+
+        {/* History Scroll Area */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          <div className="px-6 py-4 text-[9px] font-bold font-mono text-zinc-800 uppercase tracking-[0.3em]">
+            Event History
+          </div>
+          <div className="divide-y divide-white/[0.02]">
+            {deployments.map((dep) => (
               <Link
-                href="/dashboard"
-                className="font-mono text-[9px] uppercase tracking-widest text-zinc-500 hover:text-white transition-colors"
+                key={dep.id}
+                // This is the magic part: it pushes the new URL to the browser
+                href={`/projects/${projectId}/deployments/${dep.id}`}
+                className={`block w-full px-6 py-5 text-left transition-all cursor-pointer ${
+                  activeDeployment?.id === dep.id
+                    ? "bg-white/[0.03] border-l-2 border-white"
+                    : "hover:bg-white/[0.01] border-l-2 border-transparent"
+                }`}
               >
-                ← Projects
-              </Link>
-              <div>
-                <p className="font-mono text-[8px] text-zinc-600 uppercase tracking-widest">
-                  {project?.repo_url.split("/")[3] ?? "—"}
-                </p>
-                <h1 className="text-xl font-medium tracking-tighter">
-                  {project?.repo_name}
-                </h1>
-              </div>
-              <StatusBadge status={deployments[0]?.status ?? "none"} />
-            </div>
-
-            <div className="px-8 py-5 border-b border-zinc-900">
-              <button
-                onClick={handleDeploy}
-                disabled={deploying}
-                className="w-full h-12 bg-white text-black font-mono text-[11px] font-bold uppercase tracking-widest hover:bg-zinc-200 transition-all disabled:opacity-40"
-              >
-                {deploying ? "Deploying..." : "Deploy →"}
-              </button>
-            </div>
-
-            <div className="flex-grow overflow-y-auto no-scrollbar">
-              <div className="px-8 py-4 border-b border-zinc-900 font-mono text-[8px] text-zinc-600 uppercase tracking-widest">
-                History
-              </div>
-              <div className="divide-y divide-zinc-900">
-                {deployments.map((dep) => (
-                  <button
-                    key={dep.id}
-                    onClick={() => setActiveDeployment(dep)}
-                    className={`w-full px-8 py-4 text-left transition-colors hover:bg-zinc-900/50 ${activeDeployment?.id === dep.id ? "bg-zinc-900" : ""}`}
+                <div className="flex items-center justify-between mb-2">
+                  <span
+                    className={`text-[9px] font-bold uppercase tracking-widest ${getStatusColor(dep.status)}`}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <StatusBadge status={dep.status} small />
-                      <span className="font-mono text-[8px] text-zinc-600">
-                        {new Date(dep.created_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-                    </div>
-                    <p className="font-mono text-[9px] text-zinc-500 mt-1">
-                      {dep.id.slice(0, 8)}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </aside>
-
-          <main className="flex-grow flex flex-col overflow-hidden bg-[#050505]">
-            <div className="px-6 py-4 border-b border-zinc-900 flex items-center justify-between bg-black">
-              <span className="font-mono text-[9px] text-zinc-500 uppercase tracking-widest">
-                {activeDeployment
-                  ? `Log — ${activeDeployment.id.slice(0, 8)}`
-                  : "Log — Awaiting"}
-              </span>
-              {logs.length > 0 && (
-                <button
-                  onClick={copyLogs}
-                  className="font-mono text-[9px] text-zinc-500 hover:text-white uppercase tracking-widest border border-zinc-800 px-3 py-1 rounded-sm transition-colors"
-                >
-                  Copy Logs
-                </button>
-              )}
-            </div>
-
-            <div className="flex-grow overflow-y-auto p-6 font-mono text-sm scrollbar-hide">
-              {logs.length === 0 ? (
-                <div className="h-full flex items-center justify-center opacity-30 font-mono text-[10px] uppercase tracking-widest text-zinc-500">
-                  Select deployment to view logs
+                    {dep.status}
+                  </span>
+                  <span className="font-mono text-[9px] text-zinc-700 font-bold">
+                    {new Date(dep.created_at).toLocaleDateString([], {
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>
                 </div>
-              ) : (
-                <div className="space-y-1.5">
-                  {logs.map((log, i) => (
-                    <LogEntry key={`${activeDeployment?.id}-${i}`} log={log} />
-                  ))}
-                  <div ref={logsEndRef} />
+                <div className="flex justify-between items-center">
+                  <p className="font-mono text-[10px] text-zinc-500 truncate">
+                    SHA: {dep.id.slice(0, 8)}
+                  </p>
+                  <span className="text-[8px] font-bold text-zinc-800 uppercase tracking-tighter">
+                    View Logs →
+                  </span>
                 </div>
-              )}
-            </div>
+              </Link>
+            ))}
+          </div>
+        </div>
 
-            {activeDeployment?.url && activeDeployment.status === "live" && (
-              <div className="px-6 py-4 border-t border-zinc-900 bg-black flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-2 text-emerald-400 font-mono text-[9px] uppercase tracking-widest">
-                  <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />{" "}
-                  Live
+        {/* Bottom Settings Anchor */}
+        <div className="p-4 border-t border-white/5 bg-[#050505]">
+          <Link
+            href={`/projects/${projectId}/settings`}
+            className="flex items-center gap-3 px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 hover:text-white hover:bg-white/5 transition-all rounded-sm group cursor-pointer"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-zinc-600 group-hover:text-white transition-colors"
+            >
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            Service Settings
+          </Link>
+        </div>
+      </aside>
+
+      {/* TERMINAL */}
+      <main className="flex-1 flex flex-col bg-black relative">
+        <div className="px-8 py-4 border-b border-white/5 flex items-center justify-between bg-[#050505] z-10 shrink-0">
+          <div className="flex items-center gap-4">
+            <div
+              className={`w-1.5 h-1.5 rounded-full ${activeDeployment?.status === "live" ? "bg-zinc-400" : "bg-zinc-800 animate-pulse"}`}
+            />
+            <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-600 font-bold">
+              Deployment: {activeDeployment?.id.slice(0, 8) ?? "INITIALIZING"}
+            </span>
+          </div>
+          <div className="flex gap-8">
+            <button
+              onClick={() => setLogs([])}
+              className="text-[10px] font-bold text-zinc-500 hover:text-white uppercase tracking-widest transition-colors cursor-pointer"
+            >
+              Clear Logs
+            </button>
+            <button
+              onClick={() =>
+                navigator.clipboard.writeText(
+                  logs.map((l) => l.text).join("\n"),
+                )
+              }
+              className="text-[10px] font-bold text-zinc-500 hover:text-white uppercase tracking-widest transition-colors cursor-pointer"
+            >
+              Copy Output
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-10 font-mono scroll-smooth bg-black scrollbar-hide">
+          {logs.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center opacity-10">
+              <p className="text-[10px] font-bold uppercase tracking-[0.5em]">
+                No Output Detected
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {logs.map((log, i) => (
+                <div key={i} className="flex gap-6 group">
+                  <span className="w-16 shrink-0 text-zinc-800 text-[10px] pt-1 select-none font-bold">
+                    {log.timestamp}
+                  </span>
+                  <p
+                    className={`text-[13px] leading-relaxed break-all ${getLogTypeColor(log.type)}`}
+                  >
+                    {renderLogText(log.text)}
+                  </p>
                 </div>
-                <a
-                  href={`http://${activeDeployment.url}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-mono text-xs text-white hover:underline"
-                >
-                  {activeDeployment.url} ↗
-                </a>
-              </div>
-            )}
-          </main>
-        </>
-      )}
+              ))}
+              <div ref={logsEndRef} />
+            </div>
+          )}
+        </div>
+      </main>
+
+      <style jsx global>{`
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #111;
+        }
+      `}</style>
     </div>
   );
 }
 
-function StatusBadge({ status, small }: { status: string; small?: boolean }) {
+/* HELPERS */
+
+function renderLogText(text: string) {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+
+  return parts.map((part, i) => {
+    if (part.match(urlRegex)) {
+      return (
+        <a
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-white font-bold underline underline-offset-4 decoration-zinc-800 hover:decoration-white transition-all cursor-pointer"
+        >
+          {part}
+        </a>
+      );
+    }
+    return part;
+  });
+}
+
+function getStatusColor(status: string) {
   const s = status.toLowerCase();
-  const isLive = s === "live";
-  const isPending = ["building", "deploying", "queued"].includes(s);
-  const colorClass = isLive
-    ? "border-emerald-900/30 text-emerald-400"
-    : isPending
-      ? "border-yellow-900/40 text-yellow-500"
-      : "border-zinc-800 text-zinc-500";
-  const dotClass = isLive
-    ? "bg-emerald-400"
-    : isPending
-      ? "bg-yellow-500 animate-pulse"
-      : "bg-zinc-700";
-
-  return (
-    <div
-      className={`flex items-center gap-1.5 border px-2 py-1 font-mono uppercase tracking-widest ${small ? "text-[7px]" : "text-[8px]"} ${colorClass}`}
-    >
-      <span className={`w-1 h-1 rounded-full ${dotClass}`} />
-      {status}
-    </div>
-  );
+  if (s === "live") return "text-white";
+  if (["building", "deploying", "queued"].includes(s))
+    return "text-zinc-600 animate-pulse";
+  if (s === "failed") return "text-zinc-800";
+  return "text-zinc-700";
 }
 
-function LogEntry({ log }: { log: LogLine }) {
-  const color =
-    log.type === "success"
-      ? "text-emerald-400"
-      : log.type === "error"
-        ? "text-red-400"
-        : "text-zinc-400";
-  return (
-    <div
-      className={`flex items-start gap-3 ${color} font-mono text-[12px] leading-relaxed`}
-    >
-      <span className="text-zinc-800 shrink-0 select-none">
-        [{new Date().toISOString().split("T")[1].slice(0, 8)}]
-      </span>
-      <span>{log.text}</span>
-    </div>
-  );
+function getLogTypeColor(type: string) {
+  switch (type) {
+    case "success":
+      return "text-zinc-200 font-bold";
+    case "error":
+      return "text-zinc-600 italic";
+    case "system":
+      return "text-zinc-500 font-bold";
+    default:
+      return "text-zinc-700";
+  }
 }

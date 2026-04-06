@@ -1,40 +1,26 @@
-/* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
-interface Project {
-  id: string;
-  repo_name: string;
-  repo_url: string;
-  created_at: string;
-}
-
-interface EnvVar {
-  key: string;
-  value: string;
-}
+type Tab = "general" | "build" | "compute" | "vars" | "danger";
 
 export default function ProjectSettingsClient() {
   const { id } = useParams();
   const router = useRouter();
-  const [project, setProject] = useState<Project | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>("general");
+  const [project, setProject] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [token, setToken] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
-  // env vars state
-  const [newKey, setNewKey] = useState("");
-  const [newValue, setNewValue] = useState("");
-  const [envVars, setEnvVars] = useState<EnvVar[]>([]);
-  const [savingEnv, setSavingEnv] = useState(false);
-
-  // delete state
-  const [deleting, setDeleting] = useState(false);
-  const [confirmText, setConfirmText] = useState("");
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [projectName, setProjectName] = useState("");
+  const [rootDirectory, setRootDirectory] = useState("./");
+  const [cpu, setCpu] = useState("512");
+  const [memory, setMemory] = useState("1024");
 
   useEffect(() => {
     setMounted(true);
@@ -43,7 +29,6 @@ export default function ProjectSettingsClient() {
       router.push("/auth");
       return;
     }
-    setToken(t);
 
     fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/projects/${id}`, {
       headers: { Authorization: `Bearer ${t}` },
@@ -51,290 +36,313 @@ export default function ProjectSettingsClient() {
       .then((r) => r.json())
       .then((data) => {
         setProject(data);
+        setProjectName(data.repo_name);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [id, router]);
+  }, [id]);
 
-  const handleAddEnvVar = () => {
-    if (!newKey.trim()) return;
-    setEnvVars((prev) => [...prev, { key: newKey.trim(), value: newValue }]);
-    setNewKey("");
-    setNewValue("");
-  };
-
-  const handleRemoveEnvVar = (i: number) => {
-    setEnvVars((prev) => prev.filter((_, idx) => idx !== i));
-  };
-
-  const handleDeleteProject = async () => {
-    if (!token || confirmText !== project?.repo_name) return;
-    setDeleting(true);
-
-    const res = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${id}`,
-      {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    );
-
-    if (res.ok) {
-      router.push("/dashboard");
-    } else {
-      setDeleting(false);
-      setShowConfirm(false);
-    }
-  };
-
-  if (!mounted) return <div className="min-h-screen bg-[var(--bg)]" />;
+  if (!mounted) return null;
 
   return (
-    <div className="min-h-screen w-full bg-[var(--bg)] text-[var(--text-main)] flex flex-col selection:bg-white selection:text-black">
-      <main className="flex-grow px-8 lg:px-12 py-12 max-w-[860px]">
-        {loading ? (
-          <div className="flex items-center justify-center h-48">
-            <span className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-widest animate-pulse">
-              Loading...
-            </span>
-          </div>
-        ) : !project ? (
-          <div className="flex flex-col items-center justify-center h-48 gap-4">
-            <p className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-widest">
-              Project not found
+    <div className="flex h-[calc(100vh-64px)] bg-black text-zinc-400 overflow-hidden font-sans selection:bg-white selection:text-black">
+      {/* SIDEBAR: NAV & CONTEXT (Matching ProjectDetail) */}
+      <aside className="w-80 border-r border-white/5 flex flex-col bg-[#020202] shrink-0">
+        <div className="p-6 border-b border-white/5 space-y-6">
+          <Link
+            href={`/projects/${id}`}
+            className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 hover:text-white transition-colors flex items-center gap-2 group font-bold"
+          >
+            <span className="transition-transform group-hover:-translate-x-1">
+              ←
+            </span>{" "}
+            Back to Deployment Console
+          </Link>
+          <div className="space-y-1">
+            <h1 className="text-xl font-bold text-white tracking-tighter truncate">
+              {project?.repo_name ?? "Loading..."}
+            </h1>
+            <p className="text-[10px] font-mono text-zinc-700 uppercase tracking-widest">
+              Configuration_Mode
             </p>
-            <Link
-              href="/dashboard"
-              className="font-mono text-xs text-white underline"
-            >
-              ← Back to dashboard
-            </Link>
           </div>
-        ) : (
-          <div className="space-y-16">
-            {/* ── HEADER ── */}
-            <header className="space-y-2">
-              <div className="flex items-center gap-2 font-mono text-[10px] text-[#333] uppercase tracking-[0.3em]">
-                <Link
-                  href="/dashboard"
-                  className="hover:text-white transition-colors"
-                >
-                  Projects
-                </Link>
-                <span>/</span>
-                <Link
-                  href={`/projects/${id}`}
-                  className="hover:text-white transition-colors"
-                >
-                  {project.repo_name}
-                </Link>
-                <span>/</span>
-                <span className="text-white">Settings</span>
-              </div>
-              <h1 className="text-5xl font-bold text-white tracking-tighter uppercase">
-                Settings
-              </h1>
-            </header>
+        </div>
 
-            {/* ── PROJECT INFO ── */}
-            <section className="space-y-6">
-              <h2 className="font-mono text-[9px] uppercase tracking-[0.4em] text-[#333] border-b border-[var(--border)] pb-3">
-                Project Info
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8">
-                <InfoField label="Repository" value={project.repo_name} />
-                <InfoField
-                  label="Project ID"
-                  value={project.id.slice(0, 8) + "..."}
-                />
-                <InfoField
-                  label="Source"
-                  value={project.repo_url.replace("https://", "")}
-                />
-                <InfoField
-                  label="Created"
-                  value={new Date(project.created_at).toLocaleDateString(
-                    "en-US",
-                    { month: "short", day: "numeric", year: "numeric" },
-                  )}
-                />
-              </div>
-            </section>
+        {/* Setting Categories */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          <div className="px-6 py-4 text-[9px] font-bold font-mono text-zinc-800 uppercase tracking-[0.3em]">
+            Categories
+          </div>
+          <div className="divide-y divide-white/[0.02]">
+            <NavTab
+              active={activeTab === "general"}
+              label="General Registry"
+              onClick={() => setActiveTab("general")}
+            />
+            <NavTab
+              active={activeTab === "build"}
+              label="Build Pipeline"
+              onClick={() => setActiveTab("build")}
+            />
+            <NavTab
+              active={activeTab === "compute"}
+              label="Resource Scaling"
+              onClick={() => setActiveTab("compute")}
+            />
+            <NavTab
+              active={activeTab === "vars"}
+              label="Runtime Variables"
+              onClick={() => setActiveTab("vars")}
+            />
+          </div>
+        </div>
 
-            {/* ── AUTO DEPLOY ── */}
-            <section className="space-y-6">
-              <h2 className="font-mono text-[9px] uppercase tracking-[0.4em] text-[#333] border-b border-[var(--border)] pb-3">
-                Automations
-              </h2>
-              <div className="flex items-center justify-between p-6 bg-[var(--surface)] border border-[var(--border)]">
-                <div className="space-y-1">
-                  <p className="text-sm font-bold text-white">
-                    GitHub Auto-Deploy
-                  </p>
-                  <p className="font-mono text-[11px] text-[var(--text-muted)]">
-                    Automatically deploy on push to the default branch.
-                    <span className="text-yellow-500/70 ml-2">Coming soon</span>
-                  </p>
+        {/* Footer-aligned Danger Zone */}
+        <div className="p-4 border-t border-white/5 bg-[#050505]">
+          <button
+            onClick={() => setActiveTab("danger")}
+            className={`w-full flex items-center gap-3 px-4 py-3 text-[10px] font-bold uppercase tracking-widest transition-all rounded-sm group cursor-pointer 
+              ${activeTab === "danger" ? "bg-white text-black" : "text-zinc-600 hover:text-red-500 hover:bg-white/5"}`}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+            Destroy Service
+          </button>
+        </div>
+      </aside>
+
+      {/* MAIN CONFIGURATION PANEL */}
+      <main className="flex-1 flex flex-col bg-black relative">
+        <div className="px-8 py-4 border-b border-white/5 flex items-center justify-between bg-[#050505] z-10 shrink-0">
+          <div className="flex items-center gap-4"></div>
+          <div className="flex gap-8">
+            <button className="text-[10px] font-bold text-zinc-500 hover:text-white uppercase tracking-widest transition-colors cursor-pointer">
+              Discard Changes
+            </button>
+            <button className="text-[10px] font-bold text-white hover:underline uppercase tracking-widest transition-colors cursor-pointer">
+              Apply Changes
+            </button>
+          </div>
+        </div>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto p-12 lg:p-20 bg-black scrollbar-hide">
+          <div className="max-w-4xl space-y-24 animate-in fade-in duration-500">
+            {activeTab === "general" && (
+              <div className="space-y-16">
+                <header className="space-y-3">
+                  <span className="text-[9px] font-mono text-zinc-700 uppercase tracking-[0.5em]">
+                    Service_Identity
+                  </span>
+                  <h2 className="text-4xl font-bold tracking-tight uppercase">
+                    General Registry
+                  </h2>
+                </header>
+                <div className="grid grid-cols-1 gap-12">
+                  <ConfigField
+                    label="Project Name"
+                    value={projectName}
+                    onChange={setProjectName}
+                  />
+                  <div className="grid grid-cols-2 gap-12">
+                    <StaticField
+                      label="Registry ID"
+                      value={project?.id.slice(0, 20)}
+                    />
+                    <StaticField
+                      label="Created At"
+                      value={new Date(project?.created_at).toLocaleDateString()}
+                    />
+                  </div>
                 </div>
-                <div className="font-mono text-[9px] text-[#333] border border-[var(--border)] px-3 py-1.5 uppercase tracking-widest">
-                  Not configured
+              </div>
+            )}
+
+            {activeTab === "build" && (
+              <div className="space-y-16">
+                <header className="space-y-3">
+                  <span className="text-[9px] font-mono text-zinc-700 uppercase tracking-[0.5em]">
+                    Build_Context
+                  </span>
+                  <h2 className="text-4xl font-bold tracking-tight uppercase">
+                    Pipeline Logic
+                  </h2>
+                </header>
+                <ConfigField
+                  label="Root Directory"
+                  value={rootDirectory}
+                  onChange={setRootDirectory}
+                  placeholder="./"
+                />
+              </div>
+            )}
+
+            {activeTab === "compute" && (
+              <div className="space-y-16">
+                <header className="space-y-3">
+                  <span className="text-[9px] font-mono text-zinc-700 uppercase tracking-[0.5em]">
+                    Hardware_Allocation
+                  </span>
+                  <h2 className="text-4xl font-bold tracking-tight uppercase">
+                    Resource Scaling
+                  </h2>
+                </header>
+                <div className="grid grid-cols-2 gap-12">
+                  <SelectField
+                    label="vCPU Units"
+                    value={cpu}
+                    onChange={setCpu}
+                    options={[
+                      { l: "0.25 vCPU", v: "256" },
+                      { l: "0.5 vCPU", v: "512" },
+                    ]}
+                  />
+                  <SelectField
+                    label="Memory Limit"
+                    value={memory}
+                    onChange={setMemory}
+                    options={[
+                      { l: "512 MB", v: "512" },
+                      { l: "1 GB", v: "1024" },
+                    ]}
+                  />
                 </div>
               </div>
-            </section>
+            )}
 
-            {/* ── ENVIRONMENT VARIABLES ── */}
-            <section className="space-y-6">
-              <h2 className="font-mono text-[9px] uppercase tracking-[0.4em] text-[#333] border-b border-[var(--border)] pb-3">
-                Environment Variables
-              </h2>
-              <p className="font-mono text-[10px] text-[#333] uppercase tracking-wider">
-                Variables set here will apply to the next deployment of this
-                project.
-              </p>
-
-              {/* existing env vars */}
-              {envVars.length > 0 && (
-                <div className="space-y-px bg-[var(--border)]">
-                  {envVars.map((e, i) => (
-                    <div
-                      key={i}
-                      className="grid grid-cols-[1fr_1fr_auto] gap-px bg-[var(--border)]"
-                    >
-                      <div className="h-10 bg-[var(--bg)] px-4 flex items-center font-mono text-xs text-white">
-                        {e.key}
-                      </div>
-                      <div className="h-10 bg-[var(--bg)] px-4 flex items-center font-mono text-xs text-[var(--text-muted)]">
-                        ••••••••
-                      </div>
-                      <button
-                        onClick={() => handleRemoveEnvVar(i)}
-                        className="h-10 w-10 bg-[var(--bg)] hover:bg-red-950 flex items-center justify-center text-[#444] hover:text-red-400 transition-colors font-mono text-xs"
-                      >
-                        ×
-                      </button>
+            {activeTab === "vars" && (
+              <div className="space-y-16">
+                <header className="space-y-3">
+                  <span className="text-[9px] font-mono text-zinc-700 uppercase tracking-[0.5em]">
+                    Secure_Secrets
+                  </span>
+                  <h2 className="text-4xl font-bold tracking-tight uppercase">
+                    Runtime Variables
+                  </h2>
+                </header>
+                <div className="border border-white/5 divide-y divide-white/5 bg-[#050505]">
+                  {[1, 2].map((i) => (
+                    <div key={i} className="flex justify-between p-6">
+                      <span className="font-mono text-xs text-zinc-500 font-bold">
+                        VARIABLE_{i}
+                      </span>
+                      <span className="font-mono text-xs text-zinc-800 tracking-widest">
+                        ••••••••••••••••
+                      </span>
                     </div>
                   ))}
                 </div>
-              )}
-
-              {/* add new env var */}
-              <div className="grid grid-cols-[1fr_1fr_auto] gap-px bg-[var(--border)] border border-[var(--border)]">
-                <input
-                  placeholder="KEY"
-                  value={newKey}
-                  onChange={(e) => setNewKey(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleAddEnvVar()}
-                  className="h-11 bg-[var(--bg)] px-4 font-mono text-xs text-white placeholder-[#333] outline-none focus:bg-[var(--surface)]"
-                />
-                <input
-                  placeholder="value"
-                  type="text"
-                  value={newValue}
-                  onChange={(e) => setNewValue(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleAddEnvVar()}
-                  className="h-11 bg-[var(--bg)] px-4 font-mono text-xs text-white placeholder-[#333] outline-none focus:bg-[var(--surface)]"
-                />
-                <button
-                  onClick={handleAddEnvVar}
-                  disabled={!newKey.trim()}
-                  className="h-11 px-4 bg-white text-black font-mono text-[9px] uppercase tracking-widest hover:bg-[#e5e5e5] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  Add
-                </button>
               </div>
+            )}
 
-              {envVars.length > 0 && (
-                <button
-                  onClick={() => {
-                    setSavingEnv(true);
-                    setTimeout(() => setSavingEnv(false), 1000);
-                  }}
-                  disabled={savingEnv}
-                  className="font-mono text-[9px] text-white border border-[var(--border)] px-4 py-2 hover:bg-[var(--surface)] transition-colors uppercase tracking-widest disabled:opacity-40"
-                >
-                  {savingEnv ? "Saved ✓" : "Save Variables"}
-                </button>
-              )}
-
-              <p className="font-mono text-[9px] text-[#333] italic">
-                Variables will be injected into the ECS task at runtime on next
-                deploy.
-              </p>
-            </section>
-
-            {/* ── DANGER ZONE ── */}
-            <section className="pt-4">
-              <div className="border border-[var(--border)] bg-[var(--surface)] p-8 space-y-6">
-                <div className="space-y-1">
-                  <p className="text-sm font-bold text-white uppercase tracking-tight">
-                    Destroy Project
+            {activeTab === "danger" && (
+              <div className="space-y-16">
+                <header className="space-y-3">
+                  <span className="text-[9px] font-mono text-zinc-700 uppercase tracking-[0.5em]">
+                    Terminal_Action
+                  </span>
+                  <h2 className="text-4xl font-bold tracking-tight uppercase text-red-600">
+                    Danger Zone
+                  </h2>
+                </header>
+                <div className="p-10 border border-zinc-900 bg-white/[0.01] space-y-8">
+                  <p className="text-sm font-bold text-zinc-400">
+                    Permanently remove this service from the registry. This
+                    action is final.
                   </p>
-                  <p className="font-mono text-[11px] text-[var(--text-muted)] leading-relaxed max-w-xl">
-                    Permanently delete this project and all its deployments from
-                    the database. Running ECS services must be cleaned up
-                    manually from AWS.
-                  </p>
-                </div>
-
-                {!showConfirm ? (
-                  <button
-                    onClick={() => setShowConfirm(true)}
-                    className="px-6 py-2 border border-[var(--border)] text-[var(--text-muted)] font-mono text-[10px] uppercase tracking-widest hover:border-red-600 hover:text-red-500 transition-all"
-                  >
-                    Delete Project
+                  <button className="w-full bg-white text-black py-4 font-bold uppercase tracking-[0.2em] text-[10px] hover:invert transition-all">
+                    Initialize Deletion Sequence
                   </button>
-                ) : (
-                  <div className="space-y-4 border border-red-900/40 bg-red-900/5 p-6">
-                    <p className="font-mono text-[10px] text-red-400 uppercase tracking-wider">
-                      Type{" "}
-                      <span className="text-white">{project.repo_name}</span> to
-                      confirm deletion
-                    </p>
-                    <input
-                      type="text"
-                      value={confirmText}
-                      onChange={(e) => setConfirmText(e.target.value)}
-                      placeholder={project.repo_name}
-                      className="w-full bg-transparent border border-red-900/40 px-4 h-10 font-mono text-xs text-white placeholder-[#333] outline-none focus:border-red-500"
-                    />
-                    <div className="flex items-center gap-4">
-                      <button
-                        onClick={handleDeleteProject}
-                        disabled={confirmText !== project.repo_name || deleting}
-                        className="px-6 py-2 bg-red-600 text-white font-mono text-[10px] uppercase tracking-widest hover:bg-red-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                      >
-                        {deleting ? "Deleting..." : "Confirm Delete"}
-                      </button>
-                      <button
-                        onClick={() => {
-                          setShowConfirm(false);
-                          setConfirmText("");
-                        }}
-                        className="font-mono text-[10px] text-[#444] hover:text-white transition-colors uppercase tracking-widest"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
+                </div>
               </div>
-            </section>
+            )}
           </div>
-        )}
+        </div>
       </main>
+
+      <style jsx global>{`
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #111;
+        }
+      `}</style>
     </div>
   );
 }
 
-function InfoField({ label, value }: { label: string; value: string }) {
+/* UI COMPONENTS */
+
+function NavTab({ active, label, onClick }: any) {
   return (
-    <div className="space-y-2">
-      <p className="font-mono text-[9px] text-[#333] uppercase tracking-widest">
+    <button
+      onClick={onClick}
+      className={`w-full px-6 py-5 text-left transition-all cursor-pointer border-l-2 text-[10px] font-bold uppercase tracking-widest
+        ${active ? "bg-white/[0.03] border-white text-white" : "hover:bg-white/[0.01] border-transparent text-zinc-600"}`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ConfigField({ label, value, onChange, placeholder }: any) {
+  return (
+    <div className="space-y-4">
+      <label className="text-[10px] font-mono text-zinc-700 uppercase tracking-widest font-bold">
         {label}
-      </p>
-      <p className="text-sm font-medium text-white border-b border-[var(--border)] py-1.5 font-mono">
-        {value}
-      </p>
+      </label>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full bg-transparent border-b border-zinc-900 py-4 text-2xl font-bold text-zinc-300 outline-none focus:border-white transition-all"
+      />
+    </div>
+  );
+}
+
+function SelectField({ label, value, options, onChange }: any) {
+  return (
+    <div className="space-y-4">
+      <label className="text-[10px] font-mono text-zinc-700 uppercase tracking-widest font-bold">
+        {label}
+      </label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-transparent border-b border-zinc-900 py-4 text-2xl font-bold text-zinc-300 outline-none cursor-pointer appearance-none"
+      >
+        {options.map((o: any) => (
+          <option key={o.v} value={o.v} className="bg-black text-sm">
+            {o.l}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function StaticField({ label, value }: any) {
+  return (
+    <div className="space-y-4">
+      <label className="text-[10px] font-mono text-zinc-800 uppercase tracking-widest font-bold">
+        {label}
+      </label>
+      <p className="text-xl font-mono text-zinc-600 font-bold">{value}</p>
     </div>
   );
 }

@@ -1,20 +1,14 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { useEffect, useState } from "react";
 
-interface ActivityLog {
-  id: string;
-  type: string;
-  message: string;
-  created_at: string;
-}
-
 export default function ActivityClient() {
-  const [events, setEvents] = useState<ActivityLog[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchActivity = async () => {
+    const fetchData = async () => {
       const token = localStorage.getItem("hatch_token");
       try {
         const res = await fetch(
@@ -26,91 +20,85 @@ export default function ActivityClient() {
         const data = await res.json();
         setEvents(Array.isArray(data) ? data : []);
       } catch (err) {
-        console.error("Failed to fetch activity:", err);
+        console.error(err);
       } finally {
         setLoading(false);
       }
     };
-
-    fetchActivity();
+    fetchData();
   }, []);
 
-  // Helper to format "2 minutes ago" style
-  const timeAgo = (dateString: string) => {
-    const now = new Date();
-    const past = new Date(dateString);
-    const diffInMs = now.getTime() - past.getTime();
-
-    const minutes = Math.floor(diffInMs / (1000 * 60));
-    const hours = Math.floor(diffInMs / (1000 * 60 * 60));
-    const days = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
-
-    if (minutes < 1) return "just now";
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    return `${days}d ago`;
-  };
-
-  if (loading) {
-    return (
-      <div className="p-10 max-w-[1200px] mx-auto">
-        <p className="text-[10px] font-mono text-neutral-600 animate-pulse">
-          SYNCING_AUDIT_TRAIL...
-        </p>
-      </div>
-    );
-  }
+  if (loading) return <div className="h-screen bg-black" />;
 
   return (
-    <div className="p-10 max-w-[1200px] mx-auto space-y-12">
-      <header className="space-y-2">
-        <p className="text-[10px] font-mono text-neutral-600 uppercase tracking-[0.4em]">
-          Audit Trail
-        </p>
-        <h1 className="text-6xl font-bold text-white tracking-tighter uppercase leading-none">
-          Activity
+    <div className="min-h-screen bg-black text-white font-sans selection:bg-white selection:text-black">
+      {/* HEADER: Simple & Clean */}
+      <header className="w-full border-b border-white/5 px-8 py-10">
+        <h1 className="text-5xl font-medium tracking-tight italic">
+          Recent Activity
         </h1>
       </header>
 
-      <div className="divide-y divide-[#1a1a1a] border-t border-[#1a1a1a]">
+      {/* THE LIST: Full Width Grid */}
+      <main className="w-full">
+        {/* Table Header Labels */}
+        <div className="w-full grid grid-cols-12 px-8 py-4 border-b border-white/5 bg-white/[0.02] text-[10px] font-mono uppercase tracking-[0.2em] text-zinc-600">
+          <div className="col-span-2">Timestamp</div>
+          <div className="col-span-1 text-center">Type</div>
+          <div className="col-span-7 px-10">Event Message</div>
+          <div className="col-span-2 text-right">Reference ID</div>
+        </div>
+
         {events.length > 0 ? (
-          events.map((e) => (
-            <div
-              key={e.id}
-              className="py-8 grid grid-cols-[100px_1fr_100px] items-center gap-8 group"
-            >
-              <span
-                className={`text-[9px] font-mono uppercase tracking-widest border px-2 py-1 transition-colors ${
-                  e.type === "DELETE"
-                    ? "border-red-900/50 text-red-500"
-                    : e.type === "CREATE"
-                      ? "border-emerald-900/50 text-emerald-500"
-                      : "border-neutral-900 text-neutral-600"
-                }`}
+          <div className="flex flex-col">
+            {events.map((e) => (
+              <div
+                key={e.id}
+                className="w-full grid grid-cols-12 px-8 py-6 items-center border-b border-white/[0.03] hover:bg-white/[0.01] transition-colors group"
               >
-                {e.type}
-              </span>
-              <div className="space-y-1">
-                <p className="text-[15px] font-medium text-white tracking-tight">
-                  {e.message}
-                </p>
-                <p className="text-[10px] text-neutral-600 font-mono uppercase italic">
-                  System Event
-                </p>
+                {/* 1. TIME */}
+                <div className="col-span-2 font-mono text-[11px] text-zinc-500">
+                  {new Date(e.created_at).toLocaleTimeString([], {
+                    hour12: false,
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })}
+                </div>
+
+                {/* 2. TYPE */}
+                <div className="col-span-1 flex justify-center">
+                  <span
+                    className={`text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 border ${e.type === "DELETE" ? "border-zinc-800 text-zinc-700" : "border-zinc-700 text-zinc-400"}`}
+                  >
+                    {e.type}
+                  </span>
+                </div>
+
+                {/* 3. MESSAGE */}
+                <div className="col-span-7 px-10">
+                  <p className="text-[14px] text-zinc-300 group-hover:text-white transition-colors tracking-tight">
+                    {e.message}
+                  </p>
+                </div>
+
+                {/* 4. ID */}
+                <div className="col-span-2 text-right font-mono text-[10px] text-zinc-700">
+                  {e.id.split("-")[0]}
+                </div>
               </div>
-              <span className="text-[11px] text-neutral-700 font-mono text-right">
-                {timeAgo(e.created_at)}
-              </span>
-            </div>
-          ))
+            ))}
+          </div>
         ) : (
-          <div className="py-20 text-center">
-            <p className="text-zinc-600 font-mono text-xs uppercase tracking-widest">
-              No activity recorded yet.
-            </p>
+          <div className="py-20 text-center text-zinc-800 font-mono text-xs uppercase tracking-widest">
+            No system activity recorded.
           </div>
         )}
-      </div>
+      </main>
+
+      <footer className="p-8 text-[9px] font-mono text-zinc-900 uppercase tracking-widest">
+        End of Audit Trail
+      </footer>
     </div>
   );
 }

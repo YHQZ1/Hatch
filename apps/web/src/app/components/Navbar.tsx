@@ -52,7 +52,7 @@ export default function Navbar() {
         {/* LEFT SECTION */}
         <div className="flex items-center h-full gap-10">
           <Link
-            href="/dashboard"
+            href="/console"
             className="flex items-center gap-3.5 group cursor-pointer"
           >
             {/* Slightly larger logo container */}
@@ -71,8 +71,8 @@ export default function Navbar() {
 
           {/* MAIN NAV - Scaled gap and text size */}
           <div className="hidden md:flex items-center h-full gap-6">
-            <NavLink href="/dashboard" active={pathname === "/dashboard"}>
-              Services
+            <NavLink href="/console" active={pathname === "/console"}>
+              Console
             </NavLink>
             <NavLink href="/activity" active={pathname === "/activity"}>
               Activity

@@ -16,13 +16,23 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Hatch | Stop Configuring. Start Shipping.",
-    template: "%s",
+    default: "Hatch — The Private PaaS for AWS",
+    template: "%s | Hatch",
   },
   description:
-    "Self-hosted AWS deployment platform. Dockerfile in. Live URL out.",
+    "Deploy Dockerized applications to your own AWS Fargate cluster in seconds. No YAML, no console, just your code.",
+  keywords: [
+    "PaaS",
+    "AWS Fargate",
+    "Docker deployment",
+    "Self-hosted Heroku",
+    "Infrastructure Automation",
+    "Golang Orchestrator"
+  ],
+  authors: [{ name: "Uttkarsh Ruparel" }],
   icons: {
     icon: "/hatch.svg",
+    apple: "/apple-touch-icon.png",
   },
 };
 
