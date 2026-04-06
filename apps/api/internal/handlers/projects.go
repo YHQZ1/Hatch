@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/YHQZ1/hatch/apps/api/internal/queue"
 	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -18,12 +19,14 @@ import (
 
 type ProjectHandler struct {
 	queries        *dbpkg.Queries
+	publisher      *queue.Publisher
 	webhookBaseURL string
 }
 
-func NewProjectHandler(db *sql.DB, webhookBaseURL string) *ProjectHandler {
+func NewProjectHandler(db *sql.DB, publisher *queue.Publisher, webhookBaseURL string) *ProjectHandler {
 	return &ProjectHandler{
 		queries:        dbpkg.New(db),
+		publisher:      publisher,
 		webhookBaseURL: webhookBaseURL,
 	}
 }
@@ -37,7 +40,7 @@ func (h *ProjectHandler) ListProjects(c *gin.Context) {
 
 	projects, err := h.queries.GetProjectsByUserID(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch projects"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "fetch failed"})
 		return
 	}
 
@@ -52,18 +55,20 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 	}
 
 	var body struct {
-		RepoName       string `json:"repo_name"       binding:"required"`
-		RepoURL        string `json:"repo_url"        binding:"required"`
+		RepoName       string `json:"repo_name" binding:"required"`
+		RepoURL        string `json:"repo_url" binding:"required"`
+		Subdomain      string `json:"subdomain" binding:"required"`
 		Branch         string `json:"branch"`
 		DockerfilePath string `json:"dockerfile_path" binding:"required"`
-		Port           int32  `json:"port"            binding:"required"`
+		Port           int32  `json:"port" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing required fields"})
 		return
 	}
 
+	subdomain := strings.ToLower(strings.TrimSpace(body.Subdomain))
 	branch := body.Branch
 	if branch == "" {
 		branch = "main"
@@ -76,13 +81,20 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		Branch:         branch,
 		DockerfilePath: body.DockerfilePath,
 		Port:           body.Port,
+		Subdomain:      sql.NullString{String: subdomain, Valid: true},
 	})
+
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create project"})
+		if strings.Contains(err.Error(), "unique constraint") {
+			c.JSON(http.StatusConflict, gin.H{"error": "subdomain already in use"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "creation failed"})
 		return
 	}
 
-	// Async Webhook Registration
+	h.recordActivity(c, userID, "CREATE", fmt.Sprintf("Project %s initialized", project.RepoName))
+
 	if token, ok := c.Get("access_token"); ok {
 		go h.registerGitHubWebhook(project.ID, body.RepoURL, token.(string))
 	}
@@ -113,21 +125,35 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 		return
 	}
 
-	if err := h.queries.DeleteProject(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete"})
+	project, err := h.queries.GetProjectByID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
 		return
 	}
 
+	resourceName := project.ID.String()[:8]
+	if project.Subdomain.Valid && project.Subdomain.String != "" {
+		resourceName = project.Subdomain.String
+	}
+
+	h.publisher.PublishCleanupJob(c.Request.Context(), []string{resourceName})
+
+	if err := h.queries.DeleteProject(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "deletion failed"})
+		return
+	}
+
+	h.recordActivity(c, project.UserID, "DELETE", fmt.Sprintf("Infrastructure destroyed for %s", project.RepoName))
 	c.Status(http.StatusNoContent)
 }
 
 func (h *ProjectHandler) registerGitHubWebhook(projectID uuid.UUID, repoURL, token string) {
 	owner, repo, err := parseRepoURL(repoURL)
-	secret, _ := generateSecret()
-	if err != nil || secret == "" {
+	if err != nil {
 		return
 	}
 
+	secret, _ := generateSecret()
 	payload := map[string]interface{}{
 		"name":   "web",
 		"active": true,
@@ -147,17 +173,15 @@ func (h *ProjectHandler) registerGitHubWebhook(projectID uuid.UUID, repoURL, tok
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
+	if err != nil || resp.StatusCode != http.StatusCreated {
 		return
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusCreated {
-		h.queries.UpdateProjectWebhook(context.Background(), dbpkg.UpdateProjectWebhookParams{
-			ID:            projectID,
-			WebhookSecret: sql.NullString{String: secret, Valid: true},
-		})
-	}
+	_ = h.queries.UpdateProjectWebhook(context.Background(), dbpkg.UpdateProjectWebhookParams{
+		ID:            projectID,
+		WebhookSecret: sql.NullString{String: secret, Valid: true},
+	})
 }
 
 func parseRepoURL(url string) (string, string, error) {
@@ -175,4 +199,14 @@ func generateSecret() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+func (h *ProjectHandler) recordActivity(c *gin.Context, userID uuid.UUID, logType, message string) {
+	go func() {
+		_, _ = h.queries.CreateActivityLog(context.Background(), dbpkg.CreateActivityLogParams{
+			UserID:  userID,
+			Type:    logType,
+			Message: message,
+		})
+	}()
 }

@@ -66,6 +66,7 @@ export default function NewProject() {
   const [envVars, setEnvVars] = useState<EnvVar[]>([]);
   const [hasDockerfile, setHasDockerfile] = useState<boolean | null>(null);
   const [checkingDocker, setCheckingDocker] = useState(false);
+  const [subdomain, setSubdomain] = useState("");
 
   useEffect(() => {
     setMounted(true);
@@ -145,6 +146,7 @@ export default function NewProject() {
           body: JSON.stringify({
             repo_name: selectedRepo.name,
             repo_url: selectedRepo.html_url,
+            subdomain: subdomain,
             branch: branch,
             dockerfile_path: dockerfilePath,
             port: parseInt(port),
@@ -280,6 +282,26 @@ export default function NewProject() {
                   value={selectedRepo?.full_name || ""}
                   disabled
                 />
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">
+                    Custom Subdomain
+                  </label>
+                  <div className="flex items-center gap-2 border-b border-zinc-800 focus-within:border-white transition-colors">
+                    <input
+                      placeholder="my-app-name"
+                      value={subdomain}
+                      onChange={(e) =>
+                        setSubdomain(
+                          e.target.value.toLowerCase().replace(/\s+/g, "-"),
+                        )
+                      }
+                      className="flex-1 bg-transparent py-2 text-sm font-mono outline-none text-white"
+                    />
+                    <span className="text-zinc-600 text-xs font-mono lowercase">
+                      .hatchcloud.xyz
+                    </span>
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-8">
                   <div className="space-y-2">
                     <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">

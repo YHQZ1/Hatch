@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -15,9 +14,8 @@ import (
 )
 
 type GitHubUser struct {
-	ID        int64  `json:"id"`
-	Login     string `json:"login"`
-	AvatarURL string `json:"avatar_url"`
+	ID    int64  `json:"id"`
+	Login string `json:"login"`
 }
 
 type Handler struct {
@@ -56,13 +54,13 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 
 	token, err := h.exchangeCodeForToken(code)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to exchange token"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "token exchange failed"})
 		return
 	}
 
 	ghUser, err := h.fetchGitHubUser(token)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch github user"})
+		c.JSON(http.StatusBadGateway, gin.H{"error": "github profile fetch failed"})
 		return
 	}
 
@@ -72,26 +70,25 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 		AccessToken:    token,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save user"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database sync failed"})
 		return
 	}
 
 	jwtToken, err := h.signJWT(dbUser.ID, ghUser.ID, ghUser.Login, token)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sign token"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "session signing failed"})
 		return
 	}
 
-	c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("http://localhost:3000/auth/success?token=%s", jwtToken))
+	successURL := fmt.Sprintf("http://localhost:3000/auth/success?token=%s", jwtToken)
+	c.Redirect(http.StatusTemporaryRedirect, successURL)
 }
 
 func (h *Handler) exchangeCodeForToken(code string) (string, error) {
-	url := fmt.Sprintf(
-		"https://github.com/login/oauth/access_token?client_id=%s&client_secret=%s&code=%s",
-		h.clientID, h.clientSecret, code,
-	)
+	url := "https://github.com/login/oauth/access_token"
+	params := fmt.Sprintf("client_id=%s&client_secret=%s&code=%s", h.clientID, h.clientSecret, code)
 
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
+	req, _ := http.NewRequest(http.MethodPost, url+"?"+params, nil)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -108,14 +105,14 @@ func (h *Handler) exchangeCodeForToken(code string) (string, error) {
 		return "", err
 	}
 	if result.Error != "" {
-		return "", fmt.Errorf("github error: %s", result.Error)
+		return "", fmt.Errorf("github: %s", result.Error)
 	}
 
 	return result.AccessToken, nil
 }
 
 func (h *Handler) fetchGitHubUser(token string) (*GitHubUser, error) {
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.github.com/user", nil)
+	req, _ := http.NewRequest(http.MethodGet, "https://api.github.com/user", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
@@ -134,15 +131,13 @@ func (h *Handler) fetchGitHubUser(token string) (*GitHubUser, error) {
 }
 
 func (h *Handler) signJWT(userID uuid.UUID, githubID int64, username, accessToken string) (string, error) {
-	claims := jwt.MapClaims{
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id":      userID.String(),
 		"github_id":    githubID,
 		"username":     username,
 		"access_token": accessToken,
 		"exp":          time.Now().Add(24 * time.Hour).Unix(),
 		"iat":          time.Now().Unix(),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	})
 	return token.SignedString([]byte(h.jwtSecret))
 }

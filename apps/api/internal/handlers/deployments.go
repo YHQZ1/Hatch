@@ -3,8 +3,8 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"net/http"
+	"time"
 
 	"github.com/YHQZ1/hatch/apps/api/internal/queue"
 	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
@@ -30,7 +30,7 @@ type DeploymentResponse struct {
 	DeployedAt  *string `json:"deployed_at"`
 }
 
-func toDeploymentResponse(d dbpkg.Deployment) DeploymentResponse {
+func (h *DeploymentHandler) toDeploymentResponse(d dbpkg.Deployment) DeploymentResponse {
 	r := DeploymentResponse{
 		ID:          d.ID.String(),
 		ProjectID:   d.ProjectID.String(),
@@ -40,7 +40,7 @@ func toDeploymentResponse(d dbpkg.Deployment) DeploymentResponse {
 		MemoryMB:    d.MemoryMb,
 		Port:        d.Port,
 		HealthCheck: d.HealthCheck,
-		CreatedAt:   d.CreatedAt.String(),
+		CreatedAt:   d.CreatedAt.Format(time.RFC3339),
 	}
 	if d.ImageUri.Valid {
 		r.ImageURI = &d.ImageUri.String
@@ -55,7 +55,7 @@ func toDeploymentResponse(d dbpkg.Deployment) DeploymentResponse {
 		r.URL = &d.Url.String
 	}
 	if d.DeployedAt.Valid {
-		s := d.DeployedAt.Time.String()
+		s := d.DeployedAt.Time.Format(time.RFC3339)
 		r.DeployedAt = &s
 	}
 	return r
@@ -79,17 +79,17 @@ func NewDeploymentHandler(db *sql.DB, publisher *queue.Publisher, rdb *redis.Cli
 
 func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 	var body struct {
-		ProjectID       string            `json:"project_id"       binding:"required"`
-		Branch          string            `json:"branch"           binding:"required"`
-		CPU             int32             `json:"cpu"              binding:"required"`
-		MemoryMB        int32             `json:"memory_mb"        binding:"required"`
-		Port            int32             `json:"port"             binding:"required"`
+		ProjectID       string            `json:"project_id" binding:"required"`
+		Branch          string            `json:"branch" binding:"required"`
+		CPU             int32             `json:"cpu" binding:"required"`
+		MemoryMB        int32             `json:"memory_mb" binding:"required"`
+		Port            int32             `json:"port" binding:"required"`
 		HealthCheckPath string            `json:"health_check_path"`
 		EnvVars         map[string]string `json:"env_vars"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -99,12 +99,21 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		return
 	}
 
-	healthCheck := body.HealthCheckPath
-	if healthCheck == "" {
-		healthCheck = "/"
+	project, err := h.queries.GetProjectByID(c.Request.Context(), projectID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+		return
 	}
 
-	subdomain := uuid.New().String()[:8]
+	healthCheck := "/"
+	if body.HealthCheckPath != "" {
+		healthCheck = body.HealthCheckPath
+	}
+
+	effectiveSubdomain := projectID.String()[:8]
+	if project.Subdomain.Valid {
+		effectiveSubdomain = project.Subdomain.String
+	}
 
 	deployment, err := h.queries.CreateDeployment(c.Request.Context(), dbpkg.CreateDeploymentParams{
 		ProjectID:   projectID,
@@ -113,97 +122,75 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		MemoryMb:    body.MemoryMB,
 		Port:        body.Port,
 		HealthCheck: healthCheck,
-		Subdomain:   sql.NullString{String: subdomain, Valid: true},
+		Subdomain:   sql.NullString{String: effectiveSubdomain, Valid: true},
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create deployment"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize deployment"})
 		return
 	}
 
-	// Handle Environment Variables
-	if len(body.EnvVars) > 0 {
-		for key, value := range body.EnvVars {
-			if key == "" {
-				continue
-			}
-			h.db.ExecContext(c.Request.Context(),
+	for key, value := range body.EnvVars {
+		if key != "" {
+			_, _ = h.db.ExecContext(c.Request.Context(),
 				"INSERT INTO env_vars (deployment_id, key, secret_arn) VALUES ($1, $2, $3)",
 				deployment.ID, key, value,
 			)
 		}
 	}
 
-	project, err := h.queries.GetProjectByID(c.Request.Context(), projectID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch project details"})
-		return
-	}
-
-	accessToken, _ := c.Get("access_token")
-	tokenStr, _ := accessToken.(string)
-
-	// Trigger Build Job
-	job := queue.BuildJobEvent{
+	token, _ := c.Get("access_token")
+	h.publisher.PublishBuildJob(c.Request.Context(), queue.BuildJobEvent{
 		DeploymentID:   deployment.ID.String(),
 		RepoURL:        project.RepoUrl,
 		Branch:         body.Branch,
 		DockerfilePath: project.DockerfilePath,
-		UserToken:      tokenStr,
+		UserToken:      token.(string),
 		Port:           int(body.Port),
-	}
+		Subdomain:      effectiveSubdomain,
+	})
 
-	if err := h.publisher.PublishBuildJob(c.Request.Context(), job); err != nil {
-		log.Printf("failed to publish build job: %v", err)
-	}
-
-	c.JSON(http.StatusCreated, toDeploymentResponse(deployment))
+	c.JSON(http.StatusCreated, h.toDeploymentResponse(deployment))
 }
 
 func (h *DeploymentHandler) GetDeployment(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid deployment id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-
 	deployment, err := h.queries.GetDeploymentByID(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
-
-	c.JSON(http.StatusOK, toDeploymentResponse(deployment))
+	c.JSON(http.StatusOK, h.toDeploymentResponse(deployment))
 }
 
 func (h *DeploymentHandler) ListDeployments(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid project id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-
 	deployments, err := h.queries.GetDeploymentsByProjectID(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch deployments"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "fetch failed"})
 		return
 	}
 
 	responses := make([]DeploymentResponse, len(deployments))
 	for i, d := range deployments {
-		responses[i] = toDeploymentResponse(d)
+		responses[i] = h.toDeploymentResponse(d)
 	}
 	c.JSON(http.StatusOK, responses)
 }
 
 func (h *DeploymentHandler) GetDeploymentLogs(c *gin.Context) {
-	deploymentID := c.Param("id")
-	key := fmt.Sprintf("logs:%s", deploymentID)
-
+	key := fmt.Sprintf("logs:%s", c.Param("id"))
 	logs, err := h.rdb.LRange(c.Request.Context(), key, 0, -1).Result()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch logs"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "log fetch failed"})
 		return
 	}
-
 	c.JSON(http.StatusOK, logs)
 }

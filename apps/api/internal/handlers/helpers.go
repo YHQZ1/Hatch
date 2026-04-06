@@ -1,22 +1,27 @@
 package handlers
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
 func getUserID(c *gin.Context) (uuid.UUID, error) {
-	userIDStr, exists := c.Get("user_id")
+	val, exists := c.Get("user_id")
 	if !exists {
-		return uuid.Nil, fmt.Errorf("no user_id in context")
+		return uuid.Nil, errors.New("unauthorized: missing user_id")
 	}
 
-	userID, err := uuid.Parse(userIDStr.(string))
+	idStr, ok := val.(string)
+	if !ok {
+		return uuid.Nil, errors.New("unauthorized: invalid user_id type")
+	}
+
+	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("invalid user_id")
+		return uuid.Nil, errors.New("unauthorized: invalid uuid format")
 	}
 
-	return userID, nil
+	return id, nil
 }

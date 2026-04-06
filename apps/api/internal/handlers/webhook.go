@@ -13,7 +13,6 @@ import (
 	"github.com/YHQZ1/hatch/apps/api/internal/queue"
 	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type WebhookHandler struct {
@@ -37,38 +36,37 @@ type githubPushEvent struct {
 
 func (h *WebhookHandler) HandlePush(c *gin.Context) {
 	if c.GetHeader("X-GitHub-Event") != "push" {
-		c.Status(http.StatusOK)
+		c.Status(http.StatusNoContent)
 		return
 	}
 
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "read error"})
+		c.Status(http.StatusBadRequest)
 		return
 	}
 
 	var payload githubPushEvent
 	if err := json.Unmarshal(body, &payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		c.Status(http.StatusBadRequest)
 		return
 	}
 
 	project, err := h.queries.GetProjectByRepoURL(c.Request.Context(), payload.Repository.HTMLURL)
 	if err != nil {
-		c.Status(http.StatusOK) // Project not found in Hatch
+		c.Status(http.StatusAccepted) // Quietly ignore untracked repos
 		return
 	}
 
-	// HMAC Signature Verification
-	sig := c.GetHeader("X-Hub-Signature-256")
-	if !project.WebhookSecret.Valid || !verifySignature(body, project.WebhookSecret.String, sig) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
+	signature := c.GetHeader("X-Hub-Signature-256")
+	if !project.WebhookSecret.Valid || !verifySignature(body, project.WebhookSecret.String, signature) {
+		c.Status(http.StatusUnauthorized)
 		return
 	}
 
-	// Guard clauses for Auto-Deploy
-	if !project.AutoDeploy || payload.Ref != fmt.Sprintf("refs/heads/%s", project.Branch) {
-		c.Status(http.StatusOK)
+	targetRef := fmt.Sprintf("refs/heads/%s", project.Branch)
+	if !project.AutoDeploy || payload.Ref != targetRef {
+		c.Status(http.StatusNoContent)
 		return
 	}
 
@@ -78,8 +76,11 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		return
 	}
 
-	// Trigger Auto-Deployment
-	subdomain := uuid.New().String()[:8]
+	resourceName := project.ID.String()[:8]
+	if project.Subdomain.Valid {
+		resourceName = project.Subdomain.String
+	}
+
 	deployment, err := h.queries.CreateDeployment(c.Request.Context(), dbpkg.CreateDeploymentParams{
 		ProjectID:   project.ID,
 		Branch:      project.Branch,
@@ -87,7 +88,7 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		MemoryMb:    1024,
 		Port:        project.Port,
 		HealthCheck: "/health",
-		Subdomain:   sql.NullString{String: subdomain, Valid: true},
+		Subdomain:   sql.NullString{String: resourceName, Valid: true},
 	})
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
@@ -101,9 +102,10 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		DockerfilePath: project.DockerfilePath,
 		UserToken:      user.AccessToken,
 		Port:           int(project.Port),
+		Subdomain:      resourceName,
 	})
 
-	c.JSON(http.StatusOK, gin.H{"deployment_id": deployment.ID, "status": "queued"})
+	c.JSON(http.StatusAccepted, gin.H{"status": "deploying", "id": deployment.ID})
 }
 
 func verifySignature(body []byte, secret, signature string) bool {

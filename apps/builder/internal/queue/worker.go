@@ -21,6 +21,7 @@ type BuildJobEvent struct {
 	DockerfilePath string `json:"dockerfile_path"`
 	UserToken      string `json:"user_token"`
 	Port           int    `json:"port"`
+	Subdomain      string `json:"subdomain"`
 }
 
 type DeployJobEvent struct {
@@ -54,57 +55,65 @@ func (w *Worker) Start() error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
 
 	w.ch, err = conn.Channel()
 	if err != nil {
 		return err
 	}
 
-	w.ch.QueueDeclare("hatch.build.jobs", true, false, false, false, nil)
-	w.ch.QueueDeclare("hatch.deploy.jobs", true, false, false, false, nil)
+	// Declare both queues to ensure they exist before we try to publish/consume
+	_, _ = w.ch.QueueDeclare("hatch.build.jobs", true, false, false, false, nil)
+	_, _ = w.ch.QueueDeclare("hatch.deploy.jobs", true, false, false, false, nil)
 
-	msgs, _ := w.ch.Consume("hatch.build.jobs", "", false, false, false, false, nil)
+	msgs, err := w.ch.Consume("hatch.build.jobs", "", false, false, false, false, nil)
+	if err != nil {
+		return err
+	}
 
-	log.Println("builder: listening for build jobs...")
+	log.Println("Builder worker listening for jobs...")
 
 	for m := range msgs {
 		var job BuildJobEvent
 		if err := json.Unmarshal(m.Body, &job); err != nil {
-			m.Nack(false, false)
+			_ = m.Nack(false, false)
 			continue
 		}
+
 		w.process(job)
-		m.Ack(false)
+		_ = m.Ack(false)
 	}
+
 	return nil
 }
 
 func (w *Worker) process(job BuildJobEvent) {
 	ctx := context.Background()
 	id := job.DeploymentID
-	dest := filepath.Join(os.TempDir(), "hatch", id)
-	defer os.RemoveAll(dest)
 
-	w.streamer.Publish(ctx, id, fmt.Sprintf("→ Starting build: %s", id[:8]))
-	w.streamer.Publish(ctx, id, fmt.Sprintf("→ Cloning %s...", job.RepoURL))
+	// Create a unique temp directory for this specific build
+	buildPath := filepath.Join(os.TempDir(), "hatch-builds", id)
+	defer os.RemoveAll(buildPath)
 
-	if err := gitpkg.Clone(ctx, job.RepoURL, job.UserToken, dest); err != nil {
-		w.streamer.Publish(ctx, id, "✗ Clone failed")
+	w.streamer.Publish(ctx, id, fmt.Sprintf("→ Job Received: %s", id[:8]))
+	w.streamer.Publish(ctx, id, "→ Syncing source code...")
+
+	if err := gitpkg.Clone(ctx, job.RepoURL, job.UserToken, buildPath); err != nil {
+		w.streamer.Publish(ctx, id, fmt.Sprintf("✗ Sync failed: %v", err))
 		return
 	}
 
-	uri, err := w.builder.BuildAndPush(ctx, id, dest, job.DockerfilePath)
+	// Build and Push to ECR
+	imageURI, err := w.builder.BuildAndPush(ctx, id, buildPath, job.DockerfilePath)
 	if err != nil {
-		w.streamer.Publish(ctx, id, "✗ Build/Push failed")
+		w.streamer.Publish(ctx, id, fmt.Sprintf("✗ Build failed: %v", err))
 		return
 	}
 
-	w.handoff(ctx, id, uri, int32(job.Port))
+	w.handoff(ctx, id, imageURI, int32(job.Port), job.Subdomain)
 }
 
-func (w *Worker) handoff(ctx context.Context, id, uri string, port int32) {
-	w.streamer.Publish(ctx, id, "→ Handing off to deployer...")
+func (w *Worker) handoff(ctx context.Context, id, uri string, port int32, subdomain string) {
+	w.streamer.Publish(ctx, id, "→ Triggering deployment orchestration...")
 
 	event := DeployJobEvent{
 		DeploymentID: id,
@@ -113,7 +122,7 @@ func (w *Worker) handoff(ctx context.Context, id, uri string, port int32) {
 		MemoryMB:     1024,
 		Port:         port,
 		HealthCheck:  "/",
-		Subdomain:    id[:8],
+		Subdomain:    subdomain,
 	}
 
 	body, _ := json.Marshal(event)
@@ -124,9 +133,9 @@ func (w *Worker) handoff(ctx context.Context, id, uri string, port int32) {
 	})
 
 	if err != nil {
-		w.streamer.Publish(ctx, id, "✗ Handoff failed")
+		w.streamer.Publish(ctx, id, "✗ Orchestration handoff failed")
 		return
 	}
 
-	w.streamer.Publish(ctx, id, "→ Deploy job queued")
+	w.streamer.Publish(ctx, id, "✓ Pipeline stage complete: Build & Push")
 }

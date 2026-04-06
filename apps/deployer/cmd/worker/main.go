@@ -9,9 +9,7 @@ import (
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Println("no .env file found, reading from environment")
-	}
+	_ = godotenv.Load()
 
 	cfg := queue.Config{
 		RabbitMQURL:          mustGetEnv("RABBITMQ_URL"),
@@ -29,17 +27,18 @@ func main() {
 		BaseDomain:           mustGetEnv("BASE_DOMAIN"),
 	}
 
-	log.Println("deployer worker starting...")
 	worker := queue.NewWorker(cfg)
+
+	log.Printf("Hatch Deployer starting (Region: %s, Cluster: %s)", cfg.AWSRegion, cfg.ECSClusterName)
 	if err := worker.Start(); err != nil {
-		log.Fatalf("worker failed: %v", err)
+		log.Fatalf("deployer crash: %v", err)
 	}
 }
 
 func mustGetEnv(key string) string {
 	val := os.Getenv(key)
 	if val == "" {
-		log.Fatalf("required env var %s is not set", key)
+		log.Fatalf("deployer: missing critical environment variable: %s", key)
 	}
 	return val
 }

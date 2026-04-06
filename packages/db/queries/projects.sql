@@ -1,8 +1,8 @@
 -- name: CreateProject :one
 INSERT INTO projects (
-  user_id, repo_name, repo_url, branch, dockerfile_path, port
+  user_id, repo_name, repo_url, branch, dockerfile_path, port, subdomain
 ) VALUES (
-  $1, $2, $3, $4, $5, $6
+  $1, $2, $3, $4, $5, $6, $7
 ) RETURNING *;
 
 -- name: GetProjectsByUserID :many
@@ -19,3 +19,6 @@ UPDATE projects SET webhook_secret = $2 WHERE id = $1;
 
 -- name: DeleteProject :exec
 DELETE FROM projects WHERE id = $1;
+
+-- name: GetProjectBySubdomain :one
+SELECT * FROM projects WHERE subdomain = $1 LIMIT 1;

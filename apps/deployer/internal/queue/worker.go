@@ -49,62 +49,66 @@ type Worker struct {
 func NewWorker(cfg Config) *Worker {
 	streamer := logs.NewStreamer(cfg.RedisURL)
 	deployer := ecsdeploy.NewDeployer(
-		cfg.AWSRegion,
-		cfg.ECSClusterName,
-		cfg.ALBListenerARN,
-		cfg.VPCID,
-		cfg.SubnetA,
-		cfg.SubnetB,
-		cfg.ECSSgID,
-		cfg.TaskExecutionRoleARN,
-		cfg.BaseDomain,
-		streamer,
+		cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN,
+		cfg.VPCID, cfg.SubnetA, cfg.SubnetB, cfg.ECSSgID,
+		cfg.TaskExecutionRoleARN, cfg.BaseDomain, streamer,
 	)
 
 	db, err := sql.Open("postgres", cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("failed to connect to database: %v", err)
+		log.Fatalf("deployer: db connection failed: %v", err)
 	}
 
 	return &Worker{cfg: cfg, streamer: streamer, deployer: deployer, db: db}
 }
 
 func (w *Worker) Start() error {
+	defer w.db.Close()
+
 	conn, err := amqp.Dial(w.cfg.RabbitMQURL)
 	if err != nil {
-		return fmt.Errorf("failed to connect to rabbitmq: %w", err)
+		return fmt.Errorf("rabbitmq connection failed: %w", err)
 	}
 	defer conn.Close()
 
 	ch, err := conn.Channel()
 	if err != nil {
-		return fmt.Errorf("failed to open channel: %w", err)
+		return fmt.Errorf("rabbitmq channel failed: %w", err)
 	}
 	defer ch.Close()
 
-	q, err := ch.QueueDeclare("hatch.deploy.jobs", true, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to declare queue: %w", err)
-	}
+	// Ensure queues exist
+	_, _ = ch.QueueDeclare("hatch.deploy.jobs", true, false, false, false, nil)
+	_, _ = ch.QueueDeclare("hatch.cleanup.jobs", true, false, false, false, nil)
 
-	msgs, err := ch.Consume(q.Name, "", false, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to consume: %w", err)
-	}
+	deployMsgs, _ := ch.Consume("hatch.deploy.jobs", "", false, false, false, false, nil)
+	cleanupMsgs, _ := ch.Consume("hatch.cleanup.jobs", "", false, false, false, false, nil)
 
-	log.Printf("deployer worker ready — listening on %s", q.Name)
+	// Background Cleanup Listener
+	go func() {
+		log.Println("Deployer: listening for cleanup tasks...")
+		for msg := range cleanupMsgs {
+			var slugs []string
+			if err := json.Unmarshal(msg.Body, &slugs); err == nil {
+				for _, slug := range slugs {
+					_ = w.deployer.Teardown(context.Background(), slug)
+				}
+			}
+			_ = msg.Ack(false)
+		}
+	}()
 
-	for msg := range msgs {
+	log.Println("Deployer: listening for deployment jobs...")
+
+	for msg := range deployMsgs {
 		var job DeployJobEvent
 		if err := json.Unmarshal(msg.Body, &job); err != nil {
-			log.Printf("failed to parse job: %v", err)
-			msg.Nack(false, false)
+			_ = msg.Nack(false, false)
 			continue
 		}
 
-		log.Printf("received deploy job for deployment %s", job.DeploymentID)
 		w.processJob(job)
-		msg.Ack(false)
+		_ = msg.Ack(false)
 	}
 
 	return nil
@@ -112,10 +116,9 @@ func (w *Worker) Start() error {
 
 func (w *Worker) processJob(job DeployJobEvent) {
 	ctx := context.Background()
-
 	w.updateStatus(ctx, job.DeploymentID, "deploying")
 
-	output, err := w.deployer.Deploy(ctx, ecsdeploy.DeployInput{
+	url, err := w.deployer.Deploy(ctx, ecsdeploy.DeployInput{
 		DeploymentID: job.DeploymentID,
 		ImageURI:     job.ImageURI,
 		Port:         job.Port,
@@ -126,38 +129,26 @@ func (w *Worker) processJob(job DeployJobEvent) {
 	})
 
 	if err != nil {
-		w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("✗ Deployment failed: %v", err))
+		w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("✗ Orchestration failed: %v", err))
 		w.updateStatus(ctx, job.DeploymentID, "failed")
-		log.Printf("deploy failed for %s: %v", job.DeploymentID, err)
 		return
 	}
 
-	w.updateDeploymentLive(ctx, job.DeploymentID, job.ImageURI, output.ServiceARN, output.URL)
-	w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("✓ Live at: http://%s", output.URL))
+	w.finalizeDeployment(ctx, job.DeploymentID, job.ImageURI, url)
 }
 
-func (w *Worker) updateStatus(ctx context.Context, deploymentID, status string) {
-	_, err := w.db.ExecContext(ctx,
-		"UPDATE deployments SET status = $1 WHERE id = $2",
-		status, deploymentID,
-	)
-	if err != nil {
-		log.Printf("failed to update status: %v", err)
-	}
+func (w *Worker) updateStatus(ctx context.Context, id, status string) {
+	_, _ = w.db.ExecContext(ctx, "UPDATE deployments SET status = $1 WHERE id = $2", status, id)
 }
 
-func (w *Worker) updateDeploymentLive(ctx context.Context, deploymentID, imageURI, ecsARN, url string) {
-	_, err := w.db.ExecContext(ctx,
-		`UPDATE deployments SET
-			status = 'live',
-			image_uri = $2,
-			ecs_task_arn = $3,
-			url = $4,
-			deployed_at = now()
-		WHERE id = $1`,
-		deploymentID, imageURI, ecsARN, url,
-	)
+func (w *Worker) finalizeDeployment(ctx context.Context, id, image, url string) {
+	query := `
+		UPDATE deployments 
+		SET status = 'live', image_uri = $2, url = $3, deployed_at = now() 
+		WHERE id = $1`
+
+	_, err := w.db.ExecContext(ctx, query, id, image, url)
 	if err != nil {
-		log.Printf("failed to update deployment live: %v", err)
+		log.Printf("worker: failed to finalize deployment %s: %v", id, err)
 	}
 }

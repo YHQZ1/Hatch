@@ -18,6 +18,7 @@ CREATE TABLE projects (
     branch          TEXT NOT NULL DEFAULT 'main',
     dockerfile_path TEXT NOT NULL DEFAULT 'Dockerfile',
     port            INTEGER NOT NULL DEFAULT 80,
+    subdomain       TEXT UNIQUE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -46,7 +47,16 @@ CREATE TABLE env_vars (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE activity_logs (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type        TEXT NOT NULL, 
+    message     TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX idx_projects_user_id ON projects(user_id);
 CREATE INDEX idx_deployments_project_id ON deployments(project_id);
 CREATE INDEX idx_deployments_status ON deployments(status);
 CREATE INDEX idx_env_vars_deployment_id ON env_vars(deployment_id);
+CREATE INDEX idx_activity_logs_user_id ON activity_logs(user_id);

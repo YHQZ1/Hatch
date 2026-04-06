@@ -16,6 +16,7 @@ type BuildJobEvent struct {
 	DockerfilePath string `json:"dockerfile_path"`
 	UserToken      string `json:"user_token"`
 	Port           int    `json:"port"`
+	Subdomain      string `json:"subdomain"`
 }
 
 type Publisher struct {
@@ -39,6 +40,9 @@ func NewPublisher(url string) *Publisher {
 		log.Fatalf("rabbitmq: failed to declare queue: %v", err)
 	}
 
+	ch.QueueDeclare("hatch.build.jobs", true, false, false, false, nil)
+	ch.QueueDeclare("hatch.cleanup.jobs", true, false, false, false, nil)
+
 	return &Publisher{conn: conn, ch: ch}
 }
 
@@ -51,6 +55,21 @@ func (p *Publisher) PublishBuildJob(ctx context.Context, job BuildJobEvent) erro
 	return p.ch.PublishWithContext(ctx,
 		"",
 		"hatch.build.jobs",
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Body:         body,
+		},
+	)
+}
+
+func (p *Publisher) PublishCleanupJob(ctx context.Context, deploymentIDs []string) error {
+	body, _ := json.Marshal(deploymentIDs)
+	return p.ch.PublishWithContext(ctx,
+		"",
+		"hatch.cleanup.jobs", // New queue name
 		false,
 		false,
 		amqp.Publishing{

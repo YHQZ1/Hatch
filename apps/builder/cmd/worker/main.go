@@ -25,8 +25,6 @@ func main() {
 		AWSRegion:   getEnv("AWS_REGION"),
 	}
 
-	log.Println("builder: worker starting...")
-
 	worker := queue.NewWorker(
 		cfg.RabbitMQ,
 		cfg.Redis,
@@ -35,15 +33,16 @@ func main() {
 		cfg.AWSRegion,
 	)
 
+	log.Printf("Hatch Builder starting (Region: %s)", cfg.AWSRegion)
 	if err := worker.Start(); err != nil {
-		log.Fatalf("builder: failed to start: %v", err)
+		log.Fatalf("builder crash: %v", err)
 	}
 }
 
 func getEnv(key string) string {
 	val := os.Getenv(key)
 	if val == "" {
-		log.Fatalf("builder: missing required env var %s", key)
+		log.Fatalf("builder: missing required environment variable: %s", key)
 	}
 	return val
 }

@@ -14,19 +14,20 @@ import (
 
 const createProject = `-- name: CreateProject :one
 INSERT INTO projects (
-  user_id, repo_name, repo_url, branch, dockerfile_path, port
+  user_id, repo_name, repo_url, branch, dockerfile_path, port, subdomain
 ) VALUES (
-  $1, $2, $3, $4, $5, $6
-) RETURNING id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, created_at
+  $1, $2, $3, $4, $5, $6, $7
+) RETURNING id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, created_at
 `
 
 type CreateProjectParams struct {
-	UserID         uuid.UUID `json:"user_id"`
-	RepoName       string    `json:"repo_name"`
-	RepoUrl        string    `json:"repo_url"`
-	Branch         string    `json:"branch"`
-	DockerfilePath string    `json:"dockerfile_path"`
-	Port           int32     `json:"port"`
+	UserID         uuid.UUID      `json:"user_id"`
+	RepoName       string         `json:"repo_name"`
+	RepoUrl        string         `json:"repo_url"`
+	Branch         string         `json:"branch"`
+	DockerfilePath string         `json:"dockerfile_path"`
+	Port           int32          `json:"port"`
+	Subdomain      sql.NullString `json:"subdomain"`
 }
 
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error) {
@@ -37,6 +38,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 		arg.Branch,
 		arg.DockerfilePath,
 		arg.Port,
+		arg.Subdomain,
 	)
 	var i Project
 	err := row.Scan(
@@ -49,6 +51,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 		&i.Branch,
 		&i.DockerfilePath,
 		&i.Port,
+		&i.Subdomain,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -64,7 +67,7 @@ func (q *Queries) DeleteProject(ctx context.Context, id uuid.UUID) error {
 }
 
 const getProjectByID = `-- name: GetProjectByID :one
-SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, created_at FROM projects WHERE id = $1
+SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, created_at FROM projects WHERE id = $1
 `
 
 func (q *Queries) GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error) {
@@ -80,13 +83,14 @@ func (q *Queries) GetProjectByID(ctx context.Context, id uuid.UUID) (Project, er
 		&i.Branch,
 		&i.DockerfilePath,
 		&i.Port,
+		&i.Subdomain,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getProjectByRepoURL = `-- name: GetProjectByRepoURL :one
-SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, created_at FROM projects WHERE repo_url = $1 LIMIT 1
+SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, created_at FROM projects WHERE repo_url = $1 LIMIT 1
 `
 
 func (q *Queries) GetProjectByRepoURL(ctx context.Context, repoUrl string) (Project, error) {
@@ -102,13 +106,37 @@ func (q *Queries) GetProjectByRepoURL(ctx context.Context, repoUrl string) (Proj
 		&i.Branch,
 		&i.DockerfilePath,
 		&i.Port,
+		&i.Subdomain,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getProjectBySubdomain = `-- name: GetProjectBySubdomain :one
+SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, created_at FROM projects WHERE subdomain = $1 LIMIT 1
+`
+
+func (q *Queries) GetProjectBySubdomain(ctx context.Context, subdomain sql.NullString) (Project, error) {
+	row := q.db.QueryRowContext(ctx, getProjectBySubdomain, subdomain)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.RepoName,
+		&i.RepoUrl,
+		&i.WebhookSecret,
+		&i.AutoDeploy,
+		&i.Branch,
+		&i.DockerfilePath,
+		&i.Port,
+		&i.Subdomain,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getProjectsByUserID = `-- name: GetProjectsByUserID :many
-SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, created_at FROM projects WHERE user_id = $1 ORDER BY created_at DESC
+SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, created_at FROM projects WHERE user_id = $1 ORDER BY created_at DESC
 `
 
 func (q *Queries) GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]Project, error) {
@@ -130,6 +158,7 @@ func (q *Queries) GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]
 			&i.Branch,
 			&i.DockerfilePath,
 			&i.Port,
+			&i.Subdomain,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

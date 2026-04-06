@@ -11,6 +11,14 @@ import (
 	"github.com/google/uuid"
 )
 
+type ActivityLog struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Type      string    `json:"type"`
+	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Deployment struct {
 	ID          uuid.UUID      `json:"id"`
 	ProjectID   uuid.UUID      `json:"project_id"`
@@ -46,6 +54,7 @@ type Project struct {
 	Branch         string         `json:"branch"`
 	DockerfilePath string         `json:"dockerfile_path"`
 	Port           int32          `json:"port"`
+	Subdomain      sql.NullString `json:"subdomain"`
 	CreatedAt      time.Time      `json:"created_at"`
 }
 
