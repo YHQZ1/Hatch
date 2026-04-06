@@ -6,9 +6,8 @@ export default function PagesLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen w-full bg-[#080808] flex flex-col relative overflow-hidden selection:bg-white selection:text-black font-sans">
+    <div className="min-h-screen w-full bg-[#080808] flex flex-col relative selection:bg-white selection:text-black font-sans">
       <Navbar />
-
       <main className="relative z-10 flex-grow">{children}</main>
 
       <div className="fixed inset-0 z-0 pointer-events-none">

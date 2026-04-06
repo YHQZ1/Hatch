@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/purity */
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable @next/next/no-img-element */
 "use client";
@@ -47,14 +46,16 @@ export default function Navbar() {
   };
 
   return (
-    <nav className="sticky top-0 z-50 w-full border-b border-[var(--border)] bg-[var(--bg)]/95 backdrop-blur-xl py-0 selection:bg-white selection:text-black">
-      <div className="w-full px-8 lg:px-12 flex items-center justify-between h-20">
-        {/* LOGO SECTION WITH NEW HABR ICON */}
-        <div className="flex items-center h-full">
+    <nav className="sticky top-0 z-50 w-full border-b border-[#1a1a1a] bg-black/80 backdrop-blur-md">
+      {/* Increased height to h-16 for better scale */}
+      <div className="w-full px-6 lg:px-10 flex items-center justify-between h-16">
+        {/* LEFT SECTION */}
+        <div className="flex items-center h-full gap-10">
           <Link
             href="/dashboard"
-            className="flex items-center gap-4 group cursor-pointer pr-10 border-r border-[var(--border)] h-1/2"
+            className="flex items-center gap-3.5 group cursor-pointer"
           >
+            {/* Slightly larger logo container */}
             <div className="w-8 h-8 flex items-center justify-center">
               <img
                 src="https://cdn.simpleicons.org/habr/FFFFFF"
@@ -62,15 +63,16 @@ export default function Navbar() {
                 className="w-full h-full"
               />
             </div>
-            <span className="font-bold tracking-tighter text-2xl uppercase text-white">
+            {/* Increased font size to text-xl */}
+            <span className="font-bold tracking-tighter text-xl uppercase text-white">
               Hatch
             </span>
           </Link>
 
-          {/* MAIN NAV */}
-          <div className="hidden md:flex items-center gap-10 font-mono text-[14px] uppercase tracking-[0.3em] pl-10">
-            <NavLink href="/deployments" active={pathname === "/deployments"}>
-              Deployments
+          {/* MAIN NAV - Scaled gap and text size */}
+          <div className="hidden md:flex items-center h-full gap-6">
+            <NavLink href="/dashboard" active={pathname === "/dashboard"}>
+              Services
             </NavLink>
             <NavLink href="/activity" active={pathname === "/activity"}>
               Activity
@@ -84,37 +86,38 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* ACTIONS SECTION */}
+        {/* RIGHT SECTION */}
         <div className="flex items-center h-full gap-6 relative" ref={menuRef}>
-          <div className="flex items-center gap-6 pr-8 border-r border-[var(--border)] h-1/2">
-            <Link
-              href="/new"
-              className="h-9 px-4 border border-white bg-black text-white hover:bg-white hover:text-black transition-all duration-300 flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.2em] font-bold group"
-            >
-              <span className="text-lg leading-none group-hover:scale-110 transition-transform">
-                +
-              </span>
-              New Project
-            </Link>
-          </div>
+          {/* Scaled Button: h-9 instead of h-8 */}
+          <Link
+            href="/new"
+            className="h-9 px-4 border border-zinc-800 text-white hover:bg-white hover:text-black transition-all flex items-center gap-2 font-bold text-[11px] uppercase tracking-tight rounded-[2px] cursor-pointer"
+          >
+            <span className="text-sm">+</span>
+            New
+          </Link>
+
+          <div className="h-5 w-px bg-[#1a1a1a]" />
 
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="flex items-center gap-4 group cursor-pointer outline-none bg-transparent border-none p-0"
+            className="flex items-center gap-4 group cursor-pointer outline-none bg-transparent border-none p-0 appearance-none"
           >
             <div className="text-right hidden sm:block">
-              <p className="text-[14px] font-medium text-white tracking-tight group-hover:text-[var(--text-muted)] transition-colors">
+              {/* Bumped user name size to 13px */}
+              <p className="text-[13px] font-medium text-zinc-400 group-hover:text-white transition-colors tracking-tight">
                 {user?.username ?? "Guest"}
               </p>
             </div>
             {user?.avatar && (
               <div className="relative">
+                {/* Bumped avatar size to w-8 */}
                 <img
                   src={user.avatar}
-                  className={`w-9 h-9 rounded-sm border transition-all duration-300 pointer-events-none ${
+                  className={`w-8 h-8 rounded-sm border transition-all duration-200 ${
                     menuOpen
                       ? "border-white"
-                      : "border-[var(--border)] group-hover:border-[var(--border-focus)]"
+                      : "border-zinc-800 group-hover:border-zinc-500"
                   }`}
                   alt="Profile"
                 />
@@ -124,32 +127,26 @@ export default function Navbar() {
 
           {/* DROPDOWN MENU */}
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-[#080808] border border-[var(--border)] shadow-[0_30px_60px_rgba(0,0,0,1)] py-2 z-[60] animate-in fade-in slide-in-from-top-1 duration-150">
-              <div className="px-5 py-3 border-b border-[var(--border)] mb-1">
-                <p className="text-[13px] font-medium text-white truncate">
+            <div className="absolute right-0 top-[calc(100%+8px)] w-56 bg-[#0a0a0a] border border-[#1a1a1a] shadow-2xl py-2 z-[60] rounded-[2px] overflow-hidden">
+              <div className="px-5 py-4 border-b border-[#1a1a1a] mb-1">
+                <p className="text-[13px] font-semibold text-white truncate">
                   {user?.username}
                 </p>
-                <p className="font-mono text-[9px] text-[#444] uppercase mt-1 tracking-widest">
-                  GitHub Account
+                <p className="text-[10px] text-zinc-500 uppercase mt-0.5 tracking-widest font-mono">
+                  Personal Account
                 </p>
               </div>
-
               <DropdownLink
-                href="/profile"
-                label="Profile"
-                onClick={() => setMenuOpen(false)}
-              />
-              <DropdownLink
-                href="/settings"
-                label="Settings"
+                href={`/u/${user?.username}`}
+                label="Account Settings"
                 onClick={() => setMenuOpen(false)}
               />
 
-              <div className="h-px bg-[var(--border)] my-1" />
+              <div className="h-px bg-[#1a1a1a] my-1" />
 
               <button
                 onClick={handleSignOut}
-                className="w-full text-left px-5 py-2.5 text-[11px] font-mono uppercase tracking-widest text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
+                className="w-full text-left px-5 py-2.5 text-[12px] text-zinc-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer font-medium"
               >
                 Sign Out
               </button>
@@ -173,13 +170,13 @@ function NavLink({
   return (
     <Link
       href={href}
-      className={`transition-colors duration-200 relative py-1 cursor-pointer font-medium ${
-        active ? "text-white" : "text-[var(--text-muted)] hover:text-white"
+      className={`h-full flex items-center px-1 transition-colors duration-200 relative text-[16px] font-medium cursor-pointer tracking-tight ${
+        active ? "text-white" : "text-zinc-500 hover:text-white"
       }`}
     >
       {children}
       {active && (
-        <span className="absolute -bottom-[32px] left-[-4px] right-[-4px] h-[2px] bg-white shadow-[0_0_15px_white]" />
+        <span className="absolute bottom-[-1px] left-0 right-0 h-[2px] bg-white" />
       )}
     </Link>
   );
@@ -198,7 +195,7 @@ function DropdownLink({
     <Link
       href={href}
       onClick={onClick}
-      className="flex items-center px-5 py-2.5 text-[11px] font-mono uppercase tracking-widest text-[var(--text-muted)] hover:text-white hover:bg-[#111] transition-all cursor-pointer"
+      className="flex items-center px-5 py-2.5 text-[12px] text-zinc-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer font-medium"
     >
       {label}
     </Link>

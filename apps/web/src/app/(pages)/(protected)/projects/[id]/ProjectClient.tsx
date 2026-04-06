@@ -196,6 +196,12 @@ export default function ProjectDetail() {
                 >
                   ← Projects
                 </Link>
+                <Link
+                  href={`/projects/${projectId}/settings`}
+                  className="font-mono text-[9px] text-[#333] hover:text-white transition-colors uppercase tracking-widest"
+                >
+                  Settings →
+                </Link>
               </div>
               <div className="flex items-center gap-3">
                 <img

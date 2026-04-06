@@ -1,119 +1,28 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #030303;
-  --surface: #0d0d0d;
-  --surface-hover: #121212;
-  --border: #161616;
-  --border-focus: #2a2a2a;
-  --accent: #8880ff;
-  --accent-muted: #3b386b;
-  --text-main: #fafafa;
-  --text-muted: #666666;
+  --render-bg: #000000;
+  --render-surface: #0a0a0a;
+  --render-border: #1a1a1a;
+  --render-border-hover: #2e2e2e;
+  --render-text-muted: #888888;
 }
 
 body {
-  background-color: var(--bg);
-  color: var(--text-main);
+  background-color: var(--render-bg);
+  color: #ffffff;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
 }
 
+/* THE GRID UTILITY */
 .bg-grid-pattern {
   background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-  background-size: 40px 40px;
-}
-
-.accent-glow {
-  box-shadow: 0 0 20px -5px var(--accent);
-}
-
-.technical-border {
-  border: 1px solid var(--border);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.technical-border:hover {
-  border-color: var(--border-focus);
-  background-color: var(--surface-hover);
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fade-in {
-  animation: fade-in 0.4s ease-out forwards;
-  opacity: 0;
-}
-
-.delay-100 {
-  animation-delay: 100ms;
-}
-.delay-200 {
-  animation-delay: 200ms;
-}
-.delay-300 {
-  animation-delay: 300ms;
-}
-
-@keyframes blink {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0;
-  }
-}
-.animate-blink {
-  animation: blink 0.8s step-end infinite;
-}
-
-@keyframes progress-loading {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
-}
-.animate-progress {
-  animation: progress-loading 2s linear infinite;
+    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px; /* Size of the grid squares */
 }
 
 ::selection {
-  background: var(--accent);
-  color: #000;
-}
-
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-@keyframes pulse-subtle {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-.animate-pulse-subtle {
-  animation: pulse-subtle 3s ease-in-out infinite;
+  background: #ffffff;
+  color: #000000;
 }
