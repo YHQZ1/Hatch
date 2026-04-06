@@ -1,11 +1,9 @@
-/* eslint-disable react/no-unescaped-entities */
-/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 
 interface Repo {
   id: number;
@@ -60,10 +58,11 @@ export default function NewProject() {
   const [mounted, setMounted] = useState(false);
 
   const [branch, setBranch] = useState("main");
-  const [port, setPort] = useState("3000");
+  const [port, setPort] = useState("80");
   const [cpu, setCpu] = useState("512");
   const [memory, setMemory] = useState("1024");
-  const [healthCheck, setHealthCheck] = useState("/");
+  const [healthCheck, setHealthCheck] = useState("/health");
+  const [dockerfilePath, setDockerfilePath] = useState("Dockerfile");
   const [envVars, setEnvVars] = useState<EnvVar[]>([]);
   const [hasDockerfile, setHasDockerfile] = useState<boolean | null>(null);
   const [checkingDocker, setCheckingDocker] = useState(false);
@@ -86,18 +85,22 @@ export default function NewProject() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const opts = MEMORY_OPTIONS[cpu];
     if (opts) setMemory(opts[0].value);
   }, [cpu]);
 
-  const checkDockerfile = async (repoFullName: string, t: string) => {
+  const checkDockerfile = async (
+    repoFullName: string,
+    t: string,
+    path: string,
+  ) => {
     setCheckingDocker(true);
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/github/repos/${repoFullName}/dockerfile`,
+        `${process.env.NEXT_PUBLIC_API_URL}/api/github/repos/${repoFullName}/dockerfile?path=${encodeURIComponent(path)}`,
         { headers: { Authorization: `Bearer ${t}` } },
       );
       setHasDockerfile(res.status === 200);
@@ -111,11 +114,14 @@ export default function NewProject() {
   const handleSelectRepo = (repo: Repo) => {
     setSelectedRepo(repo);
     setBranch(repo.default_branch || "main");
+
+    const webLanguages = ["TypeScript", "JavaScript", "HTML", "CSS", "Vue"];
     if (repo.language === "Go") setPort("8080");
     else if (repo.language === "Python") setPort("8000");
-    else setPort("3000");
+    else if (webLanguages.includes(repo.language || "")) setPort("80");
+    else setPort("80");
 
-    if (token) checkDockerfile(repo.full_name, token);
+    if (token) checkDockerfile(repo.full_name, token, dockerfilePath);
     setStep(2);
   };
 
@@ -139,6 +145,9 @@ export default function NewProject() {
           body: JSON.stringify({
             repo_name: selectedRepo.name,
             repo_url: selectedRepo.html_url,
+            branch: branch,
+            dockerfile_path: dockerfilePath,
+            port: parseInt(port),
           }),
         },
       );
@@ -177,7 +186,6 @@ export default function NewProject() {
 
   return (
     <div className="w-full min-h-screen bg-black text-white flex flex-col items-center relative z-20">
-      {/* FAIL-PROOF GRID LAYER */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <div
           className="absolute inset-0 opacity-20"
@@ -272,15 +280,35 @@ export default function NewProject() {
                   value={selectedRepo?.full_name || ""}
                   disabled
                 />
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">
-                    Deployment Branch
-                  </label>
-                  <input
-                    value={branch}
-                    onChange={(e) => setBranch(e.target.value)}
-                    className="w-full bg-transparent border-b border-zinc-800 py-2 text-sm font-mono outline-none focus:border-white transition-colors"
-                  />
+                <div className="grid grid-cols-2 gap-8">
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">
+                      Deployment Branch
+                    </label>
+                    <input
+                      value={branch}
+                      onChange={(e) => setBranch(e.target.value)}
+                      className="w-full bg-transparent border-b border-zinc-800 py-2 text-sm font-mono outline-none focus:border-white transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">
+                      Dockerfile Path
+                    </label>
+                    <input
+                      value={dockerfilePath}
+                      onChange={(e) => {
+                        setDockerfilePath(e.target.value);
+                        if (token && selectedRepo)
+                          checkDockerfile(
+                            selectedRepo.full_name,
+                            token,
+                            e.target.value,
+                          );
+                      }}
+                      className="w-full bg-transparent border-b border-zinc-800 py-2 text-sm font-mono outline-none focus:border-white transition-colors"
+                    />
+                  </div>
                 </div>
               </ConfigSection>
               <ConfigSection title="Instance Specs">

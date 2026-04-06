@@ -17,4 +17,4 @@ down:
 
 migrate:
 	migrate -path packages/db/migrations \
-		-database "postgres://hatch:hatch@localhost:5432/hatch?sslmode=disable" up
+		-database "postgres://hatch:hatch@localhost:5433/hatch?sslmode=disable" up

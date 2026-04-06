@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/YHQZ1/hatch/apps/builder/internal/logs"
@@ -16,50 +16,81 @@ import (
 )
 
 type Builder struct {
-	ecrRegistry string
-	ecrRepo     string
-	awsRegion   string
-	streamer    *logs.Streamer
+	registry string
+	repo     string
+	region   string
+	streamer *logs.Streamer
 }
 
-func NewBuilder(ecrRegistry, ecrRepo, awsRegion string, streamer *logs.Streamer) *Builder {
+func NewBuilder(registry, repo, region string, streamer *logs.Streamer) *Builder {
 	return &Builder{
-		ecrRegistry: ecrRegistry,
-		ecrRepo:     ecrRepo,
-		awsRegion:   awsRegion,
-		streamer:    streamer,
+		registry: registry,
+		repo:     repo,
+		region:   region,
+		streamer: streamer,
 	}
 }
 
-func (b *Builder) BuildAndPush(ctx context.Context, deploymentID, repoDir string) (string, error) {
-	imageTag := fmt.Sprintf("%s/%s:%s", b.ecrRegistry, b.ecrRepo, deploymentID[:8])
+func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath string) (string, error) {
+	tag := fmt.Sprintf("%s/%s:%s", b.registry, b.repo, id[:8])
 
-	b.streamer.Publish(ctx, deploymentID, "→ Building Docker image...")
-	if err := b.runDockerBuild(ctx, deploymentID, repoDir, imageTag); err != nil {
-		return "", fmt.Errorf("docker build failed: %w", err)
+	// 1. Build
+	b.streamer.Publish(ctx, id, "→ Building Docker image...")
+	if err := b.runBuild(ctx, id, repoDir, dockerfilePath, tag); err != nil {
+		return "", fmt.Errorf("build failed: %w", err)
 	}
 
-	b.streamer.Publish(ctx, deploymentID, "→ Authenticating with AWS ECR...")
-	authToken, err := b.getECRAuthToken(ctx)
+	// 2. Auth
+	b.streamer.Publish(ctx, id, "→ Authenticating with AWS ECR...")
+	token, err := b.getAuthToken(ctx)
 	if err != nil {
 		return "", fmt.Errorf("ecr auth failed: %w", err)
 	}
 
-	b.streamer.Publish(ctx, deploymentID, "→ Pushing image to ECR...")
-	if err := b.runDockerPush(ctx, deploymentID, imageTag, authToken); err != nil {
-		return "", fmt.Errorf("docker push failed: %w", err)
+	// 3. Push
+	b.streamer.Publish(ctx, id, "→ Pushing image to ECR...")
+	if err := b.runPush(ctx, id, tag, token); err != nil {
+		return "", fmt.Errorf("push failed: %w", err)
 	}
 
-	b.streamer.Publish(ctx, deploymentID, fmt.Sprintf("✓ Image pushed: %s", imageTag))
-	return imageTag, nil
+	b.streamer.Publish(ctx, id, fmt.Sprintf("✓ Image pushed: %s", tag))
+	return tag, nil
 }
 
-func (b *Builder) runDockerBuild(ctx context.Context, deploymentID, repoDir, imageTag string) error {
+func (b *Builder) runBuild(ctx context.Context, id, repoDir, dockerfilePath, tag string) error {
+	fullPath := filepath.Join(repoDir, dockerfilePath)
+	context := filepath.Dir(fullPath)
+
 	cmd := exec.CommandContext(ctx, "docker", "build",
 		"--platform", "linux/amd64",
-		"-t", imageTag,
-		repoDir,
+		"-t", tag,
+		"-f", fullPath,
+		context,
 	)
+
+	return b.executeAndStream(ctx, id, cmd)
+}
+
+func (b *Builder) runPush(ctx context.Context, id, tag, token string) error {
+	decoded, _ := base64.StdEncoding.DecodeString(token)
+	parts := strings.SplitN(string(decoded), ":", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid ecr token")
+	}
+
+	// Login
+	login := exec.CommandContext(ctx, "docker", "login", "--username", parts[0], "--password-stdin", b.registry)
+	login.Stdin = strings.NewReader(parts[1])
+	if out, err := login.CombinedOutput(); err != nil {
+		return fmt.Errorf("docker login error: %s", string(out))
+	}
+
+	// Push
+	push := exec.CommandContext(ctx, "docker", "push", tag)
+	return b.executeAndStream(ctx, id, push)
+}
+
+func (b *Builder) executeAndStream(ctx context.Context, id string, cmd *exec.Cmd) error {
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 
@@ -67,87 +98,32 @@ func (b *Builder) runDockerBuild(ctx context.Context, deploymentID, repoDir, ima
 		return err
 	}
 
-	go b.streamOutput(ctx, deploymentID, stdout)
-	go b.streamOutput(ctx, deploymentID, stderr)
+	go b.capture(ctx, id, stdout)
+	go b.capture(ctx, id, stderr)
 
 	return cmd.Wait()
 }
 
-func (b *Builder) streamOutput(ctx context.Context, deploymentID string, r io.Reader) {
+func (b *Builder) capture(ctx context.Context, id string, r io.Reader) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
-		line := scanner.Text()
-		if line != "" {
-			b.streamer.Publish(ctx, deploymentID, line)
+		if line := scanner.Text(); line != "" {
+			b.streamer.Publish(ctx, id, line)
 		}
 	}
 }
 
-func (b *Builder) getECRAuthToken(ctx context.Context) (string, error) {
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(b.awsRegion))
+func (b *Builder) getAuthToken(ctx context.Context) (string, error) {
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(b.region))
 	if err != nil {
 		return "", err
 	}
 
 	client := ecr.NewFromConfig(cfg)
-	output, err := client.GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{})
-	if err != nil {
-		return "", err
+	out, err := client.GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{})
+	if err != nil || len(out.AuthorizationData) == 0 {
+		return "", fmt.Errorf("auth token error: %v", err)
 	}
 
-	if len(output.AuthorizationData) == 0 {
-		return "", fmt.Errorf("no authorization data returned")
-	}
-
-	return *output.AuthorizationData[0].AuthorizationToken, nil
-}
-
-func (b *Builder) runDockerPush(ctx context.Context, deploymentID, imageTag, authToken string) error {
-	decoded, err := base64.StdEncoding.DecodeString(authToken)
-	if err != nil {
-		return err
-	}
-	parts := strings.SplitN(string(decoded), ":", 2)
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid auth token format")
-	}
-
-	loginCmd := exec.CommandContext(ctx, "docker", "login",
-		"--username", parts[0],
-		"--password-stdin",
-		b.ecrRegistry,
-	)
-	loginCmd.Stdin = strings.NewReader(parts[1])
-	if out, err := loginCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("docker login failed: %s", string(out))
-	}
-
-	pushCmd := exec.CommandContext(ctx, "docker", "push", imageTag)
-	stdout, _ := pushCmd.StdoutPipe()
-	stderr, _ := pushCmd.StderrPipe()
-
-	if err := pushCmd.Start(); err != nil {
-		return err
-	}
-
-	go b.streamOutput(ctx, deploymentID, stdout)
-	go b.streamOutput(ctx, deploymentID, stderr)
-
-	return pushCmd.Wait()
-}
-
-type JSONMessage struct {
-	Stream string `json:"stream"`
-	Error  string `json:"error"`
-}
-
-func parseDockerOutput(line string) string {
-	var msg JSONMessage
-	if err := json.Unmarshal([]byte(line), &msg); err != nil {
-		return line
-	}
-	if msg.Error != "" {
-		return "✗ " + msg.Error
-	}
-	return strings.TrimRight(msg.Stream, "\n")
+	return *out.AuthorizationData[0].AuthorizationToken, nil
 }

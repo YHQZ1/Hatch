@@ -9,28 +9,41 @@ import (
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Println("no .env file found, reading from environment")
+	_ = godotenv.Load()
+
+	cfg := struct {
+		RabbitMQ    string
+		Redis       string
+		ECRRegistry string
+		ECRRepo     string
+		AWSRegion   string
+	}{
+		RabbitMQ:    getEnv("RABBITMQ_URL"),
+		Redis:       getEnv("REDIS_URL"),
+		ECRRegistry: getEnv("ECR_REGISTRY"),
+		ECRRepo:     getEnv("ECR_REPOSITORY"),
+		AWSRegion:   getEnv("AWS_REGION"),
 	}
 
-	rabbitmqURL := mustGetEnv("RABBITMQ_URL")
-	redisURL := mustGetEnv("REDIS_URL")
-	ecrRegistry := mustGetEnv("ECR_REGISTRY")
-	ecrRepo := mustGetEnv("ECR_REPOSITORY")
-	awsRegion := mustGetEnv("AWS_REGION")
+	log.Println("builder: worker starting...")
 
-	log.Println("builder worker starting...")
+	worker := queue.NewWorker(
+		cfg.RabbitMQ,
+		cfg.Redis,
+		cfg.ECRRegistry,
+		cfg.ECRRepo,
+		cfg.AWSRegion,
+	)
 
-	worker := queue.NewWorker(rabbitmqURL, redisURL, ecrRegistry, ecrRepo, awsRegion)
 	if err := worker.Start(); err != nil {
-		log.Fatalf("worker failed: %v", err)
+		log.Fatalf("builder: failed to start: %v", err)
 	}
 }
 
-func mustGetEnv(key string) string {
+func getEnv(key string) string {
 	val := os.Getenv(key)
 	if val == "" {
-		log.Fatalf("required env var %s is not set", key)
+		log.Fatalf("builder: missing required env var %s", key)
 	}
 	return val
 }

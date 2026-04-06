@@ -9,11 +9,16 @@ CREATE TABLE users (
 );
 
 CREATE TABLE projects (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    repo_name   TEXT NOT NULL,
-    repo_url    TEXT NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    repo_name       TEXT NOT NULL,
+    repo_url        TEXT NOT NULL,
+    webhook_secret  TEXT,
+    auto_deploy     BOOLEAN NOT NULL DEFAULT true,
+    branch          TEXT NOT NULL DEFAULT 'main',
+    dockerfile_path TEXT NOT NULL DEFAULT 'Dockerfile',
+    port            INTEGER NOT NULL DEFAULT 80,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE deployments (

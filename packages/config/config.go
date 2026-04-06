@@ -16,12 +16,11 @@ type Config struct {
 	DatabaseURL        string
 	RedisURL           string
 	RabbitMQURL        string
+	WebhookBaseURL     string
 }
 
 func Load() *Config {
-	if err := godotenv.Load(); err != nil {
-		log.Println("no .env file found, reading from environment")
-	}
+	_ = godotenv.Load()
 
 	return &Config{
 		Port:               getEnv("PORT", "8080"),
@@ -32,6 +31,7 @@ func Load() *Config {
 		DatabaseURL:        mustGetEnv("DATABASE_URL"),
 		RedisURL:           mustGetEnv("REDIS_URL"),
 		RabbitMQURL:        mustGetEnv("RABBITMQ_URL"),
+		WebhookBaseURL:     getEnv("WEBHOOK_BASE_URL", "http://localhost:8080"),
 	}
 }
 
@@ -45,7 +45,7 @@ func getEnv(key, fallback string) string {
 func mustGetEnv(key string) string {
 	val := os.Getenv(key)
 	if val == "" {
-		log.Fatalf("required environment variable %s is not set", key)
+		log.Fatalf("config: missing required env var %s", key)
 	}
 	return val
 }

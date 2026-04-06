@@ -10,11 +10,12 @@ import (
 )
 
 type BuildJobEvent struct {
-	DeploymentID string `json:"deployment_id"`
-	RepoURL      string `json:"repo_url"`
-	Branch       string `json:"branch"`
-	UserToken    string `json:"user_token"`
-	Port         int    `json:"port"`
+	DeploymentID   string `json:"deployment_id"`
+	RepoURL        string `json:"repo_url"`
+	Branch         string `json:"branch"`
+	DockerfilePath string `json:"dockerfile_path"`
+	UserToken      string `json:"user_token"`
+	Port           int    `json:"port"`
 }
 
 type Publisher struct {
@@ -22,30 +23,22 @@ type Publisher struct {
 	ch   *amqp.Channel
 }
 
-func NewPublisher(rabbitmqURL string) *Publisher {
-	conn, err := amqp.Dial(rabbitmqURL)
+func NewPublisher(url string) *Publisher {
+	conn, err := amqp.Dial(url)
 	if err != nil {
-		log.Fatalf("failed to connect to rabbitmq: %v", err)
+		log.Fatalf("rabbitmq: failed to connect: %v", err)
 	}
 
 	ch, err := conn.Channel()
 	if err != nil {
-		log.Fatalf("failed to open channel: %v", err)
+		log.Fatalf("rabbitmq: failed to open channel: %v", err)
 	}
 
-	_, err = ch.QueueDeclare(
-		"hatch.build.jobs",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
+	_, err = ch.QueueDeclare("hatch.build.jobs", true, false, false, false, nil)
 	if err != nil {
-		log.Fatalf("failed to declare queue: %v", err)
+		log.Fatalf("rabbitmq: failed to declare queue: %v", err)
 	}
 
-	log.Println("rabbitmq publisher connected")
 	return &Publisher{conn: conn, ch: ch}
 }
 

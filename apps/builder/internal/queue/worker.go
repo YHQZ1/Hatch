@@ -15,11 +15,12 @@ import (
 )
 
 type BuildJobEvent struct {
-	DeploymentID string `json:"deployment_id"`
-	RepoURL      string `json:"repo_url"`
-	Branch       string `json:"branch"`
-	UserToken    string `json:"user_token"`
-	Port         int    `json:"port"`
+	DeploymentID   string `json:"deployment_id"`
+	RepoURL        string `json:"repo_url"`
+	Branch         string `json:"branch"`
+	DockerfilePath string `json:"dockerfile_path"`
+	UserToken      string `json:"user_token"`
+	Port           int    `json:"port"`
 }
 
 type DeployJobEvent struct {
@@ -33,144 +34,99 @@ type DeployJobEvent struct {
 }
 
 type Worker struct {
-	rabbitmqURL string
-	streamer    *logs.Streamer
-	builder     *docker.Builder
-	amqpCh      *amqp.Channel
+	url      string
+	streamer *logs.Streamer
+	builder  *docker.Builder
+	ch       *amqp.Channel
 }
 
-func NewWorker(rabbitmqURL, redisURL, ecrRegistry, ecrRepo, awsRegion string) *Worker {
-	streamer := logs.NewStreamer(redisURL)
-	builder := docker.NewBuilder(ecrRegistry, ecrRepo, awsRegion, streamer)
+func NewWorker(url, redis, registry, repo, region string) *Worker {
+	streamer := logs.NewStreamer(redis)
 	return &Worker{
-		rabbitmqURL: rabbitmqURL,
-		streamer:    streamer,
-		builder:     builder,
+		url:      url,
+		streamer: streamer,
+		builder:  docker.NewBuilder(registry, repo, region, streamer),
 	}
 }
 
 func (w *Worker) Start() error {
-	conn, err := amqp.Dial(w.rabbitmqURL)
+	conn, err := amqp.Dial(w.url)
 	if err != nil {
-		return fmt.Errorf("failed to connect to rabbitmq: %w", err)
+		return err
 	}
 	defer conn.Close()
 
-	ch, err := conn.Channel()
+	w.ch, err = conn.Channel()
 	if err != nil {
-		return fmt.Errorf("failed to open channel: %w", err)
-	}
-	defer ch.Close()
-
-	w.amqpCh = ch
-
-	q, err := ch.QueueDeclare(
-		"hatch.build.jobs",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to declare build queue: %w", err)
+		return err
 	}
 
-	_, err = ch.QueueDeclare(
-		"hatch.deploy.jobs",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to declare deploy queue: %w", err)
-	}
+	w.ch.QueueDeclare("hatch.build.jobs", true, false, false, false, nil)
+	w.ch.QueueDeclare("hatch.deploy.jobs", true, false, false, false, nil)
 
-	msgs, err := ch.Consume(q.Name, "", false, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to consume: %w", err)
-	}
+	msgs, _ := w.ch.Consume("hatch.build.jobs", "", false, false, false, false, nil)
 
-	log.Printf("builder worker ready — listening on %s", q.Name)
+	log.Println("builder: listening for build jobs...")
 
-	for msg := range msgs {
+	for m := range msgs {
 		var job BuildJobEvent
-		if err := json.Unmarshal(msg.Body, &job); err != nil {
-			log.Printf("failed to parse job: %v", err)
-			msg.Nack(false, false)
+		if err := json.Unmarshal(m.Body, &job); err != nil {
+			m.Nack(false, false)
 			continue
 		}
-
-		log.Printf("received build job for deployment %s", job.DeploymentID)
-		w.processJob(job)
-		msg.Ack(false)
+		w.process(job)
+		m.Ack(false)
 	}
-
 	return nil
 }
 
-func (w *Worker) processJob(job BuildJobEvent) {
+func (w *Worker) process(job BuildJobEvent) {
 	ctx := context.Background()
-	deploymentID := job.DeploymentID
+	id := job.DeploymentID
+	dest := filepath.Join(os.TempDir(), "hatch", id)
+	defer os.RemoveAll(dest)
 
-	w.streamer.Publish(ctx, deploymentID, fmt.Sprintf("→ Starting build for deployment %s", deploymentID[:8]))
-	w.streamer.Publish(ctx, deploymentID, fmt.Sprintf("→ Cloning %s (branch: %s)...", job.RepoURL, job.Branch))
+	w.streamer.Publish(ctx, id, fmt.Sprintf("→ Starting build: %s", id[:8]))
+	w.streamer.Publish(ctx, id, fmt.Sprintf("→ Cloning %s...", job.RepoURL))
 
-	destDir := filepath.Join(os.TempDir(), "hatch-builds", deploymentID)
-	defer os.RemoveAll(destDir)
-
-	if err := gitpkg.Clone(ctx, job.RepoURL, job.UserToken, destDir); err != nil {
-		w.streamer.Publish(ctx, deploymentID, fmt.Sprintf("✗ Clone failed: %v", err))
-		log.Printf("clone failed for %s: %v", deploymentID, err)
+	if err := gitpkg.Clone(ctx, job.RepoURL, job.UserToken, dest); err != nil {
+		w.streamer.Publish(ctx, id, "✗ Clone failed")
 		return
 	}
 
-	w.streamer.Publish(ctx, deploymentID, "✓ Repository cloned")
-
-	imageURI, err := w.builder.BuildAndPush(ctx, deploymentID, destDir)
+	uri, err := w.builder.BuildAndPush(ctx, id, dest, job.DockerfilePath)
 	if err != nil {
-		w.streamer.Publish(ctx, deploymentID, fmt.Sprintf("✗ Build failed: %v", err))
-		log.Printf("build failed for %s: %v", deploymentID, err)
+		w.streamer.Publish(ctx, id, "✗ Build/Push failed")
 		return
 	}
 
-	w.streamer.Publish(ctx, deploymentID, fmt.Sprintf("✓ Build complete. Image: %s", imageURI))
-	w.streamer.Publish(ctx, deploymentID, "→ Handing off to deployer service...")
+	w.handoff(ctx, id, uri, int32(job.Port))
+}
 
-	deployJob := DeployJobEvent{
-		DeploymentID: deploymentID,
-		ImageURI:     imageURI,
+func (w *Worker) handoff(ctx context.Context, id, uri string, port int32) {
+	w.streamer.Publish(ctx, id, "→ Handing off to deployer...")
+
+	event := DeployJobEvent{
+		DeploymentID: id,
+		ImageURI:     uri,
 		CPU:          512,
 		MemoryMB:     1024,
-		Port:         int32(job.Port),
+		Port:         port,
 		HealthCheck:  "/",
-		Subdomain:    deploymentID[:8],
+		Subdomain:    id[:8],
 	}
 
-	body, err := json.Marshal(deployJob)
+	body, _ := json.Marshal(event)
+	err := w.ch.PublishWithContext(ctx, "", "hatch.deploy.jobs", false, false, amqp.Publishing{
+		ContentType:  "application/json",
+		DeliveryMode: amqp.Persistent,
+		Body:         body,
+	})
+
 	if err != nil {
-		log.Printf("failed to marshal deploy job: %v", err)
+		w.streamer.Publish(ctx, id, "✗ Handoff failed")
 		return
 	}
 
-	if err := w.amqpCh.PublishWithContext(ctx,
-		"",
-		"hatch.deploy.jobs",
-		false,
-		false,
-		amqp.Publishing{
-			ContentType:  "application/json",
-			DeliveryMode: amqp.Persistent,
-			Body:         body,
-		},
-	); err != nil {
-		w.streamer.Publish(ctx, deploymentID, fmt.Sprintf("✗ Failed to queue deploy job: %v", err))
-		log.Printf("failed to publish deploy job: %v", err)
-		return
-	}
-
-	w.streamer.Publish(ctx, deploymentID, "→ Deploy job queued")
-	log.Printf("deploy job queued for deployment %s", deploymentID)
+	w.streamer.Publish(ctx, id, "→ Deploy job queued")
 }

@@ -13,29 +13,43 @@ import (
 )
 
 const createProject = `-- name: CreateProject :one
-INSERT INTO projects (user_id, repo_name, repo_url)
-VALUES ($1, $2, $3)
-RETURNING id, user_id, repo_name, repo_url, created_at, webhook_secret, auto_deploy, branch
+INSERT INTO projects (
+  user_id, repo_name, repo_url, branch, dockerfile_path, port
+) VALUES (
+  $1, $2, $3, $4, $5, $6
+) RETURNING id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, created_at
 `
 
 type CreateProjectParams struct {
-	UserID   uuid.UUID `json:"user_id"`
-	RepoName string    `json:"repo_name"`
-	RepoUrl  string    `json:"repo_url"`
+	UserID         uuid.UUID `json:"user_id"`
+	RepoName       string    `json:"repo_name"`
+	RepoUrl        string    `json:"repo_url"`
+	Branch         string    `json:"branch"`
+	DockerfilePath string    `json:"dockerfile_path"`
+	Port           int32     `json:"port"`
 }
 
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error) {
-	row := q.db.QueryRowContext(ctx, createProject, arg.UserID, arg.RepoName, arg.RepoUrl)
+	row := q.db.QueryRowContext(ctx, createProject,
+		arg.UserID,
+		arg.RepoName,
+		arg.RepoUrl,
+		arg.Branch,
+		arg.DockerfilePath,
+		arg.Port,
+	)
 	var i Project
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
 		&i.RepoName,
 		&i.RepoUrl,
-		&i.CreatedAt,
 		&i.WebhookSecret,
 		&i.AutoDeploy,
 		&i.Branch,
+		&i.DockerfilePath,
+		&i.Port,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -50,7 +64,7 @@ func (q *Queries) DeleteProject(ctx context.Context, id uuid.UUID) error {
 }
 
 const getProjectByID = `-- name: GetProjectByID :one
-SELECT id, user_id, repo_name, repo_url, created_at, webhook_secret, auto_deploy, branch FROM projects WHERE id = $1
+SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, created_at FROM projects WHERE id = $1
 `
 
 func (q *Queries) GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error) {
@@ -61,16 +75,18 @@ func (q *Queries) GetProjectByID(ctx context.Context, id uuid.UUID) (Project, er
 		&i.UserID,
 		&i.RepoName,
 		&i.RepoUrl,
-		&i.CreatedAt,
 		&i.WebhookSecret,
 		&i.AutoDeploy,
 		&i.Branch,
+		&i.DockerfilePath,
+		&i.Port,
+		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getProjectByRepoURL = `-- name: GetProjectByRepoURL :one
-SELECT id, user_id, repo_name, repo_url, created_at, webhook_secret, auto_deploy, branch FROM projects WHERE repo_url = $1 LIMIT 1
+SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, created_at FROM projects WHERE repo_url = $1 LIMIT 1
 `
 
 func (q *Queries) GetProjectByRepoURL(ctx context.Context, repoUrl string) (Project, error) {
@@ -81,16 +97,18 @@ func (q *Queries) GetProjectByRepoURL(ctx context.Context, repoUrl string) (Proj
 		&i.UserID,
 		&i.RepoName,
 		&i.RepoUrl,
-		&i.CreatedAt,
 		&i.WebhookSecret,
 		&i.AutoDeploy,
 		&i.Branch,
+		&i.DockerfilePath,
+		&i.Port,
+		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getProjectsByUserID = `-- name: GetProjectsByUserID :many
-SELECT id, user_id, repo_name, repo_url, created_at, webhook_secret, auto_deploy, branch FROM projects WHERE user_id = $1 ORDER BY created_at DESC
+SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, created_at FROM projects WHERE user_id = $1 ORDER BY created_at DESC
 `
 
 func (q *Queries) GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]Project, error) {
@@ -107,10 +125,12 @@ func (q *Queries) GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]
 			&i.UserID,
 			&i.RepoName,
 			&i.RepoUrl,
-			&i.CreatedAt,
 			&i.WebhookSecret,
 			&i.AutoDeploy,
 			&i.Branch,
+			&i.DockerfilePath,
+			&i.Port,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -126,9 +146,7 @@ func (q *Queries) GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]
 }
 
 const updateProjectWebhook = `-- name: UpdateProjectWebhook :exec
-UPDATE projects
-SET webhook_secret = $2
-WHERE id = $1
+UPDATE projects SET webhook_secret = $2 WHERE id = $1
 `
 
 type UpdateProjectWebhookParams struct {

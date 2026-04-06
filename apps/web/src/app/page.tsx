@@ -714,12 +714,9 @@ function Header() {
     >
       <div className="w-full px-8 lg:px-12 flex items-center justify-between">
         <div className="flex items-center gap-14">
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-4 group cursor-pointer"
-          >
+          <div className="flex items-center gap-4 group">
             {/* HABR LOGO INTEGRATION */}
-            <div className="w-8 h-8 flex items-center justify-center transition-transform group-hover:rotate-[30deg] duration-500 ease-in-out">
+            <div className="w-8 h-8 flex items-center justify-center">
               <img
                 src="https://cdn.simpleicons.org/habr/FFFFFF"
                 alt="Hatch Logo"
@@ -729,7 +726,7 @@ function Header() {
             <span className="font-bold tracking-tighter text-2xl uppercase text-white">
               Hatch
             </span>
-          </Link>
+          </div>
 
           <nav className="hidden lg:flex items-center gap-10 font-mono text-[13px] uppercase tracking-[0.2em]">
             <button

@@ -9,12 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type GitHubHandler struct{}
-
-func NewGitHubHandler() *GitHubHandler {
-	return &GitHubHandler{}
-}
-
 type Repo struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name"`
@@ -24,6 +18,12 @@ type Repo struct {
 	Description string `json:"description"`
 	Language    string `json:"language"`
 	UpdatedAt   string `json:"updated_at"`
+}
+
+type GitHubHandler struct{}
+
+func NewGitHubHandler() *GitHubHandler {
+	return &GitHubHandler{}
 }
 
 func (h *GitHubHandler) ListRepos(c *gin.Context) {
@@ -79,8 +79,9 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 
 	owner := c.Param("owner")
 	repo := c.Param("repo")
+	path := c.DefaultQuery("path", "Dockerfile")
 
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/Dockerfile", owner, repo)
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", owner, repo, path)
 
 	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, url, nil)
 	if err != nil {
@@ -101,8 +102,13 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 	if resp.StatusCode == http.StatusOK {
 		c.JSON(http.StatusOK, gin.H{"exists": true})
 		return
-	} else if resp.StatusCode == http.StatusNotFound {
-		c.JSON(http.StatusNotFound, gin.H{"exists": false, "error": "Dockerfile not found at root"})
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		c.JSON(http.StatusNotFound, gin.H{
+			"exists": false,
+			"error":  fmt.Sprintf("file not found at: %s", path),
+		})
 		return
 	}
 

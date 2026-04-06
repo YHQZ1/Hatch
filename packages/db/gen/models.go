@@ -37,14 +37,16 @@ type EnvVar struct {
 }
 
 type Project struct {
-	ID            uuid.UUID      `json:"id"`
-	UserID        uuid.UUID      `json:"user_id"`
-	RepoName      string         `json:"repo_name"`
-	RepoUrl       string         `json:"repo_url"`
-	CreatedAt     time.Time      `json:"created_at"`
-	WebhookSecret sql.NullString `json:"webhook_secret"`
-	AutoDeploy    bool           `json:"auto_deploy"`
-	Branch        string         `json:"branch"`
+	ID             uuid.UUID      `json:"id"`
+	UserID         uuid.UUID      `json:"user_id"`
+	RepoName       string         `json:"repo_name"`
+	RepoUrl        string         `json:"repo_url"`
+	WebhookSecret  sql.NullString `json:"webhook_secret"`
+	AutoDeploy     bool           `json:"auto_deploy"`
+	Branch         string         `json:"branch"`
+	DockerfilePath string         `json:"dockerfile_path"`
+	Port           int32          `json:"port"`
+	CreatedAt      time.Time      `json:"created_at"`
 }
 
 type User struct {

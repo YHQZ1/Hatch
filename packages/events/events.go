@@ -1,11 +1,12 @@
 package events
 
 type BuildJobEvent struct {
-	DeploymentID string `json:"deployment_id"`
-	RepoURL      string `json:"repo_url"`
-	Branch       string `json:"branch"`
-	UserToken    string `json:"user_token"`
-	Port         int    `json:"port"`
+	DeploymentID   string `json:"deployment_id"`
+	RepoURL        string `json:"repo_url"`
+	Branch         string `json:"branch"`
+	DockerfilePath string `json:"dockerfile_path"`
+	UserToken      string `json:"user_token"`
+	Port           int    `json:"port"`
 }
 
 type BuildCompleteEvent struct {

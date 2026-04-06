@@ -1,9 +1,9 @@
 package ws
 
 import (
-	"context"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -20,57 +20,56 @@ type Hub struct {
 	redis *redis.Client
 }
 
-func NewHub(redisURL string) *Hub {
-	opt, err := redis.ParseURL(redisURL)
+func NewHub(url string) *Hub {
+	opt, err := redis.ParseURL(url)
 	if err != nil {
-		log.Fatalf("failed to parse redis url: %v", err)
+		log.Fatalf("ws: failed to parse redis url: %v", err)
 	}
-	client := redis.NewClient(opt)
-	return &Hub{redis: client}
+	return &Hub{redis: redis.NewClient(opt)}
 }
 
 func (h *Hub) HandleDeploymentLogs(c *gin.Context) {
-	deploymentID := c.Param("id")
-	if deploymentID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing deployment id"})
-		return
-	}
-
+	id := c.Param("id")
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Printf("websocket upgrade failed: %v", err)
 		return
 	}
 	defer conn.Close()
 
-	log.Printf("websocket connected for deployment %s", deploymentID)
+	// Wait for client to signal readiness
+	_, msg, err := conn.ReadMessage()
+	if err != nil || string(msg) != "READY" {
+		return
+	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Buffer pause for frontend listener attachment
+	time.Sleep(50 * time.Millisecond)
 
-	channel := "deployment:" + deploymentID
+	ctx := c.Request.Context()
+	listKey := "logs:" + id
+
+	// Step 1: Stream historical logs from Redis List
+	history, _ := h.redis.LRange(ctx, listKey, 0, -1).Result()
+	for _, line := range history {
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(line)); err != nil {
+			return
+		}
+		time.Sleep(10 * time.Microsecond)
+	}
+
+	// Step 2: Stream live logs via PubSub
+	channel := "deployment:" + id
 	sub := h.redis.Subscribe(ctx, channel)
 	defer sub.Close()
 
-	go func() {
-		for {
-			_, _, err := conn.ReadMessage()
-			if err != nil {
-				cancel()
-				return
-			}
-		}
-	}()
-
-	ch := sub.Channel()
+	pubsub := sub.Channel()
 	for {
 		select {
-		case msg, ok := <-ch:
+		case msg, ok := <-pubsub:
 			if !ok {
 				return
 			}
 			if err := conn.WriteMessage(websocket.TextMessage, []byte(msg.Payload)); err != nil {
-				log.Printf("websocket write failed: %v", err)
 				return
 			}
 		case <-ctx.Done():

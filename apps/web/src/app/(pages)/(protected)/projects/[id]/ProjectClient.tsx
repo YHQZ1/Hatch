@@ -1,5 +1,4 @@
-/* eslint-disable react-hooks/set-state-in-effect */
-/* eslint-disable @next/next/no-img-element */
+/* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -11,6 +10,8 @@ interface Project {
   repo_name: string;
   repo_url: string;
   created_at: string;
+  port: number;
+  dockerfile_path: string;
 }
 
 interface Deployment {
@@ -49,16 +50,20 @@ export default function ProjectDetail() {
   const [deploying, setDeploying] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
+
   const logsEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const activeIdRef = useRef<string | null>(null);
 
   const scrollToBottom = useCallback(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    setTimeout(() => {
+      logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 50);
   }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [logs, scrollToBottom]);
+  }, [logs.length, scrollToBottom]);
 
   useEffect(() => {
     setMounted(true);
@@ -69,59 +74,126 @@ export default function ProjectDetail() {
     }
     setToken(t);
 
-    Promise.all([
-      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/projects/${projectId}`, {
-        headers: { Authorization: `Bearer ${t}` },
-      }).then((r) => r.json()),
-      fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${projectId}/deployments`,
-        { headers: { Authorization: `Bearer ${t}` } },
-      ).then((r) => r.json()),
-    ])
-      .then(([proj, deps]) => {
+    const loadData = async () => {
+      try {
+        const [projRes, depsRes] = await Promise.all([
+          fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${projectId}`,
+            {
+              headers: { Authorization: `Bearer ${t}` },
+            },
+          ),
+          fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${projectId}/deployments`,
+            {
+              headers: { Authorization: `Bearer ${t}` },
+            },
+          ),
+        ]);
+
+        const proj = await projRes.json();
+        const deps = await depsRes.json();
+
         setProject(proj);
         const depList = Array.isArray(deps) ? deps : [];
         setDeployments(depList);
-        if (depList.length > 0) setActiveDeployment(depList[0]);
+
+        if (depList.length > 0 && !activeDeployment) {
+          setActiveDeployment(depList[0]);
+        }
+      } catch (err) {
+        console.error("failed to load project data", err);
+      } finally {
         setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [projectId, router]);
-
-  const connectWebSocket = useCallback((deploymentId: string) => {
-    if (wsRef.current) wsRef.current.close();
-    const wsUrl = `ws://localhost:8080/ws/deployments/${deploymentId}`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onmessage = (event) => {
-      const line = event.data as string;
-      const type =
-        line.startsWith("✓") || line.includes("Live at")
-          ? "success"
-          : line.startsWith("✗") || line.toLowerCase().includes("error")
-            ? "error"
-            : line.startsWith("[")
-              ? "info"
-              : "muted";
-      setLogs((prev) => [...prev, { text: line, type }]);
+      }
     };
 
-    ws.onerror = () => {
-      setLogs((prev) => [
-        ...prev,
-        { text: "WebSocket connection failed", type: "error" },
-      ]);
-    };
+    loadData();
+  }, [projectId]);
 
-    ws.onclose = () => setDeploying(false);
-  }, []);
+  useEffect(() => {
+    if (!activeDeployment || !token) return;
+
+    const currentId = activeDeployment.id;
+    activeIdRef.current = currentId;
+
+    setLogs([]);
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    const s = activeDeployment.status.toLowerCase();
+    const isActive = ["building", "deploying", "queued"].includes(s);
+
+    if (isActive) {
+      const wsUrl = `${process.env.NEXT_PUBLIC_API_URL?.replace("http", "ws")}/ws/deployments/${currentId}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => ws.send("READY");
+      ws.onmessage = (event) => {
+        const line = event.data;
+        if (line === "READY" || activeIdRef.current !== currentId) return;
+
+        setLogs((prev) => {
+          if (prev.length > 0 && prev[prev.length - 1].text === line)
+            return prev;
+          return [...prev, parseLogLine(line)];
+        });
+
+        if (line.includes("✓ Build complete") || line.includes("Live at")) {
+          updateDeploymentStatus(currentId, "live");
+        }
+      };
+    } else {
+      fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${currentId}/logs`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      )
+        .then((r) => r.json())
+        .then((history) => {
+          if (activeIdRef.current === currentId && Array.isArray(history)) {
+            setLogs(history.map(parseLogLine));
+          }
+        });
+    }
+
+    return () => wsRef.current?.close();
+  }, [activeDeployment?.id, token]);
+
+  const parseLogLine = (line: string): LogLine => {
+    const isSuccess = line.startsWith("✓") || line.includes("Live at");
+    const isError =
+      line.startsWith("✗") || line.toLowerCase().includes("error");
+    const isInfo = line.startsWith("[");
+
+    return {
+      text: line,
+      type: isSuccess
+        ? "success"
+        : isError
+          ? "error"
+          : isInfo
+            ? "info"
+            : "muted",
+    };
+  };
+
+  const updateDeploymentStatus = (id: string, status: string) => {
+    setDeployments((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, status } : d)),
+    );
+    if (activeIdRef.current === id) {
+      setActiveDeployment((prev) => (prev ? { ...prev, status } : null));
+    }
+  };
 
   const handleDeploy = async () => {
     if (!project || !token || deploying) return;
     setDeploying(true);
-    setLogs([]);
-    setActiveDeployment(null);
 
     const res = await fetch(
       `${process.env.NEXT_PUBLIC_API_URL}/api/deployments`,
@@ -136,247 +208,141 @@ export default function ProjectDetail() {
           branch: "main",
           cpu: 512,
           memory_mb: 1024,
-          port: 3000,
+          port: project.port,
           health_check_path: "/",
         }),
       },
     );
 
-    if (!res.ok) {
-      setDeploying(false);
-      return;
+    if (res.ok) {
+      const newDep = await res.json();
+      setDeployments((prev) => [newDep, ...prev]);
+      setActiveDeployment(newDep);
     }
-
-    const deployment: Deployment = await res.json();
-    setDeployments((prev) => [deployment, ...prev]);
-    setActiveDeployment(deployment);
-    setLogs([{ text: `Deployment ${deployment.id} queued`, type: "muted" }]);
-    connectWebSocket(deployment.id);
+    setDeploying(false);
   };
 
-  useEffect(() => {
-    return () => wsRef.current?.close();
-  }, []);
+  const copyLogs = () => {
+    navigator.clipboard.writeText(logs.map((l) => l.text).join("\n"));
+  };
 
   if (!mounted) return null;
 
-  const latestDeployment = deployments[0] ?? null;
-  const repoOwner = project?.repo_url.split("/")[3] ?? "—";
-
   return (
-    <div className="relative z-10 flex flex-col lg:flex-row h-[calc(100vh-80px)] overflow-hidden">
+    <div className="relative z-10 flex flex-col lg:flex-row h-[calc(100vh-80px)] overflow-hidden bg-black text-white">
       {loading ? (
-        <div className="flex-grow flex items-center justify-center">
-          <div className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-[0.3em] animate-pulse">
-            Loading...
-          </div>
-        </div>
-      ) : !project ? (
-        <div className="flex-grow flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <p className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-widest text-white">
-              Project not found
-            </p>
-            <Link
-              href="/dashboard"
-              className="font-mono text-xs text-white underline"
-            >
-              ← Back to dashboard
-            </Link>
-          </div>
+        <div className="flex-grow flex items-center justify-center font-mono text-[10px] uppercase tracking-widest animate-pulse">
+          Loading...
         </div>
       ) : (
         <>
-          <section className="w-full lg:w-[380px] border-r border-[var(--border)] flex flex-col overflow-hidden shrink-0 bg-[var(--bg)]">
-            <div className="px-8 py-6 border-b border-[var(--border)] space-y-4">
-              <div className="flex items-center gap-2">
-                <Link
-                  href="/dashboard"
-                  className="font-mono text-[9px] text-[var(--text-muted)] hover:text-white transition-colors uppercase tracking-widest"
-                >
-                  ← Projects
-                </Link>
-                <Link
-                  href={`/projects/${projectId}/settings`}
-                  className="font-mono text-[9px] text-[#333] hover:text-white transition-colors uppercase tracking-widest"
-                >
-                  Settings →
-                </Link>
+          <aside className="w-full lg:w-[380px] border-r border-zinc-900 flex flex-col shrink-0 bg-[#050505]">
+            <div className="px-8 py-6 border-b border-zinc-900 space-y-4">
+              <Link
+                href="/dashboard"
+                className="font-mono text-[9px] uppercase tracking-widest text-zinc-500 hover:text-white transition-colors"
+              >
+                ← Projects
+              </Link>
+              <div>
+                <p className="font-mono text-[8px] text-zinc-600 uppercase tracking-widest">
+                  {project?.repo_url.split("/")[3] ?? "—"}
+                </p>
+                <h1 className="text-xl font-medium tracking-tighter">
+                  {project?.repo_name}
+                </h1>
               </div>
-              <div className="flex items-center gap-3">
-                <img
-                  src="https://cdn.simpleicons.org/github/FFFFFF"
-                  alt=""
-                  className="w-4 h-4 opacity-40"
-                />
-                <div>
-                  <p className="font-mono text-[8px] text-[var(--text-muted)] uppercase tracking-widest">
-                    {repoOwner}
-                  </p>
-                  <h1 className="text-xl font-medium tracking-tighter text-white">
-                    {project.repo_name}
-                  </h1>
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <StatusBadge
-                  status={latestDeployment?.status ?? "no deployments"}
-                />
-                {latestDeployment?.url && (
-                  <a
-                    href={`https://${latestDeployment.url}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-mono text-[9px] text-[var(--text-muted)] hover:text-white transition-colors uppercase tracking-widest flex items-center gap-1"
-                  >
-                    {latestDeployment.subdomain}.hatchcloud.xyz ↗
-                  </a>
-                )}
-              </div>
+              <StatusBadge status={deployments[0]?.status ?? "none"} />
             </div>
 
-            <div className="px-8 py-5 border-b border-[var(--border)]">
+            <div className="px-8 py-5 border-b border-zinc-900">
               <button
                 onClick={handleDeploy}
                 disabled={deploying}
-                className="w-full h-12 bg-white text-black font-mono text-[11px] font-bold uppercase tracking-[0.2em] hover:bg-[#e5e5e5] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                className="w-full h-12 bg-white text-black font-mono text-[11px] font-bold uppercase tracking-widest hover:bg-zinc-200 transition-all disabled:opacity-40"
               >
-                {deploying ? (
-                  <>
-                    <span className="w-2 h-2 bg-black animate-pulse" />{" "}
-                    Deploying...
-                  </>
-                ) : (
-                  "Deploy →"
-                )}
+                {deploying ? "Deploying..." : "Deploy →"}
               </button>
             </div>
 
-            <div className="px-8 py-6 border-b border-[var(--border)] space-y-4">
-              <p className="font-mono text-[8px] text-[#333] uppercase tracking-[0.3em]">
-                Configuration
-              </p>
-              {latestDeployment ? (
-                <div className="space-y-3">
-                  <MetaRow label="Branch" value={latestDeployment.branch} />
-                  <MetaRow
-                    label="CPU"
-                    value={`${latestDeployment.cpu} units`}
-                  />
-                  <MetaRow
-                    label="Memory"
-                    value={`${latestDeployment.memory_mb} MB`}
-                  />
-                  <MetaRow label="Port" value={String(latestDeployment.port)} />
-                  <MetaRow
-                    label="Health Check"
-                    value={latestDeployment.health_check}
-                  />
-                </div>
-              ) : (
-                <p className="font-mono text-[9px] text-[#333] uppercase tracking-widest">
-                  No deployments yet
-                </p>
-              )}
-            </div>
-
             <div className="flex-grow overflow-y-auto no-scrollbar">
-              <div className="px-8 py-4 border-b border-[var(--border)]">
-                <p className="font-mono text-[8px] text-[#333] uppercase tracking-[0.3em]">
-                  Deployment History ({deployments.length})
-                </p>
+              <div className="px-8 py-4 border-b border-zinc-900 font-mono text-[8px] text-zinc-600 uppercase tracking-widest">
+                History
               </div>
-              <div className="divide-y divide-[var(--border)]">
+              <div className="divide-y divide-zinc-900">
                 {deployments.map((dep) => (
                   <button
                     key={dep.id}
                     onClick={() => setActiveDeployment(dep)}
-                    className={`w-full px-8 py-4 text-left transition-colors hover:bg-[var(--surface)] ${activeDeployment?.id === dep.id ? "bg-[var(--surface)]" : ""}`}
+                    className={`w-full px-8 py-4 text-left transition-colors hover:bg-zinc-900/50 ${activeDeployment?.id === dep.id ? "bg-zinc-900" : ""}`}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <StatusBadge status={dep.status} small />
-                      <span className="font-mono text-[8px] text-[#333]">
-                        {new Date(dep.created_at).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
+                      <span className="font-mono text-[8px] text-zinc-600">
+                        {new Date(dep.created_at).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
                       </span>
                     </div>
-                    <p className="font-mono text-[9px] text-[var(--text-muted)] mt-1">
-                      {dep.id.slice(0, 8)}...
+                    <p className="font-mono text-[9px] text-zinc-500 mt-1">
+                      {dep.id.slice(0, 8)}
                     </p>
                   </button>
                 ))}
               </div>
             </div>
-          </section>
+          </aside>
 
-          <section className="flex-grow bg-[#050505] flex flex-col overflow-hidden">
-            <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between shrink-0 bg-[var(--bg)]">
-              <div className="flex items-center gap-3">
-                <div className="flex gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-[#1a1a1a]" />
-                  <div className="w-2.5 h-2.5 bg-[#1a1a1a]" />
-                  <div className="w-2.5 h-2.5 bg-[#1a1a1a]" />
-                </div>
-                <span className="font-mono text-[9px] text-[var(--text-muted)] uppercase tracking-widest">
-                  {activeDeployment
-                    ? `Log — ${activeDeployment.id.slice(0, 8)}`
-                    : "Log — Awaiting"}
-                </span>
-              </div>
+          <main className="flex-grow flex flex-col overflow-hidden bg-[#050505]">
+            <div className="px-6 py-4 border-b border-zinc-900 flex items-center justify-between bg-black">
+              <span className="font-mono text-[9px] text-zinc-500 uppercase tracking-widest">
+                {activeDeployment
+                  ? `Log — ${activeDeployment.id.slice(0, 8)}`
+                  : "Log — Awaiting"}
+              </span>
+              {logs.length > 0 && (
+                <button
+                  onClick={copyLogs}
+                  className="font-mono text-[9px] text-zinc-500 hover:text-white uppercase tracking-widest border border-zinc-800 px-3 py-1 rounded-sm transition-colors"
+                >
+                  Copy Logs
+                </button>
+              )}
             </div>
+
             <div className="flex-grow overflow-y-auto p-6 font-mono text-sm scrollbar-hide">
-              {logs.length === 0 && !deploying ? (
-                <EmptyTerminal hasDeployments={deployments.length > 0} />
+              {logs.length === 0 ? (
+                <div className="h-full flex items-center justify-center opacity-30 font-mono text-[10px] uppercase tracking-widest text-zinc-500">
+                  Select deployment to view logs
+                </div>
               ) : (
                 <div className="space-y-1.5">
                   {logs.map((log, i) => (
-                    <LogEntry key={i} log={log} />
+                    <LogEntry key={`${activeDeployment?.id}-${i}`} log={log} />
                   ))}
-                  {deploying && (
-                    <div className="flex items-center gap-3 text-[var(--text-muted)]">
-                      <span className="text-[#333]">
-                        [{new Date().toISOString().split("T")[1].slice(0, 8)}]
-                      </span>
-                      <span className="w-2 h-4 bg-[var(--text-muted)] animate-blink inline-block" />
-                    </div>
-                  )}
                   <div ref={logsEndRef} />
                 </div>
               )}
             </div>
-            {activeDeployment?.url && (
-              <div className="px-6 py-4 border-t border-[var(--border)] bg-[var(--bg)] flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 bg-[var(--success)] rounded-full" />
-                  <span className="font-mono text-[9px] text-[var(--success)] uppercase tracking-widest">
-                    Live
-                  </span>
+
+            {activeDeployment?.url && activeDeployment.status === "live" && (
+              <div className="px-6 py-4 border-t border-zinc-900 bg-black flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2 text-emerald-400 font-mono text-[9px] uppercase tracking-widest">
+                  <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />{" "}
+                  Live
                 </div>
                 <a
-                  href={`https://${activeDeployment.url}`}
+                  href={`http://${activeDeployment.url}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-mono text-xs text-white hover:underline flex items-center gap-2"
+                  className="font-mono text-xs text-white hover:underline"
                 >
-                  http://{activeDeployment.subdomain}.hatchcloud.xyz
-                  <svg
-                    width="10"
-                    height="10"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
-                  </svg>
+                  {activeDeployment.url} ↗
                 </a>
               </div>
             )}
-          </section>
+          </main>
         </>
       )}
     </div>
@@ -384,72 +350,45 @@ export default function ProjectDetail() {
 }
 
 function StatusBadge({ status, small }: { status: string; small?: boolean }) {
-  const isLive = status === "live";
-  const isBuilding =
-    status === "building" || status === "deploying" || status === "queued";
-  const isFailed = status === "failed";
+  const s = status.toLowerCase();
+  const isLive = s === "live";
+  const isPending = ["building", "deploying", "queued"].includes(s);
+  const colorClass = isLive
+    ? "border-emerald-900/30 text-emerald-400"
+    : isPending
+      ? "border-yellow-900/40 text-yellow-500"
+      : "border-zinc-800 text-zinc-500";
+  const dotClass = isLive
+    ? "bg-emerald-400"
+    : isPending
+      ? "bg-yellow-500 animate-pulse"
+      : "bg-zinc-700";
+
   return (
     <div
-      className={`flex items-center gap-1.5 border px-2 py-1 font-mono uppercase tracking-widest ${small ? "text-[7px]" : "text-[8px]"} ${isLive ? "border-[#10b981]/30 text-[#10b981]" : isBuilding ? "border-yellow-900/40 text-yellow-500" : isFailed ? "border-red-900/40 text-red-500" : "border-[var(--border)] text-[var(--text-muted)]"}`}
+      className={`flex items-center gap-1.5 border px-2 py-1 font-mono uppercase tracking-widest ${small ? "text-[7px]" : "text-[8px]"} ${colorClass}`}
     >
-      <span
-        className={`w-1 h-1 rounded-full ${isLive ? "bg-[#10b981]" : isBuilding ? "bg-yellow-500 animate-pulse" : isFailed ? "bg-red-500" : "bg-[#333]"}`}
-      />
+      <span className={`w-1 h-1 rounded-full ${dotClass}`} />
       {status}
     </div>
   );
 }
 
-function MetaRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between border-b border-[#111] pb-2">
-      <span className="font-mono text-[8px] text-[#333] uppercase tracking-widest">
-        {label}
-      </span>
-      <span className="font-mono text-[10px] text-[var(--text-muted)]">
-        {value}
-      </span>
-    </div>
-  );
-}
-
 function LogEntry({ log }: { log: LogLine }) {
-  const timestamp = new Date().toISOString().split("T")[1].slice(0, 8);
   const color =
     log.type === "success"
-      ? "text-[#10b981]"
+      ? "text-emerald-400"
       : log.type === "error"
         ? "text-red-400"
-        : log.type === "muted"
-          ? "text-[#555]"
-          : "text-[var(--text-muted)]";
+        : "text-zinc-400";
   return (
-    <div className={`flex items-start gap-3 ${color}`}>
-      <span className="text-[#333] shrink-0 select-none text-xs">
-        [{timestamp}]
+    <div
+      className={`flex items-start gap-3 ${color} font-mono text-[12px] leading-relaxed`}
+    >
+      <span className="text-zinc-800 shrink-0 select-none">
+        [{new Date().toISOString().split("T")[1].slice(0, 8)}]
       </span>
-      <span className="text-xs leading-relaxed">
-        {log.type === "success" && (
-          <span className="text-[#10b981] mr-1">✓</span>
-        )}
-        {log.type === "error" && <span className="text-red-400 mr-1">✗</span>}
-        {log.text}
-      </span>
-    </div>
-  );
-}
-
-function EmptyTerminal({ hasDeployments }: { hasDeployments: boolean }) {
-  return (
-    <div className="h-full flex flex-col items-center justify-center gap-4 opacity-30">
-      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-[var(--text-muted)]">
-        {hasDeployments
-          ? "Select a deployment to view logs"
-          : "Click Deploy to start"}
-      </div>
-      <div className="font-mono text-[9px] text-[#333] flex items-center gap-2">
-        <span className="w-2 h-4 bg-[#333] animate-blink inline-block" />
-      </div>
+      <span>{log.text}</span>
     </div>
   );
 }
