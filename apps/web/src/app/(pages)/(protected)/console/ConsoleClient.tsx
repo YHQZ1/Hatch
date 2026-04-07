@@ -248,20 +248,29 @@ function ProjectRow({
 
 function LoadingState() {
   return (
-    <div className="divide-y divide-[#1a1a1a]">
-      {[...Array(3)].map((_, i) => (
+    <div className="divide-y divide-zinc-900/30">
+      {[...Array(5)].map((_, i) => (
         <div
           key={i}
-          className="px-6 py-8 animate-pulse grid grid-cols-12 items-center"
+          className="px-6 py-8 grid grid-cols-12 items-center opacity-40 animate-[pulse_3s_ease-in-out_infinite]"
         >
+          {/* 1. Icon and Title */}
           <div className="col-span-4 flex items-center gap-4">
-            <div className="w-8 h-8 bg-zinc-900 rounded-sm" />
-            <div className="h-4 w-32 bg-zinc-900 rounded-sm" />
+            <div className="w-8 h-8 bg-zinc-800/50 rounded-sm" />
+            <div className="h-2.5 w-32 bg-zinc-800/50 rounded-full" />
           </div>
-          <div className="col-span-3 h-3 w-40 bg-zinc-900 rounded-sm" />
-          <div className="col-span-2 h-3 w-16 bg-zinc-900 rounded-sm" />
-          <div className="col-span-2 h-3 w-20 bg-zinc-900 rounded-sm" />
-          <div className="col-span-1 h-6 w-12 bg-zinc-900 rounded-sm ml-auto" />
+          
+          {/* 2. Deployment Status / ID */}
+          <div className="col-span-3 h-2 w-40 bg-zinc-800/30 rounded-full" />
+          
+          {/* 3. Branch / Environment */}
+          <div className="col-span-2 h-2 w-16 bg-zinc-800/30 rounded-full" />
+          
+          {/* 4. Timestamp */}
+          <div className="col-span-2 h-2 w-20 bg-zinc-800/30 rounded-full" />
+          
+          {/* 5. Action Button */}
+          <div className="col-span-1 h-5 w-10 bg-zinc-800/50 rounded-sm ml-auto" />
         </div>
       ))}
     </div>

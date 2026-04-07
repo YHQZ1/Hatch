@@ -1,6 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import NextTopLoader from "nextjs-toploader";
 import "./globals.css";
 
 const inter = Inter({
@@ -27,7 +28,7 @@ export const metadata: Metadata = {
     "Docker deployment",
     "Self-hosted Heroku",
     "Infrastructure Automation",
-    "Golang Orchestrator"
+    "Golang Orchestrator",
   ],
   authors: [{ name: "Uttkarsh Ruparel" }],
   icons: {
@@ -46,6 +47,11 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans min-h-screen flex flex-col relative bg-black text-white selection:bg-white selection:text-black`}
       >
+        <NextTopLoader
+          color="#ffffff"
+          showSpinner={false}
+          shadow="0 0 10px #ffffff,0 0 5px #ffffff"
+        />
         <div className="fixed inset-0 z-[-1] pointer-events-none overflow-hidden">
           <div className="absolute inset-0 bg-grid-pattern [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,#000_20%,transparent_100%)] opacity-20"></div>
 
