@@ -14,12 +14,14 @@ import (
 type Querier interface {
 	CreateActivityLog(ctx context.Context, arg CreateActivityLogParams) (ActivityLog, error)
 	CreateDeployment(ctx context.Context, arg CreateDeploymentParams) (Deployment, error)
+	CreateEnvVar(ctx context.Context, arg CreateEnvVarParams) (EnvVar, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DeleteProject(ctx context.Context, id uuid.UUID) error
 	GetActivityLogsByUserID(ctx context.Context, userID uuid.UUID) ([]ActivityLog, error)
 	GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployment, error)
 	GetDeploymentsByProjectID(ctx context.Context, projectID uuid.UUID) ([]Deployment, error)
+	GetEnvVarsByDeployment(ctx context.Context, deploymentID uuid.UUID) ([]EnvVar, error)
 	GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error)
 	GetProjectByRepoURL(ctx context.Context, repoUrl string) (Project, error)
 	GetProjectBySubdomain(ctx context.Context, subdomain sql.NullString) (Project, error)

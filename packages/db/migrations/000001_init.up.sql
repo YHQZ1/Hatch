@@ -43,7 +43,8 @@ CREATE TABLE env_vars (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     deployment_id UUID NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
     key           TEXT NOT NULL,
-    secret_arn    TEXT NOT NULL,
+    value         TEXT NOT NULL DEFAULT '',
+    secret_arn    TEXT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

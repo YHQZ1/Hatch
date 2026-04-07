@@ -37,11 +37,12 @@ type Deployment struct {
 }
 
 type EnvVar struct {
-	ID           uuid.UUID `json:"id"`
-	DeploymentID uuid.UUID `json:"deployment_id"`
-	Key          string    `json:"key"`
-	SecretArn    string    `json:"secret_arn"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID           uuid.UUID      `json:"id"`
+	DeploymentID uuid.UUID      `json:"deployment_id"`
+	Key          string         `json:"key"`
+	Value        string         `json:"value"`
+	SecretArn    sql.NullString `json:"secret_arn"`
+	CreatedAt    time.Time      `json:"created_at"`
 }
 
 type Project struct {

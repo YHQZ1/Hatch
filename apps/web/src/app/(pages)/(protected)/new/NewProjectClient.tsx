@@ -69,7 +69,10 @@ export default function NewProject() {
   const [cpu, setCpu] = useState("512");
   const [memory, setMemory] = useState("1024");
   const [healthCheck, setHealthCheck] = useState("/health");
-  // Changed from Dockerfile to Build Context Path
+  const [envMode, setEnvMode] = useState<"manual" | "bulk">("manual");
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [bulkEnv, setBulkEnv] = useState("");
+
   const [rootPath, setRootPath] = useState("./");
   const [envVars, setEnvVars] = useState<EnvVar[]>([]);
   const [hasDockerfile, setHasDockerfile] = useState<boolean | null>(null);
@@ -167,6 +170,7 @@ export default function NewProject() {
             branch,
             dockerfile_path: finalDockerPath,
             port: parseInt(port),
+            env_vars: envVarsMap,
           }),
         },
       );
@@ -204,6 +208,41 @@ export default function NewProject() {
       .trim();
   };
 
+  const parseBulkEnv = (text: string) => {
+    const lines = text.split("\n");
+    const parsedVars: EnvVar[] = [];
+
+    lines.forEach((line) => {
+      // 1. Remove comments and whitespace
+      const cleanLine = line.split("#")[0].trim();
+      if (!cleanLine || !cleanLine.includes("=")) return;
+
+      // 2. Split by first '=' only
+      const firstEq = cleanLine.indexOf("=");
+      const key = cleanLine.substring(0, firstEq).trim();
+      let value = cleanLine.substring(firstEq + 1).trim();
+
+      // 3. Remove surrounding quotes from value
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+
+      if (key) {
+        parsedVars.push({
+          key: key.toUpperCase().replace(/\s+/g, "_"),
+          value,
+        });
+      }
+    });
+
+    if (parsedVars.length > 0) {
+      setEnvVars(parsedVars);
+    }
+  };
+
   if (!mounted) return null;
 
   return (
@@ -223,7 +262,7 @@ export default function NewProject() {
             {/* SECTION 01: SOURCE */}
             <section className="space-y-6">
               <div className="flex justify-between items-end border-b border-zinc-900 pb-4">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">
+                <h2 className="text-md font-bold uppercase tracking-widest text-zinc-100">
                   Source Selection
                 </h2>
                 {step === 2 && (
@@ -312,7 +351,7 @@ export default function NewProject() {
               }
             >
               <section className="space-y-8">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500 border-b border-zinc-900 pb-4">
+                <h2 className="text-md font-bold uppercase tracking-widest text-zinc-100 border-b border-zinc-900 pb-4">
                   Service Identity
                 </h2>
                 <div className="grid grid-cols-2 gap-10">
@@ -345,7 +384,7 @@ export default function NewProject() {
               </section>
 
               <section className="space-y-8">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500 border-b border-zinc-900 pb-4">
+                <h2 className="text-md font-bold uppercase tracking-widest text-zinc-100 border-b border-zinc-900 pb-4">
                   Resource Allocation
                 </h2>
                 <div className="grid grid-cols-2 gap-10">
@@ -379,7 +418,7 @@ export default function NewProject() {
               </section>
 
               <section className="space-y-8">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500 border-b border-zinc-900 pb-4">
+                <h2 className="text-md font-bold uppercase tracking-widest text-zinc-100 border-b border-zinc-900 pb-4">
                   Build Definitions
                 </h2>
                 <div className="grid grid-cols-2 gap-10">
@@ -399,6 +438,81 @@ export default function NewProject() {
                     value={branch}
                     onChange={setBranch}
                   />
+                </div>
+              </section>
+
+              {/* SECTION 04: ENVIRONMENT VARIABLES */}
+              <section className="space-y-8">
+                <div className="flex justify-between items-center border-b border-zinc-900 pb-4">
+                  <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">
+                    Environment Variables
+                  </h2>
+                  <div className="flex gap-4">
+                    <button
+                      onClick={() => setIsBulkModalOpen(true)}
+                      className="text-[10px] font-bold text-zinc-500 hover:text-white uppercase transition-colors"
+                    >
+                      [ Bulk Import ]
+                    </button>
+                    <button
+                      onClick={() =>
+                        setEnvVars([...envVars, { key: "", value: "" }])
+                      }
+                      className="text-[10px] font-bold text-zinc-400 hover:text-white uppercase transition-colors"
+                    >
+                      [ Add Variable ]
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {envVars.length === 0 ? (
+                    <p className="text-[10px] font-mono text-zinc-800 uppercase tracking-widest italic py-2">
+                      Optional: No variables defined.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {envVars.map((ev, index) => (
+                        <div
+                          key={index}
+                          className="flex gap-4 items-end animate-in fade-in duration-200"
+                        >
+                          <div className="flex-grow grid grid-cols-2 gap-4">
+                            <InputField
+                              label="Key"
+                              value={ev.key}
+                              onChange={(v: string) => {
+                                const newVars = [...envVars];
+                                newVars[index].key = v
+                                  .toUpperCase()
+                                  .replace(/\s+/g, "_");
+                                setEnvVars(newVars);
+                              }}
+                              placeholder="DATABASE_URL"
+                            />
+                            <InputField
+                              label="Value"
+                              value={ev.value}
+                              onChange={(v: string) => {
+                                const newVars = [...envVars];
+                                newVars[index].value = v;
+                                setEnvVars(newVars);
+                              }}
+                              placeholder="secret_value"
+                            />
+                          </div>
+                          <button
+                            onClick={() =>
+                              setEnvVars(envVars.filter((_, i) => i !== index))
+                            }
+                            className="mb-3 text-zinc-800 hover:text-red-500 transition-colors px-2 text-lg"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </section>
 
@@ -467,6 +581,60 @@ export default function NewProject() {
           </div>
         </div>
       </main>
+      {/* BULK IMPORT MODAL */}
+      {isBulkModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            onClick={() => setIsBulkModalOpen(false)}
+          />
+
+          {/* Modal Content */}
+          <div className="relative w-full max-w-xl bg-zinc-950 border border-zinc-800 p-8 rounded-sm shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-white">
+                Bulk Env Import
+              </h3>
+              <button
+                onClick={() => setIsBulkModalOpen(false)}
+                className="text-zinc-500 hover:text-white text-xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <textarea
+              autoFocus
+              value={bulkEnv}
+              onChange={(e) => setBulkEnv(e.target.value)}
+              placeholder={
+                "DB_HOST=localhost\nAPI_KEY=123456\n# You can paste your entire .env here"
+              }
+              className="w-full h-64 bg-black border border-zinc-900 p-4 text-xs font-mono text-zinc-400 outline-none focus:border-zinc-700 transition-all rounded-sm resize-none"
+            />
+
+            <div className="mt-6 flex justify-end gap-4">
+              <button
+                onClick={() => setIsBulkModalOpen(false)}
+                className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  parseBulkEnv(bulkEnv);
+                  setIsBulkModalOpen(false);
+                  setBulkEnv("");
+                }}
+                className="bg-white text-black px-6 py-2 text-[10px] font-bold uppercase tracking-widest rounded-sm hover:bg-zinc-200 transition-all"
+              >
+                Add Variables
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

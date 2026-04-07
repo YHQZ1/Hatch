@@ -53,6 +53,7 @@ type DeployInput struct {
 	MemoryMB     int32
 	HealthCheck  string
 	Subdomain    string
+	EnvVars      map[string]string
 }
 
 func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (string, error) {
@@ -94,6 +95,15 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (string, error
 
 func (d *Deployer) registerTaskDefinition(ctx context.Context, input DeployInput) (string, error) {
 	family := fmt.Sprintf("hatch-%s", input.Subdomain)
+
+	var containerEnv []types.KeyValuePair
+	for k, v := range input.EnvVars {
+		containerEnv = append(containerEnv, types.KeyValuePair{
+			Name:  aws.String(k),
+			Value: aws.String(v),
+		})
+	}
+
 	out, err := d.ecsClient.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:                  aws.String(family),
 		NetworkMode:             types.NetworkModeAwsvpc,
@@ -103,9 +113,10 @@ func (d *Deployer) registerTaskDefinition(ctx context.Context, input DeployInput
 		ExecutionRoleArn:        aws.String(d.taskExecRole),
 		ContainerDefinitions: []types.ContainerDefinition{
 			{
-				Name:      aws.String("app"),
-				Image:     aws.String(input.ImageURI),
-				Essential: aws.Bool(true),
+				Name:        aws.String("app"),
+				Image:       aws.String(input.ImageURI),
+				Essential:   aws.Bool(true),
+				Environment: containerEnv,
 				PortMappings: []types.PortMapping{
 					{ContainerPort: aws.Int32(input.Port), Protocol: types.TransportProtocolTcp},
 				},
@@ -135,7 +146,12 @@ func (d *Deployer) upsertTargetGroup(ctx context.Context, input DeployInput) (st
 
 	tgs, err := d.elbClient.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{Names: []string{name}})
 	if err == nil && len(tgs.TargetGroups) > 0 {
-		return *tgs.TargetGroups[0].TargetGroupArn, nil
+		tg := tgs.TargetGroups[0]
+		if *tg.Port == input.Port {
+			return *tg.TargetGroupArn, nil
+		}
+		_, _ = d.elbClient.DeleteTargetGroup(ctx, &elbv2.DeleteTargetGroupInput{TargetGroupArn: tg.TargetGroupArn})
+		time.Sleep(2 * time.Second)
 	}
 
 	out, err := d.elbClient.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
@@ -190,13 +206,27 @@ func (d *Deployer) upsertService(ctx context.Context, input DeployInput, taskArn
 	svcs, err := d.ecsClient.DescribeServices(ctx, &ecs.DescribeServicesInput{Cluster: aws.String(d.clusterName), Services: []string{name}})
 
 	if err == nil && len(svcs.Services) > 0 && *svcs.Services[0].Status != "INACTIVE" {
-		out, err := d.ecsClient.UpdateService(ctx, &ecs.UpdateServiceInput{
-			Service: aws.String(name), Cluster: aws.String(d.clusterName), TaskDefinition: aws.String(taskArn), DesiredCount: aws.Int32(1),
-		})
-		if err != nil {
-			return "", err
+		svc := svcs.Services[0]
+		portMatch := false
+		if len(svc.LoadBalancers) > 0 && *svc.LoadBalancers[0].ContainerPort == input.Port {
+			portMatch = true
 		}
-		return *out.Service.ServiceArn, nil
+
+		if portMatch {
+			out, err := d.ecsClient.UpdateService(ctx, &ecs.UpdateServiceInput{
+				Service: aws.String(name), Cluster: aws.String(d.clusterName), TaskDefinition: aws.String(taskArn), DesiredCount: aws.Int32(1),
+			})
+			if err != nil {
+				return "", err
+			}
+			return *out.Service.ServiceArn, nil
+		}
+
+		d.streamer.Publish(ctx, input.DeploymentID, "→ Port change detected. Recreating service...")
+		_, _ = d.ecsClient.DeleteService(ctx, &ecs.DeleteServiceInput{
+			Cluster: aws.String(d.clusterName), Service: aws.String(name), Force: aws.Bool(true),
+		})
+		time.Sleep(5 * time.Second)
 	}
 
 	out, err := d.ecsClient.CreateService(ctx, &ecs.CreateServiceInput{

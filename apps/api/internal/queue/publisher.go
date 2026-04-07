@@ -17,6 +17,9 @@ type BuildJobEvent struct {
 	UserToken      string `json:"user_token"`
 	Port           int    `json:"port"`
 	Subdomain      string `json:"subdomain"`
+	CPU            int32  `json:"cpu"`
+	MemoryMB       int32  `json:"memory_mb"`
+	HealthCheck    string `json:"health_check"`
 }
 
 type Publisher struct {
@@ -69,7 +72,7 @@ func (p *Publisher) PublishCleanupJob(ctx context.Context, deploymentIDs []strin
 	body, _ := json.Marshal(deploymentIDs)
 	return p.ch.PublishWithContext(ctx,
 		"",
-		"hatch.cleanup.jobs", // New queue name
+		"hatch.cleanup.jobs",
 		false,
 		false,
 		amqp.Publishing{

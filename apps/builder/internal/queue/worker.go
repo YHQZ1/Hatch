@@ -22,6 +22,9 @@ type BuildJobEvent struct {
 	UserToken      string `json:"user_token"`
 	Port           int    `json:"port"`
 	Subdomain      string `json:"subdomain"`
+	CPU            int32  `json:"cpu"`
+	MemoryMB       int32  `json:"memory_mb"`
+	HealthCheck    string `json:"health_check"`
 }
 
 type DeployJobEvent struct {
@@ -109,20 +112,20 @@ func (w *Worker) process(job BuildJobEvent) {
 		return
 	}
 
-	w.handoff(ctx, id, imageURI, int32(job.Port), job.Subdomain)
+	w.handoff(ctx, job, imageURI)
 }
 
-func (w *Worker) handoff(ctx context.Context, id, uri string, port int32, subdomain string) {
-	w.streamer.Publish(ctx, id, "→ Triggering deployment orchestration...")
+func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) {
+	w.streamer.Publish(ctx, job.DeploymentID, "→ Triggering deployment orchestration...")
 
 	event := DeployJobEvent{
-		DeploymentID: id,
+		DeploymentID: job.DeploymentID,
 		ImageURI:     uri,
-		CPU:          512,
-		MemoryMB:     1024,
-		Port:         port,
-		HealthCheck:  "/",
-		Subdomain:    subdomain,
+		CPU:          job.CPU,
+		MemoryMB:     job.MemoryMB,
+		Port:         int32(job.Port),
+		HealthCheck:  job.HealthCheck,
+		Subdomain:    job.Subdomain,
 	}
 
 	body, _ := json.Marshal(event)
@@ -133,9 +136,9 @@ func (w *Worker) handoff(ctx context.Context, id, uri string, port int32, subdom
 	})
 
 	if err != nil {
-		w.streamer.Publish(ctx, id, "✗ Orchestration handoff failed")
+		w.streamer.Publish(ctx, job.DeploymentID, "✗ Orchestration handoff failed")
 		return
 	}
 
-	w.streamer.Publish(ctx, id, "✓ Pipeline stage complete: Build & Push")
+	w.streamer.Publish(ctx, job.DeploymentID, "✓ Pipeline stage complete: Build & Push")
 }

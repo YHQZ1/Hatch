@@ -118,6 +118,20 @@ func (w *Worker) processJob(job DeployJobEvent) {
 	ctx := context.Background()
 	w.updateStatus(ctx, job.DeploymentID, "deploying")
 
+	envMap := make(map[string]string)
+	rows, err := w.db.QueryContext(ctx, "SELECT key, value FROM env_vars WHERE deployment_id = $1", job.DeploymentID)
+	if err != nil {
+		w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("→ Warning: Failed to fetch env vars: %v", err))
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var k, v string
+			if err := rows.Scan(&k, &v); err == nil {
+				envMap[k] = v
+			}
+		}
+	}
+
 	url, err := w.deployer.Deploy(ctx, ecsdeploy.DeployInput{
 		DeploymentID: job.DeploymentID,
 		ImageURI:     job.ImageURI,
@@ -126,6 +140,7 @@ func (w *Worker) processJob(job DeployJobEvent) {
 		MemoryMB:     job.MemoryMB,
 		HealthCheck:  job.HealthCheck,
 		Subdomain:    job.Subdomain,
+		EnvVars:      envMap,
 	})
 
 	if err != nil {

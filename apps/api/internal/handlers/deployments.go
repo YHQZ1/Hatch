@@ -131,10 +131,15 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 
 	for key, value := range body.EnvVars {
 		if key != "" {
-			_, _ = h.db.ExecContext(c.Request.Context(),
-				"INSERT INTO env_vars (deployment_id, key, secret_arn) VALUES ($1, $2, $3)",
-				deployment.ID, key, value,
+			_, err = h.db.ExecContext(c.Request.Context(),
+				"INSERT INTO env_vars (deployment_id, key, value, secret_arn) VALUES ($1, $2, $3, NULL)",
+				deployment.ID,
+				key,
+				value,
 			)
+			if err != nil {
+				fmt.Printf("Failed to save env var %s: %v\n", key, err)
+			}
 		}
 	}
 
@@ -147,6 +152,9 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		UserToken:      token.(string),
 		Port:           int(body.Port),
 		Subdomain:      effectiveSubdomain,
+		CPU:            body.CPU,
+		MemoryMB:       body.MemoryMB,
+		HealthCheck:    healthCheck,
 	})
 
 	c.JSON(http.StatusCreated, h.toDeploymentResponse(deployment))
