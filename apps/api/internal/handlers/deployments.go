@@ -143,13 +143,23 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		}
 	}
 
-	token, _ := c.Get("access_token")
+	tokenRaw, exists := c.Get("access_token")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	userToken, ok := tokenRaw.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal auth error"})
+		return
+	}
 	h.publisher.PublishBuildJob(c.Request.Context(), queue.BuildJobEvent{
 		DeploymentID:   deployment.ID.String(),
 		RepoURL:        project.RepoUrl,
 		Branch:         body.Branch,
 		DockerfilePath: project.DockerfilePath,
-		UserToken:      token.(string),
+		UserToken:      userToken,
 		Port:           int(body.Port),
 		Subdomain:      effectiveSubdomain,
 		CPU:            body.CPU,

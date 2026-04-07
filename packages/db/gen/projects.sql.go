@@ -14,9 +14,9 @@ import (
 
 const createProject = `-- name: CreateProject :one
 INSERT INTO projects (
-  user_id, repo_name, repo_url, branch, dockerfile_path, port, subdomain
+  user_id, repo_name, repo_url, branch, dockerfile_path, port, subdomain, webhook_secret
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7
+  $1, $2, $3, $4, $5, $6, $7, $8
 ) RETURNING id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, created_at
 `
 
@@ -28,6 +28,7 @@ type CreateProjectParams struct {
 	DockerfilePath string         `json:"dockerfile_path"`
 	Port           int32          `json:"port"`
 	Subdomain      sql.NullString `json:"subdomain"`
+	WebhookSecret  sql.NullString `json:"webhook_secret"`
 }
 
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error) {
@@ -39,6 +40,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 		arg.DockerfilePath,
 		arg.Port,
 		arg.Subdomain,
+		arg.WebhookSecret,
 	)
 	var i Project
 	err := row.Scan(

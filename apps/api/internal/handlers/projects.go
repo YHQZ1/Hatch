@@ -74,6 +74,9 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		branch = "main"
 	}
 
+	// Generate the secret BEFORE creating the project
+	secret, _ := generateSecret()
+
 	project, err := h.queries.CreateProject(c.Request.Context(), dbpkg.CreateProjectParams{
 		UserID:         userID,
 		RepoName:       body.RepoName,
@@ -82,6 +85,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		DockerfilePath: body.DockerfilePath,
 		Port:           body.Port,
 		Subdomain:      sql.NullString{String: subdomain, Valid: true},
+		WebhookSecret:  sql.NullString{String: secret, Valid: true},
 	})
 
 	if err != nil {
@@ -95,8 +99,9 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 
 	h.recordActivity(c, userID, "CREATE", fmt.Sprintf("Project %s initialized", project.RepoName))
 
+	// Now register with GitHub using the secret we already saved
 	if token, ok := c.Get("access_token"); ok {
-		go h.registerGitHubWebhook(project.ID, body.RepoURL, token.(string))
+		go h.registerGitHubWebhook(project.ID, body.RepoURL, token.(string), secret)
 	}
 
 	c.JSON(http.StatusCreated, project)
@@ -147,19 +152,18 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-func (h *ProjectHandler) registerGitHubWebhook(projectID uuid.UUID, repoURL, token string) {
+func (h *ProjectHandler) registerGitHubWebhook(projectID uuid.UUID, repoURL, token, secret string) {
 	owner, repo, err := parseRepoURL(repoURL)
 	if err != nil {
 		return
 	}
 
-	secret, _ := generateSecret()
 	payload := map[string]interface{}{
 		"name":   "web",
 		"active": true,
 		"events": []string{"push"},
 		"config": map[string]string{
-			"url":          fmt.Sprintf("%s/webhooks/github", h.webhookBaseURL),
+			"url":          fmt.Sprintf("%s/api/webhooks/github", h.webhookBaseURL), // Make sure /api is here
 			"content_type": "json",
 			"secret":       secret,
 		},
@@ -173,15 +177,12 @@ func (h *ProjectHandler) registerGitHubWebhook(projectID uuid.UUID, repoURL, tok
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil || resp.StatusCode != http.StatusCreated {
+	if err != nil {
 		return
 	}
 	defer resp.Body.Close()
 
-	_ = h.queries.UpdateProjectWebhook(context.Background(), dbpkg.UpdateProjectWebhookParams{
-		ID:            projectID,
-		WebhookSecret: sql.NullString{String: secret, Valid: true},
-	})
+	// No need to call UpdateProjectWebhook here anymore since we saved it in CreateProject!
 }
 
 func parseRepoURL(url string) (string, string, error) {

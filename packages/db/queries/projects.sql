@@ -1,8 +1,8 @@
 -- name: CreateProject :one
 INSERT INTO projects (
-  user_id, repo_name, repo_url, branch, dockerfile_path, port, subdomain
+  user_id, repo_name, repo_url, branch, dockerfile_path, port, subdomain, webhook_secret
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7
+  $1, $2, $3, $4, $5, $6, $7, $8
 ) RETURNING *;
 
 -- name: GetProjectsByUserID :many

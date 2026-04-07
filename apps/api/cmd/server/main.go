@@ -13,10 +13,14 @@ import (
 	"github.com/YHQZ1/hatch/packages/config"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("Note: No .env file found, using system environment variables")
+	}
 	cfg := config.Load()
 
 	db := dbconn.Connect(cfg.DatabaseURL)
@@ -66,7 +70,7 @@ func main() {
 	r.GET("/auth/github", authHandler.RedirectToGitHub)
 	r.GET("/auth/callback", authHandler.HandleCallback)
 	r.GET("/ws/deployments/:id", hub.HandleDeploymentLogs)
-	r.POST("/webhooks/github", webhookHandler.HandlePush)
+	r.POST("/api/webhooks/github", webhookHandler.HandlePush)
 
 	api := r.Group("/api")
 	api.Use(auth.Middleware(cfg.JWTSecret))

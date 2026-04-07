@@ -54,7 +54,7 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 
 	project, err := h.queries.GetProjectByRepoURL(c.Request.Context(), payload.Repository.HTMLURL)
 	if err != nil {
-		c.Status(http.StatusAccepted) // Quietly ignore untracked repos
+		c.Status(http.StatusAccepted)
 		return
 	}
 
@@ -87,7 +87,7 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		Cpu:         512,
 		MemoryMb:    1024,
 		Port:        project.Port,
-		HealthCheck: "/health",
+		HealthCheck: "/",
 		Subdomain:   sql.NullString{String: resourceName, Valid: true},
 	})
 	if err != nil {
@@ -103,6 +103,9 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		UserToken:      user.AccessToken,
 		Port:           int(project.Port),
 		Subdomain:      resourceName,
+		CPU:            512,
+		MemoryMB:       1024,
+		HealthCheck:    "/",
 	})
 
 	c.JSON(http.StatusAccepted, gin.H{"status": "deploying", "id": deployment.ID})

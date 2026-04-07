@@ -202,31 +202,44 @@ export default function ProjectDetail() {
     if (!project || !token || deploying) return;
     setDeploying(true);
 
-    const res = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL}/api/deployments`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          project_id: project.id,
-          branch: "main",
-          cpu: 512,
-          memory_mb: 1024,
-          port: project.port,
-          health_check_path: "/",
-        }),
-      },
-    );
+    // Ensure we have fallback values so we never send null/undefined
+    const payload = {
+      project_id: project.id,
+      branch: activeDeployment?.branch || "main",
+      cpu: Number(activeDeployment?.cpu || 256),
+      memory_mb: Number(activeDeployment?.memory_mb || 512), // Match json:"memory_mb"
+      port: Number(activeDeployment?.port || project.port || 80),
+      health_check_path: activeDeployment?.health_check || "/", // Match json:"health_check_path"
+      env_vars: {}, // Send empty map if you haven't handled env copying yet
+    };
 
-    if (res.ok) {
-      const newDep = await res.json();
-      setDeployments((prev) => [newDep, ...prev]);
-      setActiveDeployment(newDep);
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/deployments`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      if (res.ok) {
+        const newDep = await res.json();
+        setDeployments((prev) => [newDep, ...prev]);
+        setActiveDeployment(newDep);
+        setLogs([]);
+      } else {
+        const errBody = await res.json();
+        console.error("Backend Validation Error:", errBody);
+      }
+    } catch (err) {
+      console.error("Network Error:", err);
+    } finally {
+      setDeploying(false);
     }
-    setDeploying(false);
   };
 
   if (!mounted) return null;
