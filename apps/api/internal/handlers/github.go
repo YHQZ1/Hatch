@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 type Repo struct {
@@ -19,17 +21,31 @@ type Repo struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
-type GitHubHandler struct{}
+type GitHubHandler struct {
+	rdb *redis.Client
+}
 
-func NewGitHubHandler() *GitHubHandler {
-	return &GitHubHandler{}
+func NewGitHubHandler(rdb *redis.Client) *GitHubHandler {
+	return &GitHubHandler{rdb: rdb}
 }
 
 func (h *GitHubHandler) ListRepos(c *gin.Context) {
 	token, _ := c.Get("access_token")
+	username, _ := c.Get("username")
+	cacheKey := fmt.Sprintf("github:repos:%s", username)
+	ctx := c.Request.Context()
+
+	val, err := h.rdb.Get(ctx, cacheKey).Result()
+	if err == nil {
+		var cachedRepos []Repo
+		if err := json.Unmarshal([]byte(val), &cachedRepos); err == nil {
+			c.JSON(http.StatusOK, cachedRepos)
+			return
+		}
+	}
 
 	url := "https://api.github.com/user/repos?sort=updated&per_page=100"
-	req, _ := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, url, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Accept", "application/vnd.github+json")
 
@@ -51,6 +67,9 @@ func (h *GitHubHandler) ListRepos(c *gin.Context) {
 		return
 	}
 
+	repoData, _ := json.Marshal(repos)
+	h.rdb.Set(ctx, cacheKey, repoData, 5*time.Minute)
+
 	c.JSON(http.StatusOK, repos)
 }
 
@@ -59,9 +78,19 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 	owner := c.Param("owner")
 	repo := c.Param("repo")
 	path := c.DefaultQuery("path", "Dockerfile")
+	ctx := c.Request.Context()
+
+	cacheKey := fmt.Sprintf("github:dockerfile:%s:%s:%s", owner, repo, path)
+	val, err := h.rdb.Get(ctx, cacheKey).Result()
+	if err == nil {
+		if val == "true" {
+			c.JSON(http.StatusOK, gin.H{"exists": true})
+			return
+		}
+	}
 
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", owner, repo, path)
-	req, _ := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, url, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Accept", "application/vnd.github+json")
 
@@ -73,6 +102,7 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
+		h.rdb.Set(ctx, cacheKey, "true", 10*time.Minute)
 		c.JSON(http.StatusOK, gin.H{"exists": true})
 		return
 	}

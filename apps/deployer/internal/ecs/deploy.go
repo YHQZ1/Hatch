@@ -87,6 +87,8 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (string, error
 		return "", err
 	}
 
+	d.streamer.Publish(ctx, id, fmt.Sprintf("✓ Deployment Live at: http://%s", url))
+
 	return url, nil
 }
 
@@ -129,7 +131,7 @@ func (d *Deployer) upsertTargetGroup(ctx context.Context, input DeployInput) (st
 	name := fmt.Sprintf("h-%s", input.Subdomain)
 	if len(name) > 32 {
 		name = name[:32]
-	} // ALB limit
+	}
 
 	tgs, err := d.elbClient.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{Names: []string{name}})
 	if err == nil && len(tgs.TargetGroups) > 0 {
@@ -154,16 +156,18 @@ func (d *Deployer) upsertListenerRule(ctx context.Context, subdomain, tgArn stri
 	host := fmt.Sprintf("%s.%s", subdomain, d.baseDomain)
 	rules, _ := d.elbClient.DescribeRules(ctx, &elbv2.DescribeRulesInput{ListenerArn: aws.String(d.albListenerARN)})
 
-	for _, r := range rules.Rules {
-		for _, c := range r.Conditions {
-			if *c.Field == "host-header" {
-				for _, v := range c.HostHeaderConfig.Values {
-					if v == host {
-						_, err := d.elbClient.ModifyRule(ctx, &elbv2.ModifyRuleInput{
-							RuleArn: r.RuleArn,
-							Actions: []elbv2types.Action{{Type: elbv2types.ActionTypeEnumForward, TargetGroupArn: aws.String(tgArn)}},
-						})
-						return host, err
+	if rules != nil {
+		for _, r := range rules.Rules {
+			for _, c := range r.Conditions {
+				if *c.Field == "host-header" {
+					for _, v := range c.HostHeaderConfig.Values {
+						if v == host {
+							_, err := d.elbClient.ModifyRule(ctx, &elbv2.ModifyRuleInput{
+								RuleArn: r.RuleArn,
+								Actions: []elbv2types.Action{{Type: elbv2types.ActionTypeEnumForward, TargetGroupArn: aws.String(tgArn)}},
+							})
+							return host, err
+						}
 					}
 				}
 			}
@@ -218,23 +222,26 @@ func (d *Deployer) upsertService(ctx context.Context, input DeployInput, taskArn
 
 func (d *Deployer) waitForStability(ctx context.Context, deployID, slug string) error {
 	name := fmt.Sprintf("hatch-%s", slug)
-	ticker := time.NewTicker(12 * time.Second)
+	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
+
+	timeout := time.After(8 * time.Minute)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(6 * time.Minute):
-			return fmt.Errorf("stability timeout")
+		case <-timeout:
+			return fmt.Errorf("stability timeout: service failed to reach healthy state")
 		case <-ticker.C:
-			out, _ := d.ecsClient.DescribeServices(ctx, &ecs.DescribeServicesInput{Cluster: aws.String(d.clusterName), Services: []string{name}})
-			if len(out.Services) > 0 {
-				svc := out.Services[0]
-				d.streamer.Publish(ctx, deployID, fmt.Sprintf("→ Task Health: %d Running / %d Pending", svc.RunningCount, svc.PendingCount))
-				if svc.RunningCount >= 1 && svc.PendingCount == 0 {
-					return nil
-				}
+			out, err := d.ecsClient.DescribeServices(ctx, &ecs.DescribeServicesInput{Cluster: aws.String(d.clusterName), Services: []string{name}})
+			if err != nil || len(out.Services) == 0 {
+				continue
+			}
+			svc := out.Services[0]
+			d.streamer.Publish(ctx, deployID, fmt.Sprintf("→ Task Health: %d Running / %d Pending", svc.RunningCount, svc.PendingCount))
+			if svc.RunningCount >= 1 && svc.PendingCount == 0 {
+				return nil
 			}
 		}
 	}
@@ -247,14 +254,29 @@ func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 		tgName = tgName[:32]
 	}
 
-	// 1. Service
 	_, _ = d.ecsClient.DeleteService(ctx, &ecs.DeleteServiceInput{
 		Cluster: aws.String(d.clusterName), Service: aws.String(svcName), Force: aws.Bool(true),
 	})
 
-	// 2. Target Group
-	tgs, _ := d.elbClient.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{Names: []string{tgName}})
-	if len(tgs.TargetGroups) > 0 {
+	host := fmt.Sprintf("%s.%s", slug, d.baseDomain)
+	rules, err := d.elbClient.DescribeRules(ctx, &elbv2.DescribeRulesInput{ListenerArn: aws.String(d.albListenerARN)})
+	if err == nil && rules != nil {
+		for _, r := range rules.Rules {
+			for _, c := range r.Conditions {
+				if *c.Field == "host-header" {
+					for _, v := range c.HostHeaderConfig.Values {
+						if v == host {
+							_, _ = d.elbClient.DeleteRule(ctx, &elbv2.DeleteRuleInput{RuleArn: r.RuleArn})
+						}
+					}
+				}
+			}
+		}
+	}
+
+	time.Sleep(2 * time.Second)
+	tgs, err := d.elbClient.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{Names: []string{tgName}})
+	if err == nil && tgs != nil && len(tgs.TargetGroups) > 0 {
 		_, _ = d.elbClient.DeleteTargetGroup(ctx, &elbv2.DeleteTargetGroupInput{TargetGroupArn: tgs.TargetGroups[0].TargetGroupArn})
 	}
 

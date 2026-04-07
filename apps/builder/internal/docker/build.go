@@ -50,17 +50,27 @@ func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath 
 	}
 
 	b.streamer.Publish(ctx, id, fmt.Sprintf("✓ Image successfully pushed: %s", tag))
+	b.streamer.Publish(ctx, id, "→ Handoff to Deployer: Provisioning Cloud Infrastructure...")
 	return tag, nil
 }
 
 func (b *Builder) runBuild(ctx context.Context, id, repoDir, dockerfilePath, tag string) error {
+	lastSlash := strings.LastIndex(dockerfilePath, "/")
+	contextDir := repoDir
+	dockerfileBase := dockerfilePath
+
+	if lastSlash != -1 {
+		contextDir = fmt.Sprintf("%s/%s", repoDir, dockerfilePath[:lastSlash])
+		dockerfileBase = dockerfilePath[lastSlash+1:]
+	}
+
 	cmd := exec.CommandContext(ctx, "docker", "build",
 		"--platform", "linux/amd64",
 		"-t", tag,
-		"-f", dockerfilePath,
+		"-f", dockerfileBase,
 		".",
 	)
-	cmd.Dir = repoDir // Ensure build context is the repository root
+	cmd.Dir = contextDir
 
 	return b.executeAndStream(ctx, id, cmd)
 }

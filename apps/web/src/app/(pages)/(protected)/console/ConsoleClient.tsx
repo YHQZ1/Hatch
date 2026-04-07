@@ -90,7 +90,7 @@ export default function ConsoleClient() {
         <div className="px-6 lg:px-10 py-6">
           <div className="flex items-end justify-between mb-10">
             <div>
-              <h1 className="text-4xl font-medium tracking-tight mb-2">
+              <h1 className="text-5xl font-medium tracking-tight mb-2">
                 Services
               </h1>
               <p className="text-zinc-500 text-sm">

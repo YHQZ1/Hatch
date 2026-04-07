@@ -7,6 +7,7 @@ import (
 	"github.com/YHQZ1/hatch/apps/api/internal/auth"
 	dbconn "github.com/YHQZ1/hatch/apps/api/internal/db"
 	"github.com/YHQZ1/hatch/apps/api/internal/handlers"
+	"github.com/YHQZ1/hatch/apps/api/internal/middleware"
 	"github.com/YHQZ1/hatch/apps/api/internal/queue"
 	wsHub "github.com/YHQZ1/hatch/apps/api/internal/ws"
 	"github.com/YHQZ1/hatch/packages/config"
@@ -28,16 +29,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to parse redis url: %v", err)
 	}
+
 	rdb := redis.NewClient(opt)
 	hub := wsHub.NewHub(cfg.RedisURL)
 
 	r := gin.Default()
 
+	r.Use(middleware.StatTracker())
+
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
+		ExposeHeaders:    []string{"Content-Length", "X-Hatch-Trace-Duration"},
 		AllowCredentials: true,
 		MaxAge:           86400,
 	}))
@@ -52,7 +56,7 @@ func main() {
 
 	projectHandler := handlers.NewProjectHandler(db, publisher, cfg.WebhookBaseURL)
 	deploymentHandler := handlers.NewDeploymentHandler(db, publisher, rdb)
-	githubHandler := handlers.NewGitHubHandler()
+	githubHandler := handlers.NewGitHubHandler(rdb)
 	webhookHandler := handlers.NewWebhookHandler(db, publisher)
 
 	r.GET("/health", func(c *gin.Context) {

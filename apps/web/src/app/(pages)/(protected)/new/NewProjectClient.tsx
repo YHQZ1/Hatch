@@ -103,9 +103,11 @@ export default function NewProject() {
   const debouncedCheck = useCallback(
     debounce(async (repoFullName: string, t: string, path: string) => {
       setCheckingDocker(true);
-      // Clean path: remove trailing slash and ensure it points to a Dockerfile
-      const cleanPath = path.endsWith("/") ? path : `${path}/`;
-      const fullDockerPath = `${cleanPath}Dockerfile`.replace("./", "");
+
+      const cleanRoot = sanitizePath(path);
+      const fullDockerPath = cleanRoot
+        ? `${cleanRoot}/Dockerfile`
+        : "Dockerfile";
 
       try {
         const res = await fetch(
@@ -144,8 +146,10 @@ export default function NewProject() {
       if (key.trim()) envVarsMap[key.trim()] = value;
     });
 
-    const cleanPath = rootPath.endsWith("/") ? rootPath : `${rootPath}/`;
-    const finalDockerPath = `${cleanPath}Dockerfile`.replace("./", "");
+    const cleanRoot = sanitizePath(rootPath);
+    const finalDockerPath = cleanRoot
+      ? `${cleanRoot}/Dockerfile`
+      : "Dockerfile";
 
     try {
       const projectRes = await fetch(
@@ -190,6 +194,14 @@ export default function NewProject() {
     } catch (err) {
       setDeploying(false);
     }
+  };
+
+  const sanitizePath = (path: string) => {
+    return path
+      .replace(/^\.\//, "")
+      .replace(/\/+$/, "")
+      .replace(/\/+/g, "/")
+      .trim();
   };
 
   if (!mounted) return null;

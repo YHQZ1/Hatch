@@ -34,9 +34,7 @@ export default function ActivityClient() {
     <div className="min-h-screen bg-black text-white font-sans selection:bg-white selection:text-black">
       {/* HEADER: Simple & Clean */}
       <header className="w-full border-b border-white/5 px-8 py-10">
-        <h1 className="text-5xl font-medium tracking-tight italic">
-          Recent Activity
-        </h1>
+        <h1 className="text-5xl font-medium tracking-tight">Recent Activity</h1>
       </header>
 
       {/* THE LIST: Full Width Grid */}
