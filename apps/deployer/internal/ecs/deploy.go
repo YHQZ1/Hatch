@@ -88,7 +88,7 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (string, error
 		return "", err
 	}
 
-	d.streamer.Publish(ctx, id, fmt.Sprintf("✓ Deployment Live at: http://%s", url))
+	d.streamer.Publish(ctx, id, fmt.Sprintf("✓ Deployment Live at: https://%s", url))
 
 	return url, nil
 }
@@ -284,19 +284,19 @@ func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 		tgName = tgName[:32]
 	}
 
-	_, _ = d.ecsClient.DeleteService(ctx, &ecs.DeleteServiceInput{
-		Cluster: aws.String(d.clusterName), Service: aws.String(svcName), Force: aws.Bool(true),
-	})
-
 	host := fmt.Sprintf("%s.%s", slug, d.baseDomain)
-	rules, err := d.elbClient.DescribeRules(ctx, &elbv2.DescribeRulesInput{ListenerArn: aws.String(d.albListenerARN)})
+	rules, err := d.elbClient.DescribeRules(ctx, &elbv2.DescribeRulesInput{
+		ListenerArn: aws.String(d.albListenerARN),
+	})
 	if err == nil && rules != nil {
 		for _, r := range rules.Rules {
 			for _, c := range r.Conditions {
-				if *c.Field == "host-header" {
+				if c.Field != nil && *c.Field == "host-header" {
 					for _, v := range c.HostHeaderConfig.Values {
 						if v == host {
-							_, _ = d.elbClient.DeleteRule(ctx, &elbv2.DeleteRuleInput{RuleArn: r.RuleArn})
+							_, _ = d.elbClient.DeleteRule(ctx, &elbv2.DeleteRuleInput{
+								RuleArn: r.RuleArn,
+							})
 						}
 					}
 				}
@@ -304,10 +304,24 @@ func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 		}
 	}
 
-	time.Sleep(2 * time.Second)
-	tgs, err := d.elbClient.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{Names: []string{tgName}})
+	_, _ = d.ecsClient.DeleteService(ctx, &ecs.DeleteServiceInput{
+		Cluster: aws.String(d.clusterName),
+		Service: aws.String(svcName),
+		Force:   aws.Bool(true),
+	})
+
+	time.Sleep(5 * time.Second)
+
+	tgs, err := d.elbClient.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{
+		Names: []string{tgName},
+	})
 	if err == nil && tgs != nil && len(tgs.TargetGroups) > 0 {
-		_, _ = d.elbClient.DeleteTargetGroup(ctx, &elbv2.DeleteTargetGroupInput{TargetGroupArn: tgs.TargetGroups[0].TargetGroupArn})
+		_, err = d.elbClient.DeleteTargetGroup(ctx, &elbv2.DeleteTargetGroupInput{
+			TargetGroupArn: tgs.TargetGroups[0].TargetGroupArn,
+		})
+		if err != nil {
+			fmt.Printf("Warning: Could not delete Target Group %s: %v\n", tgName, err)
+		}
 	}
 
 	return nil
