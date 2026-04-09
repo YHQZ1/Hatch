@@ -33,9 +33,14 @@ function HeroSection() {
 
           <p className="text-lg md:text-xl text-[#888] max-w-2xl leading-relaxed font-light">
             You provide the{" "}
-            <code className="bg-[#111] px-2 py-1 text-white font-mono text-sm border border-[#333]">
+            <a
+              href="https://docs.docker.com/reference/dockerfile/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-[#111] px-2 py-1 text-white font-mono text-sm border border-[#333] hover:border-[#555] transition-colors underline decoration-[#555]"
+            >
               Dockerfile
-            </code>
+            </a>
             . Hatch provisions the queue, builds the image, registers the ECS
             task, routes the ALB, and points the wildcard SSL.
           </p>
@@ -101,15 +106,21 @@ const TECHNOLOGIES = [
   { name: "Node.js", slug: "nodedotjs", color: "339933" },
   { name: "Go", slug: "go", color: "00ADD8" },
   { name: "Python", slug: "python", color: "3776AB" },
-  { name: "Rust", slug: "rust", color: "FFFFFF" },
+  { name: "Rust", slug: "rust", color: "CE422B" },
+  { name: "Bun", slug: "bun", color: "FBF0DF" },
+  { name: "React", slug: "react", color: "61DAFB" },
   { name: "Next.js", slug: "nextdotjs", color: "FFFFFF" },
   { name: "FastAPI", slug: "fastapi", color: "009688" },
   { name: "NestJS", slug: "nestjs", color: "E0234E" },
-  { name: "Spring Boot", slug: "spring", color: "6DB33F" },
+  { name: "Django", slug: "django", color: "44B78B" },
+  { name: "Laravel", slug: "laravel", color: "FF2D20" },
   { name: "PostgreSQL", slug: "postgresql", color: "4169E1" },
+  { name: "MongoDB", slug: "mongodb", color: "47A248" },
   { name: "Redis", slug: "redis", color: "FF4438" },
   { name: "RabbitMQ", slug: "rabbitmq", color: "FF6600" },
+  { name: "Apache Kafka", slug: "apachekafka", color: "FFFFFF" },
   { name: "NGINX", slug: "nginx", color: "009639" },
+  { name: "Grafana", slug: "grafana", color: "F46800" },
 ];
 
 function SupportedTechnologies() {
@@ -127,9 +138,10 @@ function SupportedTechnologies() {
         </p>
       </div>
 
-      <div className="max-w-5xl mx-auto flex flex-col gap-12 lg:gap-16 relative z-10">
-        <TechRow items={TECHNOLOGIES.slice(0, 5)} offset={0} />
-        <TechRow items={TECHNOLOGIES.slice(5, 12)} offset={1} />
+      <div className="relative z-10 flex flex-col gap-10">
+        <TechRow items={TECHNOLOGIES.slice(0, 6)} offset={0} />
+        <TechRow items={TECHNOLOGIES.slice(6, 13)} offset={1} />
+        <TechRow items={TECHNOLOGIES.slice(13, 19)} offset={2} />
       </div>
     </section>
   );
@@ -331,17 +343,20 @@ function ArchitectureDiagram() {
                 sub="RDS · App data"
                 icon="postgresql"
                 color="4169E1"
-                className="h-[90px]"
+                className="h-[130px]"
               />
+              <div className="flex items-center justify-center my-1">
+                <FlowArrow direction="down" label="Cache" />
+              </div>
               <ArchNode
                 title="Redis"
                 sub="ElastiCache · Logs"
                 icon="redis"
                 color="FF4438"
-                className="h-[90px]"
+                className="h-[100px]"
               />
             </div>
-            <div className="flex items-center justify-center h-full">
+            <div className="flex items-center justify-center mt-20">
               <FlowArrow direction="right" label="Read / Write" />
             </div>
             <ArchNode
@@ -349,7 +364,7 @@ function ArchitectureDiagram() {
               sub="Stateless"
               icon="go"
               color="00ADD8"
-              className="h-[200px]"
+              className="h-[262px]"
             />
             <div />
             <div className="flex flex-col w-[180px]">
@@ -358,7 +373,7 @@ function ArchitectureDiagram() {
                 sub="Clone → Build → ECR"
                 icon="docker"
                 color="2496ED"
-                className="h-[100px] shrink-0"
+                className="h-[105px] shrink-0"
               />
               <div className="h-12 w-full relative">
                 <FlowArrow direction="down" label="Image URI" />
@@ -367,12 +382,12 @@ function ArchitectureDiagram() {
                 title="Deployer"
                 sub="ECS · ALB · Route53"
                 customIcon={<AwsIcon />}
-                className="h-[100px] shrink-0"
+                className="h-[110px] shrink-0"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-[180px_1fr_180px_1fr_180px] w-full h-16">
+          <div className="grid grid-cols-[180px_1fr_180px_1fr_180px] w-full h-18">
             <div />
             <div />
             <div />
@@ -638,9 +653,9 @@ function TerminalSimulator() {
     <div className="w-full h-[500px] bg-[#050505] technical-border flex flex-col overflow-hidden">
       <div className="h-10 border-b border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between px-4">
         <div className="flex gap-2">
-          <div className="w-2.5 h-2.5 bg-[#333]" />
-          <div className="w-2.5 h-2.5 bg-[#333]" />
-          <div className="w-2.5 h-2.5 bg-[#333]" />
+          <div className="w-3 h-3 rounded-full bg-[#FF5F57]" />
+          <div className="w-3 h-3 rounded-full bg-[#FEBC2E]" />
+          <div className="w-3 h-3 rounded-full bg-[#28C840]" />
         </div>
         <div className="font-mono text-[10px] uppercase tracking-widest text-[#555]">
           Build Log — WebSocket Stream
@@ -691,7 +706,7 @@ function Header() {
 
   return (
     <header
-      className="sticky top-0 z-50 w-full border-b border-white/50 backdrop-blur-xl py-4"
+      className="sticky top-0 z-50 w-full border-b border-white/20 backdrop-blur-xl py-4"
       style={{ background: "#020202" }}
     >
       <div className="w-full px-8 lg:px-12 flex items-center justify-between">
@@ -763,42 +778,41 @@ function Header() {
 function Footer() {
   return (
     <footer
-      className="border-t border-[#1f1f1f] pt-20 pb-10 mt-auto"
+      className="border-t border-[#1f1f1f] pt-10 pb-8 mt-auto"
       style={{ background: "#030303" }}
     >
-      <div className="px-6 lg:px-12 flex flex-col lg:flex-row justify-between gap-16 mb-20">
-        <div className="lg:w-1/3 flex flex-col gap-6">
-          <div className="flex items-center gap-3">
-            <div className="w-5 h-5 bg-white flex items-center justify-center">
-              <div className="w-2 h-2 bg-black" />
-            </div>
-            <span className="font-bold tracking-tight text-xl text-white">
-              Hatch.
+      <div className="px-6 lg:px-12 flex flex-col items-center gap-12 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-12 lg:gap-24 text-center">
+          <div className="flex flex-col items-center">
+            <span className="font-mono text-[10px] uppercase tracking-widest text-white mb-6">
+              Docs
             </span>
+            <Link
+              href="/docs/quick-start"
+              className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
+            >
+              Quick Start
+            </Link>
+            <Link
+              href="/docs/configuration"
+              className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
+            >
+              Configuration
+            </Link>
+            <Link
+              href="/docs/environment-variables"
+              className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
+            >
+              Environment Variables
+            </Link>
+            <Link
+              href="/docs/self-hosting"
+              className="text-[#888] text-sm hover:text-white transition-colors block"
+            >
+              Self-Hosting
+            </Link>
           </div>
-          <p className="text-[#888] text-sm leading-relaxed max-w-sm">
-            The self-hosted deployment engine. Bring your AWS account, we handle
-            the orchestration.
-          </p>
-          <a
-            href="https://github.com/YHQZ1/Hatch"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-3 border border-[#333] bg-[#0a0a0a] px-3 py-2 hover:border-white transition-colors group w-fit"
-          >
-            <img
-              src="https://cdn.simpleicons.org/github/FFFFFF"
-              className="w-4 h-4 opacity-70 group-hover:opacity-100 transition-opacity"
-              alt="GitHub"
-            />
-            <span className="font-mono text-xs text-[#888] group-hover:text-white transition-colors">
-              Star on GitHub
-            </span>
-          </a>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-12 lg:gap-16 lg:w-2/3">
-          <div className="flex flex-col">
+          <div className="flex flex-col items-center">
             <span className="font-mono text-[10px] uppercase tracking-widest text-white mb-6">
               Platform
             </span>
@@ -812,13 +826,13 @@ function Footer() {
               href="#primitives"
               className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
             >
-              Private APIs
+              Background Workers
             </a>
             <a
-              href="#primitives"
+              href="#architecture"
               className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
             >
-              Background Workers
+              Architecture
             </a>
             <a
               href="#primitives"
@@ -827,37 +841,22 @@ function Footer() {
               Cron Jobs
             </a>
           </div>
-          <div className="flex flex-col">
-            <span className="font-mono text-[10px] uppercase tracking-widest text-white mb-6">
-              Stack
-            </span>
-            <a
-              href="#architecture"
-              className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
-            >
-              Architecture
-            </a>
-            <a
-              href="https://github.com/YHQZ1/Hatch"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
-            >
-              Terraform Modules
-            </a>
-            <a
-              href="https://github.com/YHQZ1/Hatch"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[#888] text-sm hover:text-white transition-colors block"
-            >
-              Source Code
-            </a>
-          </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col items-center">
             <span className="font-mono text-[10px] uppercase tracking-widest text-white mb-6">
               Project
             </span>
+            <Link
+              href="/docs/roadmap"
+              className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
+            >
+              Roadmap
+            </Link>
+            <Link
+              href="/docs/changelog"
+              className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
+            >
+              Changelog
+            </Link>
             <a
               href="https://github.com/YHQZ1/Hatch/issues"
               target="_blank"
@@ -870,27 +869,19 @@ function Footer() {
               href="https://github.com/YHQZ1/Hatch"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
-            >
-              MIT License
-            </a>
-            <Link
-              href="/auth"
               className="text-[#888] text-sm hover:text-white transition-colors block"
             >
-              Get Started
-            </Link>
+              Source Code
+            </a>
           </div>
         </div>
       </div>
-
       <div className="px-6 lg:px-12 pt-8 border-t border-[#1f1f1f] flex flex-col md:flex-row items-center justify-between gap-6">
-        <span className="font-mono text-[10px] uppercase tracking-widest text-[#555]">
+        <span className="font-mono text-[12px] uppercase text-zinc-300">
           © {new Date().getFullYear()} Hatch · MIT License
         </span>
-        <span className="font-mono text-[10px] uppercase tracking-widest text-[#555]">
-          Built on AWS ECS · ECR · RDS · ElastiCache · Route53 · ACM · RabbitMQ
-          · Terraform · Go
+        <span className="font-mono text-[12px] uppercase text-zinc-300">
+          AWS · Terraform · RabbitMQ · Go
         </span>
       </div>
     </footer>

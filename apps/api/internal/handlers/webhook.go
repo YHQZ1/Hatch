@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/YHQZ1/hatch/apps/api/internal/queue"
 	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
@@ -35,11 +36,13 @@ type githubPushEvent struct {
 }
 
 func (h *WebhookHandler) HandlePush(c *gin.Context) {
+	// 1. Quick check for event type
 	if c.GetHeader("X-GitHub-Event") != "push" {
 		c.Status(http.StatusNoContent)
 		return
 	}
 
+	// 2. Read body once
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.Status(http.StatusBadRequest)
@@ -52,8 +55,14 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		return
 	}
 
-	project, err := h.queries.GetProjectByRepoURL(c.Request.Context(), payload.Repository.HTMLURL)
+	// 3. NORMALIZATION: GitHub sends URLs with or without .git
+	// We trim it to match whatever is stored in your DB
+	repoURL := strings.TrimSuffix(payload.Repository.HTMLURL, ".git")
+
+	// 4. Look up project
+	project, err := h.queries.GetProjectByRepoURL(c.Request.Context(), repoURL)
 	if err != nil {
+		// If project doesn't exist, we return 202 to avoid GitHub retries
 		c.Status(http.StatusAccepted)
 		return
 	}
@@ -63,29 +72,37 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		return
 	}
 
+	// 5. FLEXIBLE SECURITY: Only verify if a secret is actually set in DB
 	signature := c.GetHeader("X-Hub-Signature-256")
-	if !project.WebhookSecret.Valid || !verifySignature(body, project.WebhookSecret.String, signature) {
-		c.Status(http.StatusUnauthorized)
-		return
+	if project.WebhookSecret.Valid && project.WebhookSecret.String != "" {
+		if !verifySignature(body, project.WebhookSecret.String, signature) {
+			fmt.Printf("[SECURITY] Signature mismatch for project: %s\n", project.ID)
+			c.Status(http.StatusUnauthorized)
+			return
+		}
 	}
 
+	// 6. Branch Check
 	targetRef := fmt.Sprintf("refs/heads/%s", project.Branch)
 	if payload.Ref != targetRef {
 		c.Status(http.StatusNoContent)
 		return
 	}
 
+	// 7. Get User Token
 	user, err := h.queries.GetUserByID(c.Request.Context(), project.UserID)
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
 
+	// 8. Resource Naming (Subdomain)
 	resourceName := project.ID.String()[:8]
-	if project.Subdomain.Valid {
+	if project.Subdomain.Valid && project.Subdomain.String != "" {
 		resourceName = project.Subdomain.String
 	}
 
+	// 9. Database Entry
 	deployment, err := h.queries.CreateDeployment(c.Request.Context(), dbpkg.CreateDeploymentParams{
 		ProjectID:   project.ID,
 		Branch:      project.Branch,
@@ -100,6 +117,7 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		return
 	}
 
+	// 10. Publish to Queue
 	h.publisher.PublishBuildJob(c.Request.Context(), queue.BuildJobEvent{
 		DeploymentID:   deployment.ID.String(),
 		RepoURL:        project.RepoUrl,
@@ -113,11 +131,15 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		HealthCheck:    "/",
 	})
 
-	c.JSON(http.StatusAccepted, gin.H{"status": "deploying", "id": deployment.ID})
+	c.JSON(http.StatusAccepted, gin.H{
+		"status": "deploying",
+		"id":     deployment.ID,
+	})
 }
 
 func verifySignature(body []byte, secret, signature string) bool {
-	if signature == "" || secret == "" {
+	// If secret is missing but verification was called, fail safe.
+	if secret == "" || signature == "" {
 		return false
 	}
 	mac := hmac.New(sha256.New, []byte(secret))
