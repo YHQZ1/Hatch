@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	Port               string
+	FrontendURL        string
 	GitHubClientID     string
 	GitHubClientSecret string
 	GitHubRedirectURI  string
@@ -17,6 +18,7 @@ type Config struct {
 	RedisURL           string
 	RabbitMQURL        string
 	WebhookBaseURL     string
+	Environment        string
 }
 
 func Load() *Config {
@@ -24,6 +26,7 @@ func Load() *Config {
 
 	return &Config{
 		Port:               getEnv("PORT", "8080"),
+		FrontendURL:        getEnv("FRONTEND_URL", "http://localhost:3000"),
 		GitHubClientID:     mustGetEnv("GITHUB_CLIENT_ID"),
 		GitHubClientSecret: mustGetEnv("GITHUB_CLIENT_SECRET"),
 		GitHubRedirectURI:  mustGetEnv("GITHUB_REDIRECT_URI"),
@@ -31,7 +34,8 @@ func Load() *Config {
 		DatabaseURL:        mustGetEnv("DATABASE_URL"),
 		RedisURL:           mustGetEnv("REDIS_URL"),
 		RabbitMQURL:        mustGetEnv("RABBITMQ_URL"),
-		WebhookBaseURL:     getEnv("WEBHOOK_BASE_URL", "http://localhost:8080"),
+		WebhookBaseURL:     mustGetEnv("WEBHOOK_BASE_URL"),
+		Environment:        getEnv("ENVIRONMENT", "development"),
 	}
 }
 
@@ -45,7 +49,7 @@ func getEnv(key, fallback string) string {
 func mustGetEnv(key string) string {
 	val := os.Getenv(key)
 	if val == "" {
-		log.Fatalf("config: missing required env var %s", key)
+		log.Fatalf("Missing required environment variable: %s", key)
 	}
 	return val
 }

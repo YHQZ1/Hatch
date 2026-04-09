@@ -44,6 +44,8 @@ type Worker struct {
 	streamer *logs.Streamer
 	deployer *ecsdeploy.Deployer
 	db       *sql.DB
+	conn     *amqp.Connection
+	ch       *amqp.Channel
 }
 
 func NewWorker(cfg Config) *Worker {
@@ -56,81 +58,93 @@ func NewWorker(cfg Config) *Worker {
 
 	db, err := sql.Open("postgres", cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("deployer: db connection failed: %v", err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-	return &Worker{cfg: cfg, streamer: streamer, deployer: deployer, db: db}
+	if err := db.Ping(); err != nil {
+		log.Fatalf("Failed to ping database: %v", err)
+	}
+
+	return &Worker{
+		cfg:      cfg,
+		streamer: streamer,
+		deployer: deployer,
+		db:       db,
+	}
 }
 
 func (w *Worker) Start() error {
-	defer w.db.Close()
-
-	conn, err := amqp.Dial(w.cfg.RabbitMQURL)
+	var err error
+	w.conn, err = amqp.Dial(w.cfg.RabbitMQURL)
 	if err != nil {
-		return fmt.Errorf("rabbitmq connection failed: %w", err)
+		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
-	defer conn.Close()
 
-	ch, err := conn.Channel()
+	w.ch, err = w.conn.Channel()
 	if err != nil {
-		return fmt.Errorf("rabbitmq channel failed: %w", err)
+		return fmt.Errorf("failed to open channel: %w", err)
 	}
-	defer ch.Close()
 
-	// Ensure queues exist
-	_, _ = ch.QueueDeclare("hatch.deploy.jobs", true, false, false, false, nil)
-	_, _ = ch.QueueDeclare("hatch.cleanup.jobs", true, false, false, false, nil)
+	_, err = w.ch.QueueDeclare("hatch.deploy.jobs", true, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("failed to declare deploy queue: %w", err)
+	}
 
-	deployMsgs, _ := ch.Consume("hatch.deploy.jobs", "", false, false, false, false, nil)
-	cleanupMsgs, _ := ch.Consume("hatch.cleanup.jobs", "", false, false, false, false, nil)
+	_, err = w.ch.QueueDeclare("hatch.cleanup.jobs", true, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("failed to declare cleanup queue: %w", err)
+	}
 
-	// Background Cleanup Listener
-	go func() {
-		log.Println("Deployer: listening for cleanup tasks...")
-		for msg := range cleanupMsgs {
-			var slugs []string
-			if err := json.Unmarshal(msg.Body, &slugs); err == nil {
-				for _, slug := range slugs {
-					_ = w.deployer.Teardown(context.Background(), slug)
-				}
-			}
-			_ = msg.Ack(false)
-		}
-	}()
+	deployMsgs, err := w.ch.Consume("hatch.deploy.jobs", "", false, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("failed to consume deploy queue: %w", err)
+	}
 
-	log.Println("Deployer: listening for deployment jobs...")
+	cleanupMsgs, err := w.ch.Consume("hatch.cleanup.jobs", "", false, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("failed to consume cleanup queue: %w", err)
+	}
+
+	go w.handleCleanupJobs(cleanupMsgs)
+
+	log.Println("Deployer worker started")
 
 	for msg := range deployMsgs {
 		var job DeployJobEvent
 		if err := json.Unmarshal(msg.Body, &job); err != nil {
-			_ = msg.Nack(false, false)
+			msg.Nack(false, false)
 			continue
 		}
 
 		w.processJob(job)
-		_ = msg.Ack(false)
+		msg.Ack(false)
 	}
 
 	return nil
 }
 
-func (w *Worker) processJob(job DeployJobEvent) {
-	ctx := context.Background()
-	w.updateStatus(ctx, job.DeploymentID, "deploying")
+func (w *Worker) handleCleanupJobs(msgs <-chan amqp.Delivery) {
+	for msg := range msgs {
+		var slugs []string
+		if err := json.Unmarshal(msg.Body, &slugs); err != nil {
+			msg.Nack(false, false)
+			continue
+		}
 
-	envMap := make(map[string]string)
-	rows, err := w.db.QueryContext(ctx, "SELECT key, value FROM env_vars WHERE deployment_id = $1", job.DeploymentID)
-	if err != nil {
-		w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("→ Warning: Failed to fetch env vars: %v", err))
-	} else {
-		defer rows.Close()
-		for rows.Next() {
-			var k, v string
-			if err := rows.Scan(&k, &v); err == nil {
-				envMap[k] = v
+		for _, slug := range slugs {
+			if err := w.deployer.Teardown(context.Background(), slug); err != nil {
+				log.Printf("Failed to teardown %s: %v", slug, err)
 			}
 		}
+		msg.Ack(false)
 	}
+}
+
+func (w *Worker) processJob(job DeployJobEvent) {
+	ctx := context.Background()
+	w.updateDeploymentStatus(ctx, job.DeploymentID, "deploying")
+
+	envMap := w.fetchEnvVars(ctx, job.DeploymentID)
 
 	url, err := w.deployer.Deploy(ctx, ecsdeploy.DeployInput{
 		DeploymentID: job.DeploymentID,
@@ -144,16 +158,38 @@ func (w *Worker) processJob(job DeployJobEvent) {
 	})
 
 	if err != nil {
-		w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("✗ Orchestration failed: %v", err))
-		w.updateStatus(ctx, job.DeploymentID, "failed")
+		w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("Deployment failed: %v", err))
+		w.updateDeploymentStatus(ctx, job.DeploymentID, "failed")
 		return
 	}
 
 	w.finalizeDeployment(ctx, job.DeploymentID, job.ImageURI, url)
 }
 
-func (w *Worker) updateStatus(ctx context.Context, id, status string) {
-	_, _ = w.db.ExecContext(ctx, "UPDATE deployments SET status = $1 WHERE id = $2", status, id)
+func (w *Worker) fetchEnvVars(ctx context.Context, deploymentID string) map[string]string {
+	envMap := make(map[string]string)
+
+	rows, err := w.db.QueryContext(ctx, "SELECT key, value FROM env_vars WHERE deployment_id = $1", deploymentID)
+	if err != nil {
+		return envMap
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err == nil {
+			envMap[k] = v
+		}
+	}
+
+	return envMap
+}
+
+func (w *Worker) updateDeploymentStatus(ctx context.Context, id, status string) {
+	_, err := w.db.ExecContext(ctx, "UPDATE deployments SET status = $1 WHERE id = $2", status, id)
+	if err != nil {
+		log.Printf("Failed to update deployment status for %s: %v", id, err)
+	}
 }
 
 func (w *Worker) finalizeDeployment(ctx context.Context, id, image, url string) {
@@ -164,6 +200,19 @@ func (w *Worker) finalizeDeployment(ctx context.Context, id, image, url string) 
 
 	_, err := w.db.ExecContext(ctx, query, id, image, url)
 	if err != nil {
-		log.Printf("worker: failed to finalize deployment %s: %v", id, err)
+		log.Printf("Failed to finalize deployment %s: %v", id, err)
+		w.streamer.Publish(ctx, id, fmt.Sprintf("Warning: Deployment live but status update failed: %v", err))
+	}
+}
+
+func (w *Worker) Close() {
+	if w.db != nil {
+		w.db.Close()
+	}
+	if w.ch != nil {
+		w.ch.Close()
+	}
+	if w.conn != nil {
+		w.conn.Close()
 	}
 }

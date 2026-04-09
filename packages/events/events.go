@@ -7,22 +7,18 @@ type BuildJobEvent struct {
 	DockerfilePath string `json:"dockerfile_path"`
 	UserToken      string `json:"user_token"`
 	Port           int    `json:"port"`
-}
-
-type BuildCompleteEvent struct {
-	DeploymentID string `json:"deployment_id"`
-	ImageURI     string `json:"image_uri"`
-	Success      bool   `json:"success"`
-	Error        string `json:"error,omitempty"`
+	CPU            int32  `json:"cpu"`
+	MemoryMB       int32  `json:"memory_mb"`
+	HealthCheck    string `json:"health_check"`
+	Subdomain      string `json:"subdomain"`
 }
 
 type DeployJobEvent struct {
-	DeploymentID    string            `json:"deployment_id"`
-	ImageURI        string            `json:"image_uri"`
-	CPU             int               `json:"cpu"`
-	MemoryMB        int               `json:"memory_mb"`
-	Port            int               `json:"port"`
-	HealthCheckPath string            `json:"health_check_path"`
-	EnvVars         map[string]string `json:"env_vars"`
-	Subdomain       string            `json:"subdomain"`
+	DeploymentID string `json:"deployment_id"`
+	ImageURI     string `json:"image_uri"`
+	CPU          int32  `json:"cpu"`
+	MemoryMB     int32  `json:"memory_mb"`
+	Port         int32  `json:"port"`
+	HealthCheck  string `json:"health_check"`
+	Subdomain    string `json:"subdomain"`
 }

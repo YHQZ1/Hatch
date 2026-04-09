@@ -37,17 +37,16 @@ function HeroSection() {
               Dockerfile
             </code>
             . Hatch provisions the queue, builds the image, registers the ECS
-            task, routes the ALB, and points the wildcard SSL. Zero
-            infrastructure configuration required.
+            task, routes the ALB, and points the wildcard SSL.
           </p>
 
           <div className="flex flex-wrap items-center gap-4 mt-4 font-mono text-sm">
-            <a
+            <Link
               href="/auth"
               className="bg-white text-black px-8 py-4 font-bold transition-colors uppercase tracking-wider"
             >
               Initialize Stack
-            </a>
+            </Link>
           </div>
         </div>
 
@@ -73,8 +72,7 @@ function HowItWorks() {
         <p className="text-xl text-[#888] font-light leading-relaxed">
           Hatch is a self-hosted alternative to platforms like Render and
           Heroku. Instead of paying a premium for managed hosting, Hatch lives
-          directly inside your AWS account. It automates the complex DevOps
-          orchestration entirely in the background.
+          directly inside your AWS account.
         </p>
       </div>
 
@@ -87,12 +85,12 @@ function HowItWorks() {
         <StepCard
           step="02"
           title="Configure Environment"
-          desc="Set your CPU/Memory requirements, expose your port, and securely add environment variables. Hatch encrypts secrets directly into AWS Secrets Manager."
+          desc="Set your CPU/Memory requirements, expose your port, and securely add environment variables."
         />
         <StepCard
           step="03"
           title="Automated Rollout"
-          desc="Click deploy. Hatch builds your image, pushes it to a private registry, provisions Fargate compute, and assigns a secure HTTPS domain instantly."
+          desc="Click deploy. Hatch builds your image, pushes it to ECR, provisions Fargate compute, and assigns a secure HTTPS domain."
         />
       </div>
     </section>
@@ -100,19 +98,14 @@ function HowItWorks() {
 }
 
 const TECHNOLOGIES = [
-  // Core Runtimes
   { name: "Node.js", slug: "nodedotjs", color: "339933" },
   { name: "Go", slug: "go", color: "00ADD8" },
   { name: "Python", slug: "python", color: "3776AB" },
   { name: "Rust", slug: "rust", color: "FFFFFF" },
-  
-  // Frameworks (Web Services)
   { name: "Next.js", slug: "nextdotjs", color: "FFFFFF" },
   { name: "FastAPI", slug: "fastapi", color: "009688" },
   { name: "NestJS", slug: "nestjs", color: "E0234E" },
   { name: "Spring Boot", slug: "spring", color: "6DB33F" },
-
-  // Infrastructure (Private Services/Workers)
   { name: "PostgreSQL", slug: "postgresql", color: "4169E1" },
   { name: "Redis", slug: "redis", color: "FF4438" },
   { name: "RabbitMQ", slug: "rabbitmq", color: "FF6600" },
@@ -130,15 +123,13 @@ function SupportedTechnologies() {
           Universal Support
         </h2>
         <p className="text-[#888] text-lg max-w-2xl">
-          Hatch doesn't lock you into specific buildpacks. We natively support
-          every modern language, framework, and architecture through Docker.
+          Hatch supports every modern language and framework through Docker.
         </p>
       </div>
 
       <div className="max-w-5xl mx-auto flex flex-col gap-12 lg:gap-16 relative z-10">
         <TechRow items={TECHNOLOGIES.slice(0, 5)} offset={0} />
         <TechRow items={TECHNOLOGIES.slice(5, 12)} offset={1} />
-        <TechRow items={TECHNOLOGIES.slice(12, 18)} offset={2} />
       </div>
     </section>
   );
@@ -160,12 +151,11 @@ function TechRow({
           style={{ animationDelay: `${(i + offset) * 0.4}s` }}
         >
           <div className="relative">
-            <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 blur-xl transition-opacity duration-100 rounded-full"></div>
-
+            <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 blur-xl transition-opacity duration-100 rounded-full" />
             <img
               src={`https://cdn.simpleicons.org/${tech.slug}/${tech.color}`}
               alt={tech.name}
-              className="w-14 h-14 md:w-16 md:h-16 opacity-90 grayscale-20 group-hover:opacity-100 group-hover:scale-110 transition-all duration-500 drop-shadow-md"
+              className="w-14 h-14 md:w-16 md:h-16 opacity-90 group-hover:opacity-100 group-hover:scale-110 transition-all duration-500"
             />
           </div>
           <span className="font-mono text-[10px] text-[#555] group-hover:text-white transition-colors duration-300 uppercase tracking-widest">
@@ -189,31 +179,29 @@ function WorkloadPrimitives() {
           Everything you need to build.
         </h2>
         <p className="text-xl text-[#888] font-light leading-relaxed">
-          Deploy complex architectures using simple building blocks. Select your
-          workload type, and Hatch provisions the exact, optimally configured
-          AWS resources.
+          Deploy complex architectures using simple building blocks.
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <PrimitiveCard
           title="Web Services"
-          desc="Public-facing applications with auto-provisioned SSL, global load balancing, and zero-downtime rollouts."
+          desc="Public-facing applications with auto-provisioned SSL and zero-downtime rollouts."
           icon="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
         />
         <PrimitiveCard
           title="Private Services"
-          desc="Internal APIs and microservices that sit safely behind your VPC, completely unexposed to the public internet."
+          desc="Internal APIs and microservices that sit safely behind your VPC."
           icon="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
         />
         <PrimitiveCard
           title="Background Workers"
-          desc="Always-on processes pulling from queues like RabbitMQ or SQS. Scales horizontally based on persistent workload."
+          desc="Always-on processes pulling from queues like RabbitMQ or SQS."
           icon="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
         />
         <PrimitiveCard
           title="Cron Jobs"
-          desc="Scheduled tasks executed via AWS EventBridge triggers. Run maintenance scripts on exact intervals without idle compute."
+          desc="Scheduled tasks executed via AWS EventBridge triggers."
           icon="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
         />
       </div>
@@ -235,15 +223,15 @@ function ProductFeatures() {
           <div className="flex flex-col gap-8">
             <FeatureRow
               title="Zero-Downtime Rollouts"
-              desc="Traffic shifts seamlessly to new instances only after health checks pass. Users never see a 502 error during deployments."
+              desc="Traffic shifts seamlessly to new instances only after health checks pass."
             />
             <FeatureRow
               title="Real-Time Log Streaming"
-              desc="Every build and deploy step streams live to your browser via WebSocket. Watch your container come alive line by line."
+              desc="Every build and deploy step streams live to your browser via WebSocket."
             />
             <FeatureRow
               title="Automated TLS & DNS"
-              desc="Every web service gets a secure, HTTPS-enabled URL out of the box. Hatch integrates directly with ACM and Route53."
+              desc="Every web service gets a secure, HTTPS-enabled URL out of the box."
             />
           </div>
         </div>
@@ -299,8 +287,7 @@ function ArchitectureDiagram() {
         </h3>
         <p className="text-xl text-[#888] font-light leading-relaxed">
           Hatch operates as a monorepo of independent microservices
-          communicating over RabbitMQ. The API never blocks on builds. Real-time
-          logging is handled entirely in-memory via Redis Pub/Sub.
+          communicating over RabbitMQ.
         </p>
       </div>
 
@@ -394,7 +381,7 @@ function ArchitectureDiagram() {
           </div>
 
           <div className="relative w-full mt-5">
-            <div className="absolute inset-x-[-32px] inset-y-[-24px] border border-[#333] bg-[#0a0a0a] pointer-events-none rounded-xl"></div>
+            <div className="absolute inset-x-[-32px] inset-y-[-24px] border border-[#333] bg-[#0a0a0a] pointer-events-none rounded-xl" />
             <span className="absolute -top-10 left-[-16px] bg-[#050505] px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-[#888] border border-[#333] rounded-md z-10">
               Target Infrastructure
             </span>
@@ -483,7 +470,7 @@ function PrimitiveCard({
 function FeatureRow({ title, desc }: { title: string; desc: string }) {
   return (
     <div className="flex gap-4 group">
-      <div className="mt-1.5 w-3 h-3 bg-[#111] border border-[#333] shrink-0 group-hover:border-white transition-colors"></div>
+      <div className="mt-1.5 w-3 h-3 bg-[#111] border border-[#333] shrink-0 group-hover:border-white transition-colors" />
       <div>
         <h4 className="text-white font-medium mb-2">{title}</h4>
         <p className="text-[#888] text-sm leading-relaxed">{desc}</p>
@@ -598,7 +585,6 @@ function AwsIcon() {
 const TERMINAL_STEPS = [
   { text: "Initializing deployment environment...", delay: 500 },
   { text: "Cloning repository: github.com/user/project", delay: 800 },
-  { text: "Parsing Dockerfile configuration...", delay: 400 },
   { text: "Building image [hatch-build-worker]...", delay: 1200 },
   { text: "Step 1/6: FROM node:20-alpine", delay: 300 },
   { text: "Step 2/6: WORKDIR /app", delay: 200 },
@@ -606,14 +592,10 @@ const TERMINAL_STEPS = [
   { text: "Step 4/6: RUN npm ci", delay: 1500 },
   { text: "Step 5/6: COPY . .", delay: 300 },
   { text: "Step 6/6: RUN npm run build", delay: 1800 },
-  { text: "Successfully built image 9f8a7d6e", delay: 400 },
+  { text: "Successfully built image", delay: 400 },
   { text: "Pushing to AWS ECR registry...", delay: 900 },
-  {
-    text: "Registering ECS Task Definition (Fargate 0.5vCPU, 1GB)...",
-    delay: 600,
-  },
+  { text: "Registering ECS Task Definition...", delay: 600 },
   { text: "Updating ALB Target Group routing...", delay: 700 },
-  { text: "Provisioning wildcard SSL via ACM...", delay: 500 },
   { text: "Waiting for container health checks...", delay: 1200 },
   { text: "Deployment verified. Traffic routed.", delay: 400, highlight: true },
 ];
@@ -656,16 +638,16 @@ function TerminalSimulator() {
     <div className="w-full h-[500px] bg-[#050505] technical-border flex flex-col overflow-hidden">
       <div className="h-10 border-b border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between px-4">
         <div className="flex gap-2">
-          <div className="w-2.5 h-2.5 bg-[#333]"></div>
-          <div className="w-2.5 h-2.5 bg-[#333]"></div>
-          <div className="w-2.5 h-2.5 bg-[#333]"></div>
+          <div className="w-2.5 h-2.5 bg-[#333]" />
+          <div className="w-2.5 h-2.5 bg-[#333]" />
+          <div className="w-2.5 h-2.5 bg-[#333]" />
         </div>
         <div className="font-mono text-[10px] uppercase tracking-widest text-[#555]">
           Build Log — WebSocket Stream
         </div>
       </div>
 
-      <div className="flex-1 p-6 font-mono text-sm overflow-y-auto flex flex-col gap-2 scrollbar-hide">
+      <div className="flex-1 p-6 font-mono text-sm overflow-y-auto flex flex-col gap-2">
         <div className="text-[#555] mb-4">
           $ hatch deploy --project api-gateway --target production
         </div>
@@ -690,13 +672,14 @@ function TerminalSimulator() {
             <span className="text-[#333] shrink-0 select-none">
               {`[${new Date().toISOString().split("T")[1].slice(0, 8)}]`}
             </span>
-            <span className="w-2 h-4 bg-[#888] animate-blink inline-block"></span>
+            <span className="w-2 h-4 bg-[#888] animate-blink inline-block" />
           </div>
         )}
       </div>
     </div>
   );
 }
+
 function Header() {
   const scrollToSection = (id: string) => {
     const element = document.getElementById(id);
@@ -714,7 +697,6 @@ function Header() {
       <div className="w-full px-8 lg:px-12 flex items-center justify-between">
         <div className="flex items-center gap-14">
           <div className="flex items-center gap-4 group">
-            {/* HABR LOGO INTEGRATION */}
             <div className="w-8 h-8 flex items-center justify-center">
               <img
                 src="https://cdn.simpleicons.org/habr/FFFFFF"
@@ -730,19 +712,19 @@ function Header() {
           <nav className="hidden lg:flex items-center gap-10 font-mono text-[13px] uppercase tracking-[0.2em]">
             <button
               onClick={() => scrollToSection("how-it-works")}
-              className="text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer uppercase outline-none"
+              className="text-[#888] hover:text-white transition-colors cursor-pointer uppercase"
             >
               Process
             </button>
             <button
               onClick={() => scrollToSection("primitives")}
-              className="text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer uppercase outline-none"
+              className="text-[#888] hover:text-white transition-colors cursor-pointer uppercase"
             >
               Primitives
             </button>
             <button
               onClick={() => scrollToSection("architecture")}
-              className="text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer uppercase outline-none"
+              className="text-[#888] hover:text-white transition-colors cursor-pointer uppercase"
             >
               Architecture
             </button>
@@ -754,21 +736,21 @@ function Header() {
             href="https://github.com/YHQZ1/Hatch"
             target="_blank"
             rel="noopener noreferrer"
-            className="hidden md:flex h-11 px-6 items-center justify-center gap-3 border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-focus)] transition-all duration-300 group cursor-pointer"
+            className="hidden md:flex h-11 px-6 items-center justify-center gap-3 border border-[#1f1f1f] bg-[#050505] hover:border-[#333] transition-all duration-300 group"
           >
             <img
               src="https://cdn.simpleicons.org/github/FFFFFF"
               alt="GitHub"
               className="w-4 h-4 opacity-80 group-hover:opacity-100 transition-opacity"
             />
-            <span className="text-[13px] font-bold text-[var(--text-muted)] group-hover:text-white transition-colors">
+            <span className="text-[13px] font-bold text-[#888] group-hover:text-white transition-colors">
               GitHub
             </span>
           </Link>
 
           <Link
             href="/auth"
-            className="h-11 px-8 flex items-center justify-center bg-white text-black text-[13px] font-bold uppercase tracking-widest hover:bg-[#e5e5e5] transition-all duration-300 cursor-pointer shadow-[0_0_20px_rgba(255,255,255,0.1)]"
+            className="h-11 px-8 flex items-center justify-center bg-white text-black text-[13px] font-bold uppercase tracking-widest hover:bg-[#e5e5e5] transition-all duration-300"
           >
             Deploy Now
           </Link>
@@ -781,14 +763,14 @@ function Header() {
 function Footer() {
   return (
     <footer
-      className="border-t border-[#1f1f1f] pt-20 pb-10 relative z-10 overflow-hidden mt-auto"
+      className="border-t border-[#1f1f1f] pt-20 pb-10 mt-auto"
       style={{ background: "#030303" }}
     >
       <div className="px-6 lg:px-12 flex flex-col lg:flex-row justify-between gap-16 mb-20">
         <div className="lg:w-1/3 flex flex-col gap-6">
           <div className="flex items-center gap-3">
             <div className="w-5 h-5 bg-white flex items-center justify-center">
-              <div className="w-2 h-2 bg-black"></div>
+              <div className="w-2 h-2 bg-black" />
             </div>
             <span className="font-bold tracking-tight text-xl text-white">
               Hatch.
@@ -796,7 +778,7 @@ function Footer() {
           </div>
           <p className="text-[#888] text-sm leading-relaxed max-w-sm">
             The self-hosted deployment engine. Bring your AWS account, we handle
-            the orchestration. Zero lock-in, pure infrastructure as code.
+            the orchestration.
           </p>
           <a
             href="https://github.com/YHQZ1/Hatch"
@@ -892,12 +874,12 @@ function Footer() {
             >
               MIT License
             </a>
-            <a
+            <Link
               href="/auth"
               className="text-[#888] text-sm hover:text-white transition-colors block"
             >
               Get Started
-            </a>
+            </Link>
           </div>
         </div>
       </div>

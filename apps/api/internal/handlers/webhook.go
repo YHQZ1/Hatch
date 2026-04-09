@@ -58,6 +58,11 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		return
 	}
 
+	if !project.AutoDeploy {
+		c.Status(http.StatusNoContent)
+		return
+	}
+
 	signature := c.GetHeader("X-Hub-Signature-256")
 	if !project.WebhookSecret.Valid || !verifySignature(body, project.WebhookSecret.String, signature) {
 		c.Status(http.StatusUnauthorized)
@@ -65,7 +70,7 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 	}
 
 	targetRef := fmt.Sprintf("refs/heads/%s", project.Branch)
-	if !project.AutoDeploy || payload.Ref != targetRef {
+	if payload.Ref != targetRef {
 		c.Status(http.StatusNoContent)
 		return
 	}
@@ -112,7 +117,7 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 }
 
 func verifySignature(body []byte, secret, signature string) bool {
-	if signature == "" {
+	if signature == "" || secret == "" {
 		return false
 	}
 	mac := hmac.New(sha256.New, []byte(secret))

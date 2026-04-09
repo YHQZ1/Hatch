@@ -1,18 +1,21 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { PageLoadingState } from "../../../../components/LoadingState";
 
 interface Project {
   id: string;
   repo_name: string;
   repo_url: string;
-  created_at: string;
+  branch: string;
   port: number;
   dockerfile_path: string;
+  subdomain: string | null;
+  auto_deploy: boolean;
+  created_at: string;
 }
 
 interface Deployment {
@@ -36,6 +39,9 @@ interface LogLine {
   type: "info" | "success" | "error" | "muted" | "system";
   timestamp: string;
 }
+
+const CACHE_KEY_PREFIX = "hatch_project_";
+const CACHE_TTL = 2 * 60 * 1000;
 
 export default function ProjectDetail() {
   const params = useParams();
@@ -63,7 +69,7 @@ export default function ProjectDetail() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [logs.length]);
+  }, [logs.length, scrollToBottom]);
 
   useEffect(() => {
     setMounted(true);
@@ -73,6 +79,21 @@ export default function ProjectDetail() {
       return;
     }
     setToken(t);
+
+    const cacheKey = `${CACHE_KEY_PREFIX}${projectId}`;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (Date.now() - (parsed.timestamp || 0) < CACHE_TTL) {
+          setProject(parsed.project);
+          setDeployments(parsed.deployments || []);
+          if (parsed.deployments?.length > 0)
+            setActiveDeployment(parsed.deployments[0]);
+          setLoading(false);
+        }
+      } catch {}
+    }
 
     const loadData = async () => {
       try {
@@ -90,33 +111,33 @@ export default function ProjectDetail() {
             },
           ),
         ]);
-
         const proj = await projRes.json();
         const deps = await depsRes.json();
-
+        const depList: Deployment[] = Array.isArray(deps) ? deps : [];
         setProject(proj);
-        const depList = Array.isArray(deps) ? deps : [];
         setDeployments(depList);
-
-        if (depList.length > 0 && !activeDeployment) {
-          setActiveDeployment(depList[0]);
-        }
-      } catch (err) {
-        console.error("failed to load project data", err);
+        if (depList.length > 0) setActiveDeployment(depList[0]);
+        localStorage.setItem(
+          cacheKey,
+          JSON.stringify({
+            project: proj,
+            deployments: depList,
+            timestamp: Date.now(),
+          }),
+        );
+      } catch {
       } finally {
         setLoading(false);
       }
     };
 
     loadData();
-  }, [projectId]);
+  }, [projectId, router]);
 
   useEffect(() => {
     if (!activeDeployment || !token) return;
-
     const currentId = activeDeployment.id;
     activeIdRef.current = currentId;
-
     setLogs([]);
     if (wsRef.current) {
       wsRef.current.close();
@@ -130,15 +151,12 @@ export default function ProjectDetail() {
       const wsUrl = `${process.env.NEXT_PUBLIC_API_URL?.replace("http", "ws")}/ws/deployments/${currentId}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
-
       ws.onopen = () => ws.send("READY");
       ws.onmessage = (event) => {
         const line = event.data;
         if (line === "READY" || activeIdRef.current !== currentId) return;
-
         setLogs((prev) => [...prev, parseLogLine(line)]);
-
-        if (line.includes("✓ Build complete") || line.includes("Live at")) {
+        if (line.includes("Build complete") || line.includes("Live at")) {
           updateDeploymentStatus(currentId, "live");
         }
       };
@@ -170,7 +188,6 @@ export default function ProjectDetail() {
       line.toLowerCase().includes("error") ||
       line.toLowerCase().includes("failed");
     const isSystem = line.startsWith("[") || line.includes("STEP");
-
     return {
       text: line,
       type: isSuccess
@@ -193,26 +210,13 @@ export default function ProjectDetail() {
     setDeployments((prev) =>
       prev.map((d) => (d.id === id ? { ...d, status } : d)),
     );
-    if (activeIdRef.current === id) {
+    if (activeIdRef.current === id)
       setActiveDeployment((prev) => (prev ? { ...prev, status } : null));
-    }
   };
 
   const handleDeploy = async () => {
     if (!project || !token || deploying) return;
     setDeploying(true);
-
-    // Ensure we have fallback values so we never send null/undefined
-    const payload = {
-      project_id: project.id,
-      branch: activeDeployment?.branch || "main",
-      cpu: Number(activeDeployment?.cpu || 256),
-      memory_mb: Number(activeDeployment?.memory_mb || 512), // Match json:"memory_mb"
-      port: Number(activeDeployment?.port || project.port || 80),
-      health_check_path: activeDeployment?.health_check || "/", // Match json:"health_check_path"
-      env_vars: {}, // Send empty map if you haven't handled env copying yet
-    };
-
     try {
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/deployments`,
@@ -222,146 +226,269 @@ export default function ProjectDetail() {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            project_id: project.id,
+            branch: activeDeployment?.branch || project.branch || "main",
+            cpu: Number(activeDeployment?.cpu || 256),
+            memory_mb: Number(activeDeployment?.memory_mb || 512),
+            port: Number(activeDeployment?.port || project.port || 80),
+            health_check: activeDeployment?.health_check || "/",
+            env_vars: {},
+          }),
         },
       );
-
       if (res.ok) {
         const newDep = await res.json();
         setDeployments((prev) => [newDep, ...prev]);
         setActiveDeployment(newDep);
         setLogs([]);
-      } else {
-        const errBody = await res.json();
-        console.error("Backend Validation Error:", errBody);
+        localStorage.removeItem("hatch_projects_cache");
       }
-    } catch (err) {
-      console.error("Network Error:", err);
+    } catch {
     } finally {
       setDeploying(false);
     }
   };
 
-  if (!mounted) return null;
+  if (!mounted) return <PageLoadingState />;
+
+  const isLive = activeDeployment?.status === "live";
+  const isBuilding = ["building", "deploying", "queued"].includes(
+    activeDeployment?.status?.toLowerCase() ?? "",
+  );
+  const liveUrl =
+    isLive && activeDeployment?.url
+      ? `https://${activeDeployment.url.replace(/^https?:\/\//, "")}`
+      : null;
 
   return (
-    <div className="flex h-[calc(100vh-64px)] bg-black text-zinc-400 overflow-hidden font-sans selection:bg-white selection:text-black">
+    <div className="flex h-[calc(100vh-64px)] bg-black text-zinc-400 overflow-hidden">
       {/* SIDEBAR */}
-      <aside className="w-80 border-r border-white/5 flex flex-col bg-[#020202] shrink-0">
-        {/* Top Header */}
-        <div className="p-6 border-b border-white/5 space-y-6">
+      <aside className="w-72 border-r border-[#1a1a1a] flex flex-col bg-[#030303] shrink-0">
+        {/* Project header */}
+        <div className="px-5 pt-2 pb-4 border-b border-[#1a1a1a] space-y-3">
           <Link
             href="/console"
-            className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 hover:text-white transition-colors flex items-center gap-2 group"
+            className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-zinc-700 hover:text-zinc-400 transition-colors font-bold group"
           >
-            <span className="transition-transform group-hover:-translate-x-1 font-bold">
+            <span className="group-hover:-translate-x-0.5 transition-transform inline-block">
               ←
-            </span>{" "}
-            GO back to registry
+            </span>
+            Back to Console
           </Link>
-          <div className="space-y-1">
-            <h1 className="text-xl font-bold text-white tracking-tighter truncate">
-              {project?.repo_name}
+          <div>
+            <h1 className="text-[14px] font-semibold text-white tracking-tight truncate leading-tight">
+              {loading ? "Loading..." : project?.repo_name}
             </h1>
-            <p className="text-[10px] font-mono text-zinc-700 uppercase tracking-widest truncate">
-              {project?.repo_url.split("github.com/")[1] ?? "Repository"}
+            <p className="text-[10px] font-mono text-zinc-700 mt-0.5 truncate">
+              {project?.repo_url.replace("https://github.com/", "") ?? ""}
             </p>
           </div>
+        </div>
 
+        {/* Live URL + status strip */}
+        {activeDeployment && (
+          <div className="px-5 py-4 border-b border-[#1a1a1a] space-y-3">
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isLive ? "bg-[#4ade80]" : isBuilding ? "bg-[#ca8a04] animate-pulse" : "bg-zinc-800"}`}
+              />
+              <span
+                className={`text-[10px] font-bold uppercase tracking-widest ${statusTextColor(activeDeployment.status)}`}
+              >
+                {activeDeployment.status}
+              </span>
+              {isBuilding && (
+                <span className="text-[9px] font-mono text-[#ca8a04] animate-pulse ml-auto">
+                  live stream
+                </span>
+              )}
+            </div>
+
+            {liveUrl && (
+              <a
+                href={liveUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="py-2 group hover:border-zinc-700 transition-colors"
+              >
+                <span className="text-[12px] font-mono text-zinc-500 group-hover:text-white transition-colors truncate">
+                  {liveUrl.replace(/^https?:\/\//, "")}
+                </span>
+              </a>
+            )}
+
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <SidebarStat label="CPU" value={`${activeDeployment.cpu} vCPU`} />
+              <SidebarStat
+                label="Memory"
+                value={`${activeDeployment.memory_mb} MB`}
+              />
+              <SidebarStat label="Branch" value={activeDeployment.branch} />
+              <SidebarStat label="Port" value={String(activeDeployment.port)} />
+            </div>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="px-5 py-3 border-b border-[#1a1a1a] space-y-2">
           <button
             onClick={handleDeploy}
             disabled={deploying}
-            className="w-full bg-white text-black text-[10px] font-bold uppercase tracking-widest py-3 hover:bg-zinc-200 transition-all disabled:opacity-20 cursor-pointer"
+            className="w-full bg-white text-black text-[9px] font-bold uppercase tracking-[0.15em] py-2.5 rounded-[2px] hover:bg-zinc-200 transition-colors disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
           >
-            {deploying ? "Deploying" : "Redeploy"}
+            {deploying ? "Deploying..." : "Deploy Manually"}
           </button>
+          {project?.auto_deploy && (
+            <p className="text-[8px] text-zinc-800 uppercase tracking-widest text-center font-mono">
+              auto-deploy enabled
+            </p>
+          )}
         </div>
 
-        {/* History Scroll Area */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
-          <div className="px-6 py-4 text-[9px] font-bold font-mono text-zinc-800 uppercase tracking-[0.3em]">
-            Event History
+        {/* Deployment history */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-5 py-3 flex items-center justify-between">
+            <span className="text-[9px] font-bold font-mono text-zinc-800 uppercase tracking-[0.25em]">
+              History
+            </span>
+            <span className="text-[9px] font-mono text-zinc-800">
+              {deployments.length}
+            </span>
           </div>
-          <div className="divide-y divide-white/[0.02]">
-            {deployments.map((dep) => (
-              <Link
-                key={dep.id}
-                // This is the magic part: it pushes the new URL to the browser
-                href={`/projects/${projectId}/deployments/${dep.id}`}
-                className={`block w-full px-6 py-5 text-left transition-all cursor-pointer ${
-                  activeDeployment?.id === dep.id
-                    ? "bg-white/[0.03] border-l-2 border-white"
-                    : "hover:bg-white/[0.01] border-l-2 border-transparent"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span
-                    className={`text-[9px] font-bold uppercase tracking-widest ${getStatusColor(dep.status)}`}
+          <div>
+            {loading ? (
+              <div className="px-5 space-y-3 py-2">
+                {[...Array(3)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="space-y-1.5"
+                    style={{ opacity: 1 - i * 0.25 }}
                   >
-                    {dep.status}
-                  </span>
-                  <span className="font-mono text-[9px] text-zinc-700 font-bold">
-                    {new Date(dep.created_at).toLocaleDateString([], {
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <p className="font-mono text-[10px] text-zinc-500 truncate">
-                    SHA: {dep.id.slice(0, 8)}
-                  </p>
-                  <span className="text-[8px] font-bold text-zinc-800 uppercase tracking-tighter">
-                    View Logs →
-                  </span>
-                </div>
-              </Link>
-            ))}
+                    <div className="h-2 w-16 bg-zinc-900 rounded-full animate-pulse" />
+                    <div className="h-2 w-28 bg-zinc-900/60 rounded-full animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            ) : deployments.length === 0 ? (
+              <p className="px-5 text-[10px] text-zinc-800 font-mono py-3">
+                No deployments yet
+              </p>
+            ) : (
+              deployments.map((dep, idx) => {
+                const isActive = activeDeployment?.id === dep.id;
+                const depIsLive = dep.status === "live";
+                const depIsBuilding = [
+                  "building",
+                  "deploying",
+                  "queued",
+                ].includes(dep.status.toLowerCase());
+                const depIsFailed =
+                  dep.status === "failed" || dep.status === "error";
+
+                return (
+                  <button
+                    key={dep.id}
+                    onClick={() => setActiveDeployment(dep)}
+                    className={`w-full text-left px-5 py-3 border-b border-[#111] transition-colors relative ${isActive ? "bg-white/[0.03]" : "hover:bg-white/[0.015]"}`}
+                  >
+                    {isActive && (
+                      <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-white" />
+                    )}
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <div
+                          className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${depIsLive ? "bg-[#4ade80]" : depIsBuilding ? "bg-[#ca8a04] animate-pulse" : depIsFailed ? "bg-[#7f1d1d]" : "bg-zinc-800"}`}
+                        />
+                        <span
+                          className={`text-[9px] font-bold uppercase tracking-widest ${statusTextColor(dep.status)}`}
+                        >
+                          {dep.status}
+                        </span>
+                        {idx === 0 && (
+                          <span className="text-[7px] uppercase tracking-widest text-zinc-800 border border-zinc-900 px-1 py-px rounded-sm">
+                            latest
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-mono text-[9px] text-zinc-700">
+                        {formatRelativeTime(dep.created_at)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between pl-3">
+                      <span className="font-mono text-[9px] text-zinc-700">
+                        {dep.id.slice(0, 8)}
+                      </span>
+                      <Link
+                        href={`/projects/${projectId}/deployments/${dep.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[8px] uppercase tracking-widest text-zinc-700 hover:text-white transition-colors"
+                      >
+                        Details →
+                      </Link>
+                    </div>
+                  </button>
+                );
+              })
+            )}
           </div>
         </div>
 
-        {/* Bottom Settings Anchor */}
-        <div className="p-4 border-t border-white/5 bg-[#050505]">
+        {/* Footer */}
+        <div className="border-t border-[#1a1a1a]">
           <Link
             href={`/projects/${projectId}/settings`}
-            className="flex items-center gap-3 px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 hover:text-white hover:bg-white/5 transition-all rounded-sm group cursor-pointer"
+            className="flex items-center gap-3 px-5 py-3.5 text-[9px] font-bold uppercase tracking-[0.15em] text-zinc-700 hover:text-zinc-300 hover:bg-white/[0.02] transition-all"
           >
             <svg
-              width="14"
-              height="14"
+              width="11"
+              height="11"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-zinc-600 group-hover:text-white transition-colors"
+              strokeWidth="2"
             >
-              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
               <circle cx="12" cy="12" r="3" />
             </svg>
-            Service Settings
+            Settings
           </Link>
         </div>
       </aside>
 
-      {/* TERMINAL */}
-      <main className="flex-1 flex flex-col bg-black relative">
-        <div className="px-8 py-4 border-b border-white/5 flex items-center justify-between bg-[#050505] z-10 shrink-0">
+      {/* MAIN LOG PANEL */}
+      <main className="flex-1 flex flex-col bg-black overflow-hidden">
+        {/* Log header */}
+        <div className="px-6 py-3 border-b border-[#1a1a1a] flex items-center justify-between bg-[#030303] shrink-0">
           <div className="flex items-center gap-4">
-            <div
-              className={`w-1.5 h-1.5 rounded-full ${activeDeployment?.status === "live" ? "bg-zinc-400" : "bg-zinc-800 animate-pulse"}`}
-            />
-            <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-600 font-bold">
-              Deployment: {activeDeployment?.id.slice(0, 8) ?? "INITIALIZING"}
+            <span className="text-[9px] font-mono text-zinc-800 uppercase tracking-widest">
+              {activeDeployment
+                ? `deploy/${activeDeployment.id.slice(0, 8)}`
+                : "No deployment"}
             </span>
+            {isBuilding && (
+              <div className="flex items-center gap-1.5">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="w-1 h-1 rounded-full bg-[#ca8a04] animate-pulse"
+                    style={{ animationDelay: `${i * 150}ms` }}
+                  />
+                ))}
+              </div>
+            )}
+            {logs.length > 0 && (
+              <span className="text-[9px] font-mono text-zinc-800">
+                {logs.length} lines
+              </span>
+            )}
           </div>
-          <div className="flex gap-8">
+          <div className="flex items-center gap-4">
             <button
               onClick={() => setLogs([])}
-              className="text-[10px] font-bold text-zinc-500 hover:text-white uppercase tracking-widest transition-colors cursor-pointer"
+              className="text-[9px] font-bold text-zinc-700 hover:text-zinc-300 uppercase tracking-[0.15em] transition-colors cursor-pointer"
             >
-              Clear Logs
+              Clear
             </button>
             <button
               onClick={() =>
@@ -369,29 +496,35 @@ export default function ProjectDetail() {
                   logs.map((l) => l.text).join("\n"),
                 )
               }
-              className="text-[10px] font-bold text-zinc-500 hover:text-white uppercase tracking-widest transition-colors cursor-pointer"
+              className="text-[9px] font-bold text-zinc-700 hover:text-zinc-300 uppercase tracking-[0.15em] transition-colors cursor-pointer"
             >
-              Copy Output
+              Copy
             </button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-10 font-mono scroll-smooth bg-black scrollbar-hide">
+        {/* Log body */}
+        <div className="flex-1 overflow-y-auto px-8 py-6 font-mono bg-black">
           {logs.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center opacity-10">
-              <p className="text-[10px] font-bold uppercase tracking-[0.5em]">
-                No Output Detected
+            <div className="h-full flex flex-col items-center justify-center gap-3">
+              <p className="text-[9px] font-bold uppercase tracking-[0.4em] text-zinc-800">
+                {isBuilding ? "Waiting for output..." : "No log output"}
               </p>
+              {!isBuilding && activeDeployment && (
+                <p className="text-[9px] font-mono text-zinc-800">
+                  Logs may not be available for older deployments
+                </p>
+              )}
             </div>
           ) : (
-            <div className="space-y-1.5">
+            <div className="space-y-0.5">
               {logs.map((log, i) => (
-                <div key={i} className="flex gap-6 group">
-                  <span className="w-16 shrink-0 text-zinc-800 text-[10px] pt-1 select-none font-bold">
+                <div key={i} className="flex gap-5 py-0.5">
+                  <span className="w-14 shrink-0 text-[9px] text-zinc-800 pt-px select-none tabular-nums">
                     {log.timestamp}
                   </span>
                   <p
-                    className={`text-[13px] leading-relaxed break-all ${getLogTypeColor(log.type)}`}
+                    className={`text-[11px] leading-relaxed break-all ${getLogTypeColor(log.type)}`}
                   >
                     {renderLogText(log.text)}
                   </p>
@@ -402,64 +535,71 @@ export default function ProjectDetail() {
           )}
         </div>
       </main>
-
-      <style jsx global>{`
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-        }
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 3px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #111;
-        }
-      `}</style>
     </div>
   );
 }
 
-/* HELPERS */
+function SidebarStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[8px] uppercase tracking-[0.18em] text-zinc-800 mb-0.5 font-bold">
+        {label}
+      </p>
+      <p className="text-[10px] font-mono text-zinc-500">{value}</p>
+    </div>
+  );
+}
+
+function statusTextColor(status: string): string {
+  const s = status.toLowerCase();
+  if (s === "live") return "text-[#4ade80]";
+  if (["building", "deploying", "queued"].includes(s)) return "text-[#ca8a04]";
+  if (s === "failed" || s === "error") return "text-[#7f1d1d]";
+  return "text-zinc-700";
+}
+
+function formatRelativeTime(dateStr: string): string {
+  const date = new Date(dateStr);
+  const diffMs = Date.now() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHr = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHr < 24) return `${diffHr}h ago`;
+  if (diffDay < 30) return `${diffDay}d ago`;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
 
 function renderLogText(text: string) {
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(urlRegex);
-
-  return parts.map((part, i) => {
-    if (part.match(urlRegex)) {
-      return (
-        <a
-          key={i}
-          href={part}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-white font-bold underline underline-offset-4 decoration-zinc-800 hover:decoration-white transition-all cursor-pointer"
-        >
-          {part}
-        </a>
-      );
-    }
-    return part;
-  });
+  return parts.map((part, i) =>
+    part.match(urlRegex) ? (
+      <a
+        key={i}
+        href={part}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-[#4ade80] underline underline-offset-3 decoration-[#4ade80]/30 hover:decoration-[#4ade80] transition-all"
+      >
+        {part}
+      </a>
+    ) : (
+      part
+    ),
+  );
 }
 
-function getStatusColor(status: string) {
-  const s = status.toLowerCase();
-  if (s === "live") return "text-white";
-  if (["building", "deploying", "queued"].includes(s))
-    return "text-zinc-600 animate-pulse";
-  if (s === "failed") return "text-zinc-800";
-  return "text-zinc-700";
-}
-
-function getLogTypeColor(type: string) {
+function getLogTypeColor(type: string): string {
   switch (type) {
     case "success":
-      return "text-zinc-200 font-bold";
+      return "text-[#4ade80]";
     case "error":
-      return "text-zinc-600 italic";
+      return "text-[#7f1d1d]";
     case "system":
       return "text-zinc-500 font-bold";
     default:
-      return "text-zinc-700";
+      return "text-zinc-600";
   }
 }

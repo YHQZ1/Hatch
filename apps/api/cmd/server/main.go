@@ -18,9 +18,8 @@ import (
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Println("Note: No .env file found, using system environment variables")
-	}
+	_ = godotenv.Load()
+
 	cfg := config.Load()
 
 	db := dbconn.Connect(cfg.DatabaseURL)
@@ -31,7 +30,7 @@ func main() {
 
 	opt, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
-		log.Fatalf("failed to parse redis url: %v", err)
+		log.Fatalf("Failed to parse Redis URL: %v", err)
 	}
 
 	rdb := redis.NewClient(opt)
@@ -42,7 +41,7 @@ func main() {
 	r.Use(middleware.StatTracker())
 
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000"},
+		AllowOrigins:     []string{cfg.FrontendURL},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length", "X-Hatch-Trace-Duration"},
@@ -87,19 +86,16 @@ func main() {
 		api.GET("/projects/:id", projectHandler.GetProject)
 		api.DELETE("/projects/:id", projectHandler.DeleteProject)
 		api.GET("/projects/:id/deployments", deploymentHandler.ListDeployments)
-
 		api.GET("/activity", projectHandler.GetActivity)
-
 		api.POST("/deployments", deploymentHandler.CreateDeployment)
 		api.GET("/deployments/:id", deploymentHandler.GetDeployment)
 		api.GET("/deployments/:id/logs", deploymentHandler.GetDeploymentLogs)
-
 		api.GET("/github/repos", githubHandler.ListRepos)
 		api.GET("/github/repos/:owner/:repo/dockerfile", githubHandler.CheckDockerfile)
 	}
 
 	log.Printf("Hatch API starting on :%s", cfg.Port)
 	if err := r.Run(":" + cfg.Port); err != nil {
-		log.Fatalf("server crash: %v", err)
+		log.Fatalf("Server failed: %v", err)
 	}
 }

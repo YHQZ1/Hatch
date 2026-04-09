@@ -42,6 +42,7 @@ type Worker struct {
 	streamer *logs.Streamer
 	builder  *docker.Builder
 	ch       *amqp.Channel
+	conn     *amqp.Connection
 }
 
 func NewWorker(url, redis, registry, repo, region string) *Worker {
@@ -54,36 +55,43 @@ func NewWorker(url, redis, registry, repo, region string) *Worker {
 }
 
 func (w *Worker) Start() error {
-	conn, err := amqp.Dial(w.url)
+	var err error
+	w.conn, err = amqp.Dial(w.url)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
 
-	w.ch, err = conn.Channel()
+	w.ch, err = w.conn.Channel()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open channel: %w", err)
 	}
 
-	// Declare both queues to ensure they exist before we try to publish/consume
-	_, _ = w.ch.QueueDeclare("hatch.build.jobs", true, false, false, false, nil)
-	_, _ = w.ch.QueueDeclare("hatch.deploy.jobs", true, false, false, false, nil)
+	_, err = w.ch.QueueDeclare("hatch.build.jobs", true, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("failed to declare build queue: %w", err)
+	}
+
+	_, err = w.ch.QueueDeclare("hatch.deploy.jobs", true, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("failed to declare deploy queue: %w", err)
+	}
 
 	msgs, err := w.ch.Consume("hatch.build.jobs", "", false, false, false, false, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to start consumer: %w", err)
 	}
 
-	log.Println("Builder worker listening for jobs...")
+	log.Println("Builder worker started")
 
 	for m := range msgs {
 		var job BuildJobEvent
 		if err := json.Unmarshal(m.Body, &job); err != nil {
-			_ = m.Nack(false, false)
+			m.Nack(false, false)
 			continue
 		}
 
 		w.process(job)
-		_ = m.Ack(false)
+		m.Ack(false)
 	}
 
 	return nil
@@ -93,22 +101,20 @@ func (w *Worker) process(job BuildJobEvent) {
 	ctx := context.Background()
 	id := job.DeploymentID
 
-	// Create a unique temp directory for this specific build
 	buildPath := filepath.Join(os.TempDir(), "hatch-builds", id)
 	defer os.RemoveAll(buildPath)
 
-	w.streamer.Publish(ctx, id, fmt.Sprintf("→ Job Received: %s", id[:8]))
-	w.streamer.Publish(ctx, id, "→ Syncing source code...")
+	w.streamer.Publish(ctx, id, fmt.Sprintf("Job received: %s", id[:8]))
+	w.streamer.Publish(ctx, id, "Syncing source code...")
 
 	if err := gitpkg.Clone(ctx, job.RepoURL, job.UserToken, buildPath); err != nil {
-		w.streamer.Publish(ctx, id, fmt.Sprintf("✗ Sync failed: %v", err))
+		w.streamer.Publish(ctx, id, fmt.Sprintf("Sync failed: %v", err))
 		return
 	}
 
-	// Build and Push to ECR
 	imageURI, err := w.builder.BuildAndPush(ctx, id, buildPath, job.DockerfilePath)
 	if err != nil {
-		w.streamer.Publish(ctx, id, fmt.Sprintf("✗ Build failed: %v", err))
+		w.streamer.Publish(ctx, id, fmt.Sprintf("Build failed: %v", err))
 		return
 	}
 
@@ -116,7 +122,7 @@ func (w *Worker) process(job BuildJobEvent) {
 }
 
 func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) {
-	w.streamer.Publish(ctx, job.DeploymentID, "→ Triggering deployment orchestration...")
+	w.streamer.Publish(ctx, job.DeploymentID, "Triggering deployment orchestration...")
 
 	event := DeployJobEvent{
 		DeploymentID: job.DeploymentID,
@@ -128,17 +134,31 @@ func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) {
 		Subdomain:    job.Subdomain,
 	}
 
-	body, _ := json.Marshal(event)
-	err := w.ch.PublishWithContext(ctx, "", "hatch.deploy.jobs", false, false, amqp.Publishing{
+	body, err := json.Marshal(event)
+	if err != nil {
+		w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("Failed to marshal deploy job: %v", err))
+		return
+	}
+
+	err = w.ch.PublishWithContext(ctx, "", "hatch.deploy.jobs", false, false, amqp.Publishing{
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
 		Body:         body,
 	})
 
 	if err != nil {
-		w.streamer.Publish(ctx, job.DeploymentID, "✗ Orchestration handoff failed")
+		w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("Orchestration handoff failed: %v", err))
 		return
 	}
 
-	w.streamer.Publish(ctx, job.DeploymentID, "✓ Pipeline stage complete: Build & Push")
+	w.streamer.Publish(ctx, job.DeploymentID, "Pipeline stage complete: Build and Push")
+}
+
+func (w *Worker) Close() {
+	if w.ch != nil {
+		w.ch.Close()
+	}
+	if w.conn != nil {
+		w.conn.Close()
+	}
 }

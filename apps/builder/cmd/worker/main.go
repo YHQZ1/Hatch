@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/YHQZ1/hatch/apps/builder/internal/queue"
 	"github.com/joho/godotenv"
@@ -33,16 +35,26 @@ func main() {
 		cfg.AWSRegion,
 	)
 
-	log.Printf("Hatch Builder starting (Region: %s)", cfg.AWSRegion)
-	if err := worker.Start(); err != nil {
-		log.Fatalf("builder crash: %v", err)
-	}
+	log.Printf("Hatch Builder started (Region: %s)", cfg.AWSRegion)
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		if err := worker.Start(); err != nil {
+			log.Printf("Worker error: %v", err)
+		}
+	}()
+
+	<-sigChan
+	log.Println("Shutting down builder...")
+	log.Println("Builder exited")
 }
 
 func getEnv(key string) string {
 	val := os.Getenv(key)
 	if val == "" {
-		log.Fatalf("builder: missing required environment variable: %s", key)
+		log.Fatalf("Missing required environment variable: %s", key)
 	}
 	return val
 }

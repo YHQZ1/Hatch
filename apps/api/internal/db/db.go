@@ -10,11 +10,11 @@ import (
 func Connect(databaseURL string) *sql.DB {
 	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
-		log.Fatalf("db open failed: %v", err)
+		log.Fatalf("Failed to open database connection: %v", err)
 	}
 
 	if err := db.Ping(); err != nil {
-		log.Fatalf("db ping failed: %v", err)
+		log.Fatalf("Failed to ping database: %v", err)
 	}
 
 	return db

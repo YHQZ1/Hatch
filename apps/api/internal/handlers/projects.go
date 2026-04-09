@@ -40,7 +40,7 @@ func (h *ProjectHandler) ListProjects(c *gin.Context) {
 
 	projects, err := h.queries.GetProjectsByUserID(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "fetch failed"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch projects"})
 		return
 	}
 
@@ -74,8 +74,11 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		branch = "main"
 	}
 
-	// Generate the secret BEFORE creating the project
-	secret, _ := generateSecret()
+	secret, err := generateSecret()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate webhook secret"})
+		return
+	}
 
 	project, err := h.queries.CreateProject(c.Request.Context(), dbpkg.CreateProjectParams{
 		UserID:         userID,
@@ -93,13 +96,12 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": "subdomain already in use"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "creation failed"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create project"})
 		return
 	}
 
 	h.recordActivity(c, userID, "CREATE", fmt.Sprintf("Project %s initialized", project.RepoName))
 
-	// Now register with GitHub using the secret we already saved
 	if token, ok := c.Get("access_token"); ok {
 		go h.registerGitHubWebhook(project.ID, body.RepoURL, token.(string), secret)
 	}
@@ -116,7 +118,7 @@ func (h *ProjectHandler) GetProject(c *gin.Context) {
 
 	project, err := h.queries.GetProjectByID(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
 		return
 	}
 
@@ -144,7 +146,7 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 	h.publisher.PublishCleanupJob(c.Request.Context(), []string{resourceName})
 
 	if err := h.queries.DeleteProject(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "deletion failed"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete project"})
 		return
 	}
 
@@ -163,16 +165,22 @@ func (h *ProjectHandler) registerGitHubWebhook(projectID uuid.UUID, repoURL, tok
 		"active": true,
 		"events": []string{"push"},
 		"config": map[string]string{
-			"url":          fmt.Sprintf("%s/api/webhooks/github", h.webhookBaseURL), // Make sure /api is here
+			"url":          fmt.Sprintf("%s/api/webhooks/github", h.webhookBaseURL),
 			"content_type": "json",
 			"secret":       secret,
 		},
 	}
 
-	body, _ := json.Marshal(payload)
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks", owner, repo)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
 
-	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks", owner, repo)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return
+	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
@@ -181,15 +189,14 @@ func (h *ProjectHandler) registerGitHubWebhook(projectID uuid.UUID, repoURL, tok
 		return
 	}
 	defer resp.Body.Close()
-
-	// No need to call UpdateProjectWebhook here anymore since we saved it in CreateProject!
 }
 
 func parseRepoURL(url string) (string, string, error) {
 	trimmed := strings.TrimPrefix(url, "https://github.com/")
+	trimmed = strings.TrimSuffix(trimmed, ".git")
 	parts := strings.Split(trimmed, "/")
 	if len(parts) < 2 {
-		return "", "", fmt.Errorf("invalid url")
+		return "", "", fmt.Errorf("invalid github url")
 	}
 	return parts[0], parts[1], nil
 }

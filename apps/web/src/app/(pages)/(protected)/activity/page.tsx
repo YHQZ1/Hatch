@@ -1,7 +1,7 @@
 import ActivityClient from "./ActivityClient";
 
 export const metadata = {
-  title: "Trace",
+  title: "Your Activity",
   description: "Infrastructure event stream.",
 };
 

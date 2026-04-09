@@ -30,8 +30,18 @@ func NewGitHubHandler(rdb *redis.Client) *GitHubHandler {
 }
 
 func (h *GitHubHandler) ListRepos(c *gin.Context) {
-	token, _ := c.Get("access_token")
-	username, _ := c.Get("username")
+	token, exists := c.Get("access_token")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+
+	username, exists := c.Get("username")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "username not found"})
+		return
+	}
+
 	cacheKey := fmt.Sprintf("github:repos:%s", username)
 	ctx := c.Request.Context()
 
@@ -45,7 +55,11 @@ func (h *GitHubHandler) ListRepos(c *gin.Context) {
 	}
 
 	url := "https://api.github.com/user/repos?sort=updated&per_page=100"
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
+		return
+	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Accept", "application/vnd.github+json")
 
@@ -57,24 +71,30 @@ func (h *GitHubHandler) ListRepos(c *gin.Context) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		c.JSON(resp.StatusCode, gin.H{"error": "github api error"})
+		c.JSON(http.StatusBadGateway, gin.H{"error": "github api error"})
 		return
 	}
 
 	var repos []Repo
 	if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "parse error"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse response"})
 		return
 	}
 
-	repoData, _ := json.Marshal(repos)
-	h.rdb.Set(ctx, cacheKey, repoData, 5*time.Minute)
+	if repoData, err := json.Marshal(repos); err == nil {
+		h.rdb.Set(ctx, cacheKey, repoData, 5*time.Minute)
+	}
 
 	c.JSON(http.StatusOK, repos)
 }
 
 func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
-	token, _ := c.Get("access_token")
+	token, exists := c.Get("access_token")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+
 	owner := c.Param("owner")
 	repo := c.Param("repo")
 	path := c.DefaultQuery("path", "Dockerfile")
@@ -82,21 +102,23 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 
 	cacheKey := fmt.Sprintf("github:dockerfile:%s:%s:%s", owner, repo, path)
 	val, err := h.rdb.Get(ctx, cacheKey).Result()
-	if err == nil {
-		if val == "true" {
-			c.JSON(http.StatusOK, gin.H{"exists": true})
-			return
-		}
+	if err == nil && val == "true" {
+		c.JSON(http.StatusOK, gin.H{"exists": true})
+		return
 	}
 
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", owner, repo, path)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
+		return
+	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "network error"})
+		c.JSON(http.StatusBadGateway, gin.H{"error": "github unreachable"})
 		return
 	}
 	defer resp.Body.Close()
@@ -112,5 +134,5 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 		return
 	}
 
-	c.JSON(resp.StatusCode, gin.H{"exists": false, "error": "unexpected response"})
+	c.JSON(http.StatusBadGateway, gin.H{"exists": false, "error": "github api error"})
 }

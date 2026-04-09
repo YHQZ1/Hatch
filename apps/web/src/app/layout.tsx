@@ -9,6 +9,7 @@ const inter = Inter({
   variable: "--font-inter",
   display: "swap",
 });
+
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
@@ -17,7 +18,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Hatch — The Private PaaS for AWS",
+    default: "Hatch — Your code, your cloud.",
     template: "%s | Hatch",
   },
   description:
@@ -52,9 +53,9 @@ export default function RootLayout({
           showSpinner={false}
           shadow="0 0 10px #ffffff,0 0 5px #ffffff"
         />
-        <div className="fixed inset-0 z-[-1] pointer-events-none overflow-hidden">
-          <div className="absolute inset-0 bg-grid-pattern [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,#000_20%,transparent_100%)] opacity-20"></div>
 
+        <div className="fixed inset-0 z-[-1] pointer-events-none overflow-hidden">
+          <div className="absolute inset-0 bg-grid-pattern [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,#000_20%,transparent_100%)] opacity-20" />
           <div className="absolute -bottom-24 -right-24 opacity-[0.03] select-none">
             <img
               src="https://cdn.simpleicons.org/habr/FFFFFF"
@@ -62,8 +63,7 @@ export default function RootLayout({
               className="w-[600px] h-[600px] rotate-12"
             />
           </div>
-
-          <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-white opacity-[0.02] blur-[120px] rounded-full"></div>
+          <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-white opacity-[0.02] blur-[120px] rounded-full" />
         </div>
 
         <main className="flex-grow flex flex-col w-full relative z-0">

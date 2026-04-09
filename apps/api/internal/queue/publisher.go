@@ -30,21 +30,23 @@ type Publisher struct {
 func NewPublisher(url string) *Publisher {
 	conn, err := amqp.Dial(url)
 	if err != nil {
-		log.Fatalf("rabbitmq: failed to connect: %v", err)
+		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
 	}
 
 	ch, err := conn.Channel()
 	if err != nil {
-		log.Fatalf("rabbitmq: failed to open channel: %v", err)
+		log.Fatalf("Failed to open RabbitMQ channel: %v", err)
 	}
 
 	_, err = ch.QueueDeclare("hatch.build.jobs", true, false, false, false, nil)
 	if err != nil {
-		log.Fatalf("rabbitmq: failed to declare queue: %v", err)
+		log.Fatalf("Failed to declare build queue: %v", err)
 	}
 
-	ch.QueueDeclare("hatch.build.jobs", true, false, false, false, nil)
-	ch.QueueDeclare("hatch.cleanup.jobs", true, false, false, false, nil)
+	_, err = ch.QueueDeclare("hatch.cleanup.jobs", true, false, false, false, nil)
+	if err != nil {
+		log.Fatalf("Failed to declare cleanup queue: %v", err)
+	}
 
 	return &Publisher{conn: conn, ch: ch}
 }
@@ -52,7 +54,7 @@ func NewPublisher(url string) *Publisher {
 func (p *Publisher) PublishBuildJob(ctx context.Context, job BuildJobEvent) error {
 	body, err := json.Marshal(job)
 	if err != nil {
-		return fmt.Errorf("failed to marshal job: %w", err)
+		return fmt.Errorf("failed to marshal build job: %w", err)
 	}
 
 	return p.ch.PublishWithContext(ctx,
@@ -69,7 +71,11 @@ func (p *Publisher) PublishBuildJob(ctx context.Context, job BuildJobEvent) erro
 }
 
 func (p *Publisher) PublishCleanupJob(ctx context.Context, deploymentIDs []string) error {
-	body, _ := json.Marshal(deploymentIDs)
+	body, err := json.Marshal(deploymentIDs)
+	if err != nil {
+		return fmt.Errorf("failed to marshal cleanup job: %w", err)
+	}
+
 	return p.ch.PublishWithContext(ctx,
 		"",
 		"hatch.cleanup.jobs",
@@ -84,6 +90,10 @@ func (p *Publisher) PublishCleanupJob(ctx context.Context, deploymentIDs []strin
 }
 
 func (p *Publisher) Close() {
-	p.ch.Close()
-	p.conn.Close()
+	if err := p.ch.Close(); err != nil {
+		log.Printf("Failed to close RabbitMQ channel: %v", err)
+	}
+	if err := p.conn.Close(); err != nil {
+		log.Printf("Failed to close RabbitMQ connection: %v", err)
+	}
 }

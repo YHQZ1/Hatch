@@ -1,10 +1,14 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  TableLoadingState,
+  PageLoadingState,
+} from "../../../components/LoadingState";
+import { PageHeader } from "../../../components/PageHeader";
 
 interface Project {
   id: string;
@@ -48,6 +52,21 @@ export default function ConsoleClient() {
       return;
     }
 
+    const cached = localStorage.getItem("hatch_projects_cache");
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        const cacheAge = Date.now() - (parsed.timestamp || 0);
+        const CACHE_TTL = 5 * 60 * 1000;
+
+        if (cacheAge < CACHE_TTL) {
+          setProjects(parsed.projects || []);
+          setDeployments(parsed.deployments || {});
+          setLoading(false);
+        }
+      } catch {}
+    }
+
     const fetchData = async () => {
       try {
         const res = await fetch(
@@ -79,9 +98,17 @@ export default function ConsoleClient() {
         );
 
         setDeployments(deploymentMap);
-        setLoading(false);
-      } catch (err) {
-        console.error("Fetch failed", err);
+        localStorage.setItem(
+          "hatch_projects_cache",
+          JSON.stringify({
+            projects: projectsList,
+            deployments: deploymentMap,
+            timestamp: Date.now(),
+          }),
+        );
+      } catch {
+        // Silent fail - user will see empty state
+      } finally {
         setLoading(false);
       }
     };
@@ -89,7 +116,7 @@ export default function ConsoleClient() {
     fetchData();
   }, [router]);
 
-  if (!mounted) return null;
+  if (!mounted) return <PageLoadingState />;
 
   const hasProjects = projects.length > 0;
 
@@ -110,25 +137,13 @@ export default function ConsoleClient() {
   return (
     <div className="w-full min-h-screen bg-black text-white">
       <main className="w-full px-8 lg:px-10 py-8">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-xl font-medium tracking-tight text-white">
-              Services
-            </h1>
-            <p className="text-[11px] text-zinc-600 mt-1 tracking-wide">
-              Manage cloud workloads and deployments
-            </p>
-          </div>
-          <Link
-            href="/new"
-            className="bg-white text-black text-[10px] font-bold px-4 py-2 rounded-[3px] uppercase tracking-widest hover:bg-zinc-200 transition-colors"
-          >
-            + New Service
-          </Link>
-        </div>
+        <PageHeader
+          title="Services"
+          description="Manage cloud workloads and deployments"
+          actionLabel="+ New Service"
+          actionHref="/new"
+        />
 
-        {/* Stats Row */}
         {!loading && hasProjects && (
           <div className="grid grid-cols-4 gap-px bg-[#1a1a1a] border border-[#1a1a1a] rounded-[3px] mb-6 overflow-hidden">
             <StatCard
@@ -149,7 +164,6 @@ export default function ConsoleClient() {
           </div>
         )}
 
-        {/* Table */}
         <div className="w-full border border-[#1a1a1a] rounded-[3px] overflow-hidden">
           {(hasProjects || loading) && (
             <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr_0.7fr_0.7fr_80px] px-5 bg-[#050505] border-b border-[#1a1a1a]">
@@ -173,7 +187,7 @@ export default function ConsoleClient() {
           )}
 
           {loading ? (
-            <LoadingState />
+            <TableLoadingState />
           ) : !hasProjects ? (
             <EmptyState />
           ) : (
@@ -239,12 +253,20 @@ function ProjectRow({
     e.preventDefault();
     e.stopPropagation();
     if (!confirm(`Permanently delete ${project.repo_name}?`)) return;
+
     const token = localStorage.getItem("hatch_token");
     const res = await fetch(
       `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${project.id}`,
-      { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      },
     );
-    if (res.ok) onDelete(project.id);
+
+    if (res.ok) {
+      onDelete(project.id);
+      localStorage.removeItem("hatch_projects_cache");
+    }
   };
 
   const status = lastDeployment?.status ?? "none";
@@ -252,14 +274,12 @@ function ProjectRow({
   const isBuilding = status === "building" || status === "deploying";
   const isFailed = status === "failed" || status === "error";
 
-  // deployment.url is set by UpdateDeploymentLive after ECS deploy completes
   const rawUrl =
     lastDeployment?.url || `${project.repo_name.toLowerCase()}.hatchcloud.xyz`;
   const liveUrl = isLive
     ? `https://${rawUrl.replace(/^https?:\/\//, "")}`
     : null;
 
-  // deployed_at when live, fallback to deployment created_at, fallback to project created_at
   const timestampRaw =
     lastDeployment?.deployed_at ??
     lastDeployment?.created_at ??
@@ -289,7 +309,6 @@ function ProjectRow({
 
   return (
     <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr_0.7fr_0.7fr_80px] px-5 py-4 border-b border-[#111] items-center hover:bg-white/[0.015] transition-colors group last:border-b-0">
-      {/* Service name + live URL */}
       <div className="flex items-center gap-3 min-w-0">
         <div className="w-7 h-7 flex items-center justify-center bg-[#0d0d0d] border border-[#222] rounded-[3px] flex-shrink-0">
           <svg
@@ -326,7 +345,6 @@ function ProjectRow({
         </div>
       </div>
 
-      {/* Repository */}
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
           <img
@@ -350,7 +368,6 @@ function ProjectRow({
         )}
       </div>
 
-      {/* Status */}
       <div className="flex items-center gap-2">
         <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${pulseBg}`} />
         <span
@@ -360,7 +377,6 @@ function ProjectRow({
         </span>
       </div>
 
-      {/* Resources: cpu / memory / port */}
       <div className="min-w-0">
         {lastDeployment ? (
           <>
@@ -376,19 +392,16 @@ function ProjectRow({
         )}
       </div>
 
-      {/* Branch */}
       <div>
         <span className="text-[11px] text-zinc-600 font-mono truncate block">
           {branch}
         </span>
       </div>
 
-      {/* Last Updated */}
       <div>
         <span className="text-[11px] text-zinc-600">{updatedAt}</span>
       </div>
 
-      {/* Actions */}
       <div className="flex items-center justify-end gap-2">
         <button
           onClick={handleDelete}
@@ -414,34 +427,6 @@ function formatRelativeTime(dateStr: string): string {
   if (diffHr < 24) return `${diffHr}h ago`;
   if (diffDay < 30) return `${diffDay}d ago`;
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function LoadingState() {
-  return (
-    <div>
-      {[...Array(4)].map((_, i) => (
-        <div
-          key={i}
-          className="grid grid-cols-[2fr_1.5fr_1fr_1fr_0.7fr_0.7fr_80px] px-5 py-4 border-b border-[#111] items-center last:border-b-0"
-          style={{ opacity: 1 - i * 0.2 }}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-7 h-7 bg-zinc-900 rounded-[3px] animate-pulse" />
-            <div className="space-y-1.5">
-              <div className="h-2.5 w-28 bg-zinc-900 rounded-full animate-pulse" />
-              <div className="h-2 w-20 bg-zinc-900/50 rounded-full animate-pulse" />
-            </div>
-          </div>
-          <div className="h-2 w-36 bg-zinc-900/70 rounded-full animate-pulse" />
-          <div className="h-2 w-14 bg-zinc-900/70 rounded-full animate-pulse" />
-          <div className="h-2 w-24 bg-zinc-900/50 rounded-full animate-pulse" />
-          <div className="h-2 w-12 bg-zinc-900/50 rounded-full animate-pulse" />
-          <div className="h-2 w-12 bg-zinc-900/50 rounded-full animate-pulse" />
-          <div className="h-5 w-12 bg-zinc-900/70 rounded-[2px] animate-pulse ml-auto" />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function EmptyState() {

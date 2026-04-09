@@ -17,9 +17,9 @@ export default function AuthPage() {
   return (
     <div className="min-h-screen w-full bg-[#030303] text-white flex flex-col relative overflow-hidden selection:bg-white selection:text-black font-sans">
       <div className="fixed inset-0 z-0 pointer-events-none">
-        <div className="absolute inset-0 bg-grid-pattern opacity-10 [mask-image:radial-gradient(ellipse_at_center,black,transparent_80%)]"></div>
-        <div className="absolute left-[40%] top-0 bottom-0 w-px bg-[#1f1f1f]"></div>
-        <div className="absolute top-[30%] left-0 right-0 h-px bg-[#1f1f1f]"></div>
+        <div className="absolute inset-0 bg-grid-pattern opacity-10 [mask-image:radial-gradient(ellipse_at_center,black,transparent_80%)]" />
+        <div className="absolute left-[40%] top-0 bottom-0 w-px bg-[#1f1f1f]" />
+        <div className="absolute top-[30%] left-0 right-0 h-px bg-[#1f1f1f]" />
       </div>
 
       <div className="fixed bottom-8 right-8 text-right opacity-[0.03] select-none pointer-events-none z-0">
@@ -30,11 +30,9 @@ export default function AuthPage() {
 
       <header className="relative z-20 p-8 lg:p-12 flex items-center justify-between">
         <div className="flex items-center gap-6 px-12 group cursor-default">
-          <div className="flex items-center gap-4">
-            <span className="font-mono text-[14px] uppercase tracking-[0.4em] text-[var(--text-muted)]">
-              Hatch / Authentication
-            </span>
-          </div>
+          <span className="font-mono text-[14px] uppercase tracking-[0.4em] text-[#888]">
+            Hatch / Authentication
+          </span>
         </div>
       </header>
 
@@ -52,8 +50,7 @@ export default function AuthPage() {
               Identify <br /> User.
             </h1>
             <p className="text-[#888] text-base font-light leading-relaxed max-w-sm">
-              Sign in or create an account to start deploying your services to
-              the cloud.
+              Sign in to start deploying your services to the cloud.
             </p>
           </div>
 
@@ -92,7 +89,7 @@ export default function AuthPage() {
                 <span className="font-mono text-[9px] uppercase text-[#333] tracking-[0.3em] whitespace-nowrap">
                   Email Login
                 </span>
-                <div className="h-px w-full bg-[#111]"></div>
+                <div className="h-px w-full bg-[#111]" />
               </div>
 
               <div className="space-y-4">
@@ -123,12 +120,9 @@ export default function AuthPage() {
 
         <div className="hidden lg:flex flex-grow items-center justify-center h-full">
           <div className="w-[550px] border border-[#1f1f1f] bg-[#050505]/50 flex flex-col relative overflow-hidden shadow-2xl">
-            <div
-              className="p-6 border-b border-[#1f1f1f] flex justify-between items-center"
-              style={{ background: "#030303" }}
-            >
+            <div className="p-6 border-b border-[#1f1f1f] flex justify-between items-center bg-[#030303]">
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-white animate-pulse"></div>
+                <div className="w-2 h-2 bg-white animate-pulse" />
                 <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-white">
                   Production_Cluster_01
                 </span>
@@ -156,11 +150,11 @@ export default function AuthPage() {
                           animationDelay: `${i * 0.5}s`,
                           animationDuration: "3s",
                         }}
-                      ></div>
+                      />
                     </div>
                   </div>
                 ))}
-                <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#050505] to-transparent pointer-events-none"></div>
+                <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#050505] to-transparent pointer-events-none" />
               </div>
 
               <div className="flex-grow p-8 flex flex-col justify-between relative bg-[#030303]/20">
@@ -211,6 +205,7 @@ export default function AuthPage() {
 
 function ActivityPip() {
   const [active, setActive] = useState(false);
+
   useEffect(() => {
     const interval = setInterval(
       () => {
@@ -224,7 +219,7 @@ function ActivityPip() {
   return (
     <div
       className={`aspect-square border border-white/[0.03] transition-colors duration-700 ${active ? "bg-white/40" : "bg-white/[0.03]"}`}
-    ></div>
+    />
   );
 }
 
@@ -238,7 +233,7 @@ function TelemetryStat({ label, value }: { label: string; value: string }) {
         <span className="font-mono text-xs text-white leading-none">
           {value}
         </span>
-        <div className="flex-grow h-[1px] bg-[#111] mb-1"></div>
+        <div className="flex-grow h-[1px] bg-[#111] mb-1" />
       </div>
     </div>
   );

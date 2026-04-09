@@ -8,10 +8,8 @@ export default function NotFound() {
 
   return (
     <div className="w-full h-screen bg-black text-white flex flex-col font-sans relative overflow-hidden">
-      {/* Main Content Area */}
       <main className="flex-1 flex flex-col items-center justify-center p-6 relative">
         <div className="max-w-xl w-full flex flex-col items-center text-center space-y-8">
-          {/* Simple 404 Header */}
           <div className="space-y-2">
             <h1 className="text-[120px] font-bold tracking-tighter leading-none text-white">
               404
@@ -21,15 +19,12 @@ export default function NotFound() {
             </h2>
           </div>
 
-          {/* Descriptive Text (Normal English) */}
           <div className="space-y-4 max-w-sm">
             <p className="text-sm text-zinc-500 leading-relaxed">
-              The page you are looking for does not exist. It might have been
-              moved or deleted.
+              The page you are looking for does not exist. It might have been moved or deleted.
             </p>
           </div>
 
-          {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-3 pt-4 w-full sm:w-auto">
             <Link
               href="/console"
@@ -47,10 +42,9 @@ export default function NotFound() {
         </div>
       </main>
 
-      {/* Simple Footer */}
       <footer className="h-16 w-full border-t border-zinc-900 px-8 flex items-center justify-center bg-black">
         <p className="text-[10px] text-zinc-600 tracking-widest uppercase">
-          © 2026 Hatch Cloud
+          © {new Date().getFullYear()} Hatch Cloud
         </p>
       </footer>
     </div>

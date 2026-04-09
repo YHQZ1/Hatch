@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
@@ -80,15 +81,20 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	successURL := fmt.Sprintf("http://localhost:3000/auth/success?token=%s", jwtToken)
+	successURL := fmt.Sprintf("%s/auth/success?token=%s", os.Getenv("FRONTEND_URL"), jwtToken)
 	c.Redirect(http.StatusTemporaryRedirect, successURL)
 }
 
 func (h *Handler) exchangeCodeForToken(code string) (string, error) {
-	url := "https://github.com/login/oauth/access_token"
-	params := fmt.Sprintf("client_id=%s&client_secret=%s&code=%s", h.clientID, h.clientSecret, code)
+	url := fmt.Sprintf(
+		"https://github.com/login/oauth/access_token?client_id=%s&client_secret=%s&code=%s",
+		h.clientID, h.clientSecret, code,
+	)
 
-	req, _ := http.NewRequest(http.MethodPost, url+"?"+params, nil)
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		return "", err
+	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -112,7 +118,10 @@ func (h *Handler) exchangeCodeForToken(code string) (string, error) {
 }
 
 func (h *Handler) fetchGitHubUser(token string) (*GitHubUser, error) {
-	req, _ := http.NewRequest(http.MethodGet, "https://api.github.com/user", nil)
+	req, err := http.NewRequest(http.MethodGet, "https://api.github.com/user", nil)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 

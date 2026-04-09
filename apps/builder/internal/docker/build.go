@@ -33,24 +33,24 @@ func NewBuilder(registry, repo, region string, streamer *logs.Streamer) *Builder
 func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath string) (string, error) {
 	tag := fmt.Sprintf("%s/%s:%s", b.registry, b.repo, id[:8])
 
-	b.streamer.Publish(ctx, id, "→ Starting Docker build...")
+	b.streamer.Publish(ctx, id, "Starting Docker build...")
 	if err := b.runBuild(ctx, id, repoDir, dockerfilePath, tag); err != nil {
-		return "", fmt.Errorf("docker build error: %w", err)
+		return "", fmt.Errorf("docker build failed: %w", err)
 	}
 
-	b.streamer.Publish(ctx, id, "→ Authenticating with Amazon ECR...")
+	b.streamer.Publish(ctx, id, "Authenticating with Amazon ECR...")
 	token, err := b.getAuthToken(ctx)
 	if err != nil {
-		return "", fmt.Errorf("ecr login failed: %w", err)
+		return "", fmt.Errorf("ECR authentication failed: %w", err)
 	}
 
-	b.streamer.Publish(ctx, id, "→ Pushing image to registry...")
+	b.streamer.Publish(ctx, id, "Pushing image to registry...")
 	if err := b.runPush(ctx, id, tag, token); err != nil {
-		return "", fmt.Errorf("push failed: %w", err)
+		return "", fmt.Errorf("docker push failed: %w", err)
 	}
 
-	b.streamer.Publish(ctx, id, fmt.Sprintf("✓ Image successfully pushed: %s", tag))
-	b.streamer.Publish(ctx, id, "→ Handoff to Deployer: Provisioning Cloud Infrastructure...")
+	b.streamer.Publish(ctx, id, fmt.Sprintf("Image successfully pushed: %s", tag))
+	b.streamer.Publish(ctx, id, "Handoff to Deployer: Provisioning cloud infrastructure...")
 	return tag, nil
 }
 
@@ -76,10 +76,14 @@ func (b *Builder) runBuild(ctx context.Context, id, repoDir, dockerfilePath, tag
 }
 
 func (b *Builder) runPush(ctx context.Context, id, tag, token string) error {
-	decoded, _ := base64.StdEncoding.DecodeString(token)
+	decoded, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return fmt.Errorf("failed to decode ECR token: %w", err)
+	}
+
 	parts := strings.SplitN(string(decoded), ":", 2)
 	if len(parts) != 2 {
-		return fmt.Errorf("malformed ecr token")
+		return fmt.Errorf("malformed ECR token")
 	}
 
 	loginCmd := exec.CommandContext(ctx, "docker", "login",
@@ -97,11 +101,18 @@ func (b *Builder) runPush(ctx context.Context, id, tag, token string) error {
 }
 
 func (b *Builder) executeAndStream(ctx context.Context, id string, cmd *exec.Cmd) error {
-	stdout, _ := cmd.StdoutPipe()
-	stderr, _ := cmd.StderrPipe()
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
 
 	if err := cmd.Start(); err != nil {
-		return err
+		return fmt.Errorf("failed to start command: %w", err)
 	}
 
 	go b.capture(ctx, id, stdout)
@@ -127,13 +138,17 @@ func (b *Builder) capture(ctx context.Context, id string, r io.Reader) {
 func (b *Builder) getAuthToken(ctx context.Context) (string, error) {
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(b.region))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
 	client := ecr.NewFromConfig(cfg)
 	out, err := client.GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{})
-	if err != nil || len(out.AuthorizationData) == 0 {
-		return "", fmt.Errorf("no authorization data returned from ecr")
+	if err != nil {
+		return "", fmt.Errorf("failed to get ECR auth token: %w", err)
+	}
+
+	if len(out.AuthorizationData) == 0 {
+		return "", fmt.Errorf("no authorization data returned from ECR")
 	}
 
 	return *out.AuthorizationData[0].AuthorizationToken, nil

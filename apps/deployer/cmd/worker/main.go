@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/YHQZ1/hatch/apps/deployer/internal/queue"
 	"github.com/joho/godotenv"
@@ -29,16 +31,26 @@ func main() {
 
 	worker := queue.NewWorker(cfg)
 
-	log.Printf("Hatch Deployer starting (Region: %s, Cluster: %s)", cfg.AWSRegion, cfg.ECSClusterName)
-	if err := worker.Start(); err != nil {
-		log.Fatalf("deployer crash: %v", err)
-	}
+	log.Printf("Hatch Deployer started (Region: %s, Cluster: %s)", cfg.AWSRegion, cfg.ECSClusterName)
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		if err := worker.Start(); err != nil {
+			log.Printf("Worker error: %v", err)
+		}
+	}()
+
+	<-sigChan
+	log.Println("Shutting down deployer...")
+	log.Println("Deployer exited")
 }
 
 func mustGetEnv(key string) string {
 	val := os.Getenv(key)
 	if val == "" {
-		log.Fatalf("deployer: missing critical environment variable: %s", key)
+		log.Fatalf("Missing required environment variable: %s", key)
 	}
 	return val
 }
