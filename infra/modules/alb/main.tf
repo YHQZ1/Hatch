@@ -67,6 +67,38 @@ resource "aws_lb_listener" "https" {
   }
 }
 
+# NEW: Target Group for Go API
+resource "aws_lb_target_group" "api" {
+  name        = "${var.project_name}-api-tg"
+  port        = 8080
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+  target_type = "instance" # Since it's an EC2
+
+  health_check {
+    path = "/health"
+    port = "8080"
+  }
+}
+
+# NEW: Listener Rule for api.hatchcloud.xyz
+resource "aws_lb_listener_rule" "api" {
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 10
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
+
+  condition {
+    host_header {
+      values = ["api.hatchcloud.xyz"]
+    }
+  }
+}
+
+output "api_tg_arn" { value = aws_lb_target_group.api.arn }
 output "alb_arn"          { value = aws_lb.main.arn }
 output "alb_dns_name"     { value = aws_lb.main.dns_name }
 output "alb_listener_arn" { value = aws_lb_listener.http.arn }
