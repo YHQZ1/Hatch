@@ -1,0 +1,51 @@
+name: Feature Request
+description: Suggest an idea or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening a request, check the [Roadmap](../../blob/main/README.md#roadmap) — it might already be planned.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the problem or gap you're running into. Focus on the why, not the what.
+      placeholder: When I have multiple environments (staging, prod), I have no way to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like to see? How should it work?
+      placeholder: A way to define environment-specific configs that get applied at deploy time...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Any other approaches or workarounds you've tried?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area does this touch?
+      options:
+        - Deployments
+        - Build system
+        - Infrastructure / AWS
+        - Environment variables
+        - GitHub integration
+        - Dashboard / UI
+        - Logs & observability
+        - Self-hosting / setup
+        - Other
+    validations:
+      required: true

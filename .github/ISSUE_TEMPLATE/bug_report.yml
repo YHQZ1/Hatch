@@ -1,0 +1,83 @@
+name: Bug Report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. The more detail you provide, the faster we can fix it.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: When I deploy a project, the builder worker crashes with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: The build should complete and push the image to ECR.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Create a new project pointing to repo X
+        2. Trigger a deployment
+        3. Watch the builder logs
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste any relevant logs from the API, builder, or deployer service. These will be automatically formatted as code.
+      render: shell
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: macOS 14, Ubuntu 22.04, etc.
+    validations:
+      required: true
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version
+      placeholder: go1.23.0
+    validations:
+      required: false
+
+  - type: input
+    id: docker-version
+    attributes:
+      label: Docker version
+      placeholder: 27.0.0
+    validations:
+      required: false
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Which service is affected?
+      options:
+        - api
+        - builder
+        - deployer
+        - web (frontend)
+        - infra (Terraform)
+        - not sure
+    validations:
+      required: true
