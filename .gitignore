@@ -41,9 +41,6 @@ apps/deployer/bin/
 coverage.out
 coverage.html
 
-# Go workspace sum (auto-generated)
-go.work.sum
-
 # ─── Next.js / Node ───────────────────────────────────────────────────────────
 node_modules/
 apps/web/.next/
