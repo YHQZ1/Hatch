@@ -6,7 +6,7 @@
 
 If you've found a security vulnerability in Hatch, please disclose it responsibly by emailing:
 
-**uttkarsh@hatch.dev**
+**rupareluttkarsh2309@gmail.com**
 
 Include as much detail as you can:
 
