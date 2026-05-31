@@ -1,9 +1,6 @@
 <div align="center">
-
-# Hatch
-
-A self-hosted deployment platform built on AWS.
-Dockerfile in. Live URL out.
+  <h1>Hatch</h1>
+  <p>A self-hosted deployment platform built on AWS.<br/>Dockerfile in. Live URL out.</p>
 
 ![Go](https://img.shields.io/badge/Go-1.23-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-15-000000?style=flat-square&logo=next.js&logoColor=white)
@@ -14,6 +11,11 @@ Dockerfile in. Live URL out.
 ![License](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)
 
 </div>
+
+---
+
+<!-- SCREENSHOT: full dashboard overview — replace with actual image -->
+<img width="1705" height="853" alt="Screenshot 2026-05-31 at 13 15 18" src="https://github.com/user-attachments/assets/e9f19a22-a7c6-45da-9f74-9acafd2a9e75" />
 
 ---
 
@@ -128,6 +130,10 @@ What happens between clicking Deploy and getting a live URL:
 15. URL displayed in terminal
 ```
 
+<!-- SCREENSHOT: live build logs streaming in the terminal UI — replace with actual image -->
+<img width="1705" height="853" alt="Screenshot 2026-05-31 at 13 16 20" src="https://github.com/user-attachments/assets/c309c96a-3131-4717-9f88-4bc5137b5d39" />
+<img width="3410" height="1706" alt="image" src="https://github.com/user-attachments/assets/793714a8-d1d3-401f-9d49-7b4dd1ec0b7f" />
+
 ---
 
 ## Tech Stack
@@ -227,10 +233,10 @@ go work sync
 ### 2. Configure environment
 
 ```bash
-cp apps/api/.env.example apps/api/.env
-cp apps/builder/.env.example apps/builder/.env
+cp apps/api/.env.example      apps/api/.env
+cp apps/builder/.env.example  apps/builder/.env
 cp apps/deployer/.env.example apps/deployer/.env
-cp apps/web/.env.local.example apps/web/.env.local
+cp apps/web/.env.example      apps/web/.env.local
 ```
 
 **`apps/api/.env`**
@@ -276,7 +282,7 @@ DATABASE_URL=postgres://hatch:hatch@localhost:5432/hatch?sslmode=disable
 ### 3. Start local infrastructure
 
 ```bash
-docker compose up -d postgres redis rabbitmq
+make dev   # starts Postgres, Redis, RabbitMQ via Docker Compose
 ```
 
 ### 4. Run migrations
@@ -395,6 +401,14 @@ make migrate  # run pending DB migrations
 
 ---
 
+## Contributing
+
+Contributions are welcome — bug fixes, features, docs, and everything in between. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR. It covers local setup, branch conventions, commit style, and the PR process.
+
+For security vulnerabilities, see [SECURITY.md](SECURITY.md) — please don't use public issues for security reports.
+
+---
+
 ## Roadmap
 
 - [ ] PR preview environments — auto-deploy per pull request, destroyed on merge
@@ -403,3 +417,9 @@ make migrate  # run pending DB migrations
 - [ ] Custom domains with automatic TLS provisioning
 - [ ] One-click rollbacks to any previous deployment
 - [ ] Built-in observability — logs, metrics, traces via OpenTelemetry
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
