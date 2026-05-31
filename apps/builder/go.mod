@@ -1,6 +1,6 @@
 module github.com/YHQZ1/hatch/apps/builder
 
-go 1.25.5
+go 1.25.10
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.14

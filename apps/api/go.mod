@@ -1,6 +1,6 @@
 module github.com/YHQZ1/hatch/apps/api
 
-go 1.25.0
+go 1.25.10
 
 require (
 	github.com/YHQZ1/hatch/packages/config v0.0.0
