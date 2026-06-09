@@ -9,6 +9,16 @@ import {
   PageLoadingState,
 } from "../../../components/LoadingState";
 import { PageHeader } from "../../../components/PageHeader";
+import {
+  apiFetch,
+  deploymentUrl,
+  readApiError,
+  redirectIfUnauthorized,
+} from "@/app/lib/api";
+import {
+  NoticeToast,
+  type NoticePayload,
+} from "../../../components/NoticeToast";
 
 interface Project {
   id: string;
@@ -43,14 +53,10 @@ export default function ConsoleClient() {
   );
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
+  const [notice, setNotice] = useState<NoticePayload | null>(null);
 
   useEffect(() => {
     setMounted(true);
-    const token = localStorage.getItem("hatch_token");
-    if (!token) {
-      router.push("/auth");
-      return;
-    }
 
     const cached = localStorage.getItem("hatch_projects_cache");
     if (cached) {
@@ -69,21 +75,17 @@ export default function ConsoleClient() {
 
     const fetchData = async () => {
       try {
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/projects`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
+        const res = await apiFetch("/api/projects");
+        if (redirectIfUnauthorized(res, router)) return;
         const data = await res.json();
         const projectsList: Project[] = Array.isArray(data) ? data : [];
         setProjects(projectsList);
 
         const deploymentPromises = projectsList.map(async (p) => {
-          const dRes = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${p.id}/deployments`,
-            { headers: { Authorization: `Bearer ${token}` } },
-          );
+          const dRes = await apiFetch(`/api/projects/${p.id}/deployments`);
+          if (redirectIfUnauthorized(dRes, router)) {
+            return { id: p.id, data: [] };
+          }
           const dData = await dRes.json();
           return { id: p.id, data: Array.isArray(dData) ? dData : [] };
         });
@@ -107,7 +109,11 @@ export default function ConsoleClient() {
           }),
         );
       } catch {
-        // Silent fail - user will see empty state
+        setNotice({
+          type: "error",
+          title: "Dashboard unavailable",
+          message: "We couldn't load the latest service list.",
+        });
       } finally {
         setLoading(false);
       }
@@ -115,6 +121,12 @@ export default function ConsoleClient() {
 
     fetchData();
   }, [router]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
 
   if (!mounted) return <PageLoadingState />;
 
@@ -136,6 +148,7 @@ export default function ConsoleClient() {
 
   return (
     <div className="w-full min-h-screen bg-black text-white">
+      <NoticeToast notice={notice} onDismiss={() => setNotice(null)} />
       <main className="w-full px-8 lg:px-10 py-8">
         <PageHeader
           title="Services"
@@ -197,6 +210,7 @@ export default function ConsoleClient() {
                   key={project.id}
                   project={project}
                   lastDeployment={deployments[project.id]?.[0]}
+                  onNotice={setNotice}
                   onDelete={(id) =>
                     setProjects((prev) => prev.filter((p) => p.id !== id))
                   }
@@ -243,10 +257,12 @@ function StatCard({
 function ProjectRow({
   project,
   lastDeployment,
+  onNotice,
   onDelete,
 }: {
   project: Project;
   lastDeployment?: Deployment;
+  onNotice: (notice: NoticePayload | null) => void;
   onDelete: (id: string) => void;
 }) {
   const handleDelete = async (e: React.MouseEvent) => {
@@ -254,18 +270,27 @@ function ProjectRow({
     e.stopPropagation();
     if (!confirm(`Permanently delete ${project.repo_name}?`)) return;
 
-    const token = localStorage.getItem("hatch_token");
-    const res = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${project.id}`,
-      {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    );
+    const res = await apiFetch(`/api/projects/${project.id}`, {
+      method: "DELETE",
+    });
 
     if (res.ok) {
       onDelete(project.id);
       localStorage.removeItem("hatch_projects_cache");
+      onNotice({
+        type: "success",
+        title: "Service deleted",
+        message: `${project.repo_name} was removed from Hatch.`,
+      });
+    } else {
+      onNotice({
+        type: "error",
+        title: "Delete failed",
+        message: await readApiError(
+          res,
+          "We couldn't remove that service right now.",
+        ),
+      });
     }
   };
 
@@ -276,9 +301,7 @@ function ProjectRow({
 
   const rawUrl =
     lastDeployment?.url || `${project.repo_name.toLowerCase()}.hatchcloud.xyz`;
-  const liveUrl = isLive
-    ? `https://${rawUrl.replace(/^https?:\/\//, "")}`
-    : null;
+  const liveUrl = isLive ? deploymentUrl(rawUrl) : null;
 
   const timestampRaw =
     lastDeployment?.deployed_at ??

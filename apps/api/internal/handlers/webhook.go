@@ -118,7 +118,7 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 	}
 
 	// 10. Publish to Queue
-	h.publisher.PublishBuildJob(c.Request.Context(), queue.BuildJobEvent{
+	if err := h.publisher.PublishBuildJob(c.Request.Context(), queue.BuildJobEvent{
 		DeploymentID:   deployment.ID.String(),
 		RepoURL:        project.RepoUrl,
 		Branch:         project.Branch,
@@ -129,7 +129,14 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		CPU:            512,
 		MemoryMB:       1024,
 		HealthCheck:    "/",
-	})
+	}); err != nil {
+		_, _ = h.queries.UpdateDeploymentStatus(c.Request.Context(), dbpkg.UpdateDeploymentStatusParams{
+			ID:     deployment.ID,
+			Status: "failed",
+		})
+		c.Status(http.StatusServiceUnavailable)
+		return
+	}
 
 	c.JSON(http.StatusAccepted, gin.H{
 		"status": "deploying",

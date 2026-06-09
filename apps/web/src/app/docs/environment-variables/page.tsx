@@ -211,7 +211,15 @@ export default function EnvironmentVariables() {
                 ],
                 [
                   "ALB_LISTENER_ARN",
-                  "ARN of the ALB listener where rules will be injected.",
+                  "Fallback listener ARN for app routing rules. Keep this as the HTTP listener only if you are not using TLS yet.",
+                ],
+                [
+                  "ALB_HTTPS_LISTENER_ARN",
+                  "Preferred listener ARN for app routing rules when ACM/TLS is enabled. Hatch will inject host rules here and keep deployment URLs on HTTPS.",
+                ],
+                [
+                  "DEPLOYMENT_URL_SCHEME",
+                  "Public scheme used in deployment URLs and live logs (typically https in production).",
                 ],
                 ["VPC_ID", "The ID of the target VPC for task networking."],
                 [
@@ -238,6 +246,10 @@ export default function EnvironmentVariables() {
                 [
                   "NEXT_PUBLIC_API_URL",
                   "Public URL of the API Gateway (used for client-side fetches).",
+                ],
+                [
+                  "NEXT_PUBLIC_DEPLOYMENT_URL_SCHEME",
+                  "Fallback scheme for older deployment records that only stored the hostname. Use https in production.",
                 ],
                 [
                   "NEXT_PUBLIC_WS_URL",

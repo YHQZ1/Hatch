@@ -2,7 +2,10 @@ package ecs
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/YHQZ1/hatch/apps/deployer/internal/logs"
@@ -15,38 +18,51 @@ import (
 )
 
 type Deployer struct {
-	ecsClient      *ecs.Client
-	elbClient      *elbv2.Client
-	streamer       *logs.Streamer
-	clusterName    string
-	albListenerARN string
-	vpcID          string
-	subnets        []string
-	ecsSgID        string
-	taskExecRole   string
-	awsRegion      string
-	baseDomain     string
+	ecsClient       *ecs.Client
+	elbClient       *elbv2.Client
+	streamer        *logs.Streamer
+	clusterName     string
+	albListenerARN  string
+	vpcID           string
+	subnets         []string
+	ecsSgID         string
+	taskExecRole    string
+	awsRegion       string
+	baseDomain      string
+	publicURLScheme string
+	cancelChecker   func(context.Context, string) (bool, error)
 }
 
-func NewDeployer(awsRegion, cluster, listener, vpc, subA, subB, sg, role, domain string, streamer *logs.Streamer) *Deployer {
+var ErrCanceled = errors.New("deployment canceled")
+
+func NewDeployer(awsRegion, cluster, listener, vpc, subA, subB, sg, role, domain, publicURLScheme string, streamer *logs.Streamer) *Deployer {
 	cfg, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(awsRegion))
 	if err != nil {
 		cfg = aws.Config{Region: awsRegion}
 	}
 
-	return &Deployer{
-		ecsClient:      ecs.NewFromConfig(cfg),
-		elbClient:      elbv2.NewFromConfig(cfg),
-		streamer:       streamer,
-		clusterName:    cluster,
-		albListenerARN: listener,
-		vpcID:          vpc,
-		subnets:        []string{subA, subB},
-		ecsSgID:        sg,
-		taskExecRole:   role,
-		awsRegion:      awsRegion,
-		baseDomain:     domain,
+	if publicURLScheme == "" {
+		publicURLScheme = "http"
 	}
+
+	return &Deployer{
+		ecsClient:       ecs.NewFromConfig(cfg),
+		elbClient:       elbv2.NewFromConfig(cfg),
+		streamer:        streamer,
+		clusterName:     cluster,
+		albListenerARN:  listener,
+		vpcID:           vpc,
+		subnets:         []string{subA, subB},
+		ecsSgID:         sg,
+		taskExecRole:    role,
+		awsRegion:       awsRegion,
+		baseDomain:      domain,
+		publicURLScheme: publicURLScheme,
+	}
+}
+
+func (d *Deployer) SetCancelChecker(fn func(context.Context, string) (bool, error)) {
+	d.cancelChecker = fn
 }
 
 type DeployInput struct {
@@ -64,10 +80,18 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (string, error
 	id := input.DeploymentID
 	slug := input.Subdomain
 
+	if err := d.ensureNotCanceled(ctx, id); err != nil {
+		return "", err
+	}
+
 	d.streamer.Publish(ctx, id, "Registering task definition...")
 	taskArn, err := d.registerTaskDefinition(ctx, input)
 	if err != nil {
 		return "", fmt.Errorf("failed to register task definition: %w", err)
+	}
+
+	if err := d.ensureNotCanceled(ctx, id); err != nil {
+		return "", err
 	}
 
 	d.streamer.Publish(ctx, id, "Configuring target group...")
@@ -76,10 +100,18 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (string, error
 		return "", fmt.Errorf("failed to configure target group: %w", err)
 	}
 
+	if err := d.ensureNotCanceled(ctx, id); err != nil {
+		return "", err
+	}
+
 	d.streamer.Publish(ctx, id, "Updating routing rules...")
 	url, err := d.upsertListenerRule(ctx, slug, tgArn)
 	if err != nil {
 		return "", fmt.Errorf("failed to update routing rules: %w", err)
+	}
+
+	if err := d.ensureNotCanceled(ctx, id); err != nil {
+		return "", err
 	}
 
 	d.streamer.Publish(ctx, id, "Provisioning Fargate service...")
@@ -88,12 +120,31 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (string, error
 	}
 
 	d.streamer.Publish(ctx, id, "Monitoring service stability...")
-	if err := d.waitForStability(ctx, id, slug); err != nil {
+	if err := d.waitForStability(ctx, id, slug, tgArn); err != nil {
 		return "", fmt.Errorf("service stability check failed: %w", err)
 	}
 
-	d.streamer.Publish(ctx, id, fmt.Sprintf("Deployment live at: https://%s", url))
-	return url, nil
+	publicURL := d.publicURL(url)
+	d.streamer.Publish(ctx, id, fmt.Sprintf("Deployment live at: %s", publicURL))
+	return publicURL, nil
+}
+
+func (d *Deployer) ensureNotCanceled(ctx context.Context, deploymentID string) error {
+	if d.cancelChecker == nil {
+		return nil
+	}
+	canceled, err := d.cancelChecker(ctx, deploymentID)
+	if err != nil {
+		return err
+	}
+	if canceled {
+		return ErrCanceled
+	}
+	return nil
+}
+
+func (d *Deployer) publicURL(host string) string {
+	return fmt.Sprintf("%s://%s", d.publicURLScheme, strings.TrimPrefix(strings.TrimPrefix(host, "http://"), "https://"))
 }
 
 func (d *Deployer) registerTaskDefinition(ctx context.Context, input DeployInput) (string, error) {
@@ -217,9 +268,14 @@ func (d *Deployer) upsertListenerRule(ctx context.Context, subdomain, tgArn stri
 		}
 	}
 
+	priority, err := nextAvailablePriority(rules)
+	if err != nil {
+		return "", err
+	}
+
 	_, err = d.elbClient.CreateRule(ctx, &elbv2.CreateRuleInput{
 		ListenerArn: aws.String(d.albListenerARN),
-		Priority:    aws.Int32(int32(time.Now().Unix()%49000) + 1000),
+		Priority:    aws.Int32(priority),
 		Conditions: []elbv2types.RuleCondition{
 			{
 				Field: aws.String("host-header"),
@@ -249,12 +305,9 @@ func (d *Deployer) upsertService(ctx context.Context, input DeployInput, taskArn
 
 	if err == nil && len(svcs.Services) > 0 && svcs.Services[0].Status != nil && *svcs.Services[0].Status != "INACTIVE" {
 		svc := svcs.Services[0]
-		portMatch := false
-		if len(svc.LoadBalancers) > 0 && svc.LoadBalancers[0].ContainerPort != nil && *svc.LoadBalancers[0].ContainerPort == input.Port {
-			portMatch = true
-		}
+		wiringMatches := serviceWiringMatches(svc, input.Port, tgArn)
 
-		if portMatch {
+		if wiringMatches {
 			out, err := d.ecsClient.UpdateService(ctx, &ecs.UpdateServiceInput{
 				Service:        aws.String(name),
 				Cluster:        aws.String(d.clusterName),
@@ -267,7 +320,7 @@ func (d *Deployer) upsertService(ctx context.Context, input DeployInput, taskArn
 			return *out.Service.ServiceArn, nil
 		}
 
-		d.streamer.Publish(ctx, input.DeploymentID, "Port change detected, recreating service...")
+		d.streamer.Publish(ctx, input.DeploymentID, "Service wiring changed, recreating service...")
 		_, err = d.ecsClient.DeleteService(ctx, &ecs.DeleteServiceInput{
 			Cluster: aws.String(d.clusterName),
 			Service: aws.String(name),
@@ -307,12 +360,65 @@ func (d *Deployer) upsertService(ctx context.Context, input DeployInput, taskArn
 	return *out.Service.ServiceArn, nil
 }
 
-func (d *Deployer) waitForStability(ctx context.Context, deployID, slug string) error {
+func serviceWiringMatches(svc types.Service, expectedPort int32, expectedTargetGroupArn string) bool {
+	if len(svc.LoadBalancers) == 0 {
+		return false
+	}
+
+	for _, lb := range svc.LoadBalancers {
+		portMatches := lb.ContainerPort != nil && *lb.ContainerPort == expectedPort
+		targetMatches := lb.TargetGroupArn != nil && *lb.TargetGroupArn == expectedTargetGroupArn
+		if portMatches && targetMatches {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (d *Deployer) waitForStability(ctx context.Context, deployID, slug, tgArn string) error {
 	name := fmt.Sprintf("hatch-%s", slug)
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
 	timeout := time.After(8 * time.Minute)
+
+	check := func() (bool, error) {
+		if err := d.ensureNotCanceled(ctx, deployID); err != nil {
+			return false, err
+		}
+
+		out, err := d.ecsClient.DescribeServices(ctx, &ecs.DescribeServicesInput{
+			Cluster:  aws.String(d.clusterName),
+			Services: []string{name},
+		})
+		if err != nil {
+			d.streamer.Publish(ctx, deployID, fmt.Sprintf("Waiting for ECS service details: %v", err))
+			return false, nil
+		}
+		if len(out.Services) == 0 {
+			d.streamer.Publish(ctx, deployID, "Waiting for ECS service registration...")
+			return false, nil
+		}
+
+		svc := out.Services[0]
+		targetHealthy, targetState := d.targetGroupHealthy(ctx, tgArn)
+		d.streamer.Publish(ctx, deployID, fmt.Sprintf("Task health: %d running, %d pending, target %s", svc.RunningCount, svc.PendingCount, targetState))
+
+		if svc.RunningCount >= 1 && svc.PendingCount == 0 && targetHealthy {
+			return true, nil
+		}
+
+		return false, nil
+	}
+
+	ok, err := check()
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
 
 	for {
 		select {
@@ -321,22 +427,42 @@ func (d *Deployer) waitForStability(ctx context.Context, deployID, slug string) 
 		case <-timeout:
 			return fmt.Errorf("stability timeout: service failed to reach healthy state")
 		case <-ticker.C:
-			out, err := d.ecsClient.DescribeServices(ctx, &ecs.DescribeServicesInput{
-				Cluster:  aws.String(d.clusterName),
-				Services: []string{name},
-			})
-			if err != nil || len(out.Services) == 0 {
-				continue
+			ok, err := check()
+			if err != nil {
+				return err
 			}
-
-			svc := out.Services[0]
-			d.streamer.Publish(ctx, deployID, fmt.Sprintf("Task health: %d running, %d pending", svc.RunningCount, svc.PendingCount))
-
-			if svc.RunningCount >= 1 && svc.PendingCount == 0 {
+			if ok {
 				return nil
 			}
 		}
 	}
+}
+
+func (d *Deployer) targetGroupHealthy(ctx context.Context, tgArn string) (bool, string) {
+	out, err := d.elbClient.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
+		TargetGroupArn: aws.String(tgArn),
+	})
+	if err != nil {
+		return false, "unknown"
+	}
+	if len(out.TargetHealthDescriptions) == 0 {
+		return false, "registering"
+	}
+
+	state := "unknown"
+	for _, desc := range out.TargetHealthDescriptions {
+		if desc.TargetHealth == nil {
+			continue
+		}
+		state = string(desc.TargetHealth.State)
+		if desc.TargetHealth.Reason != "" {
+			state = fmt.Sprintf("%s (%s)", state, desc.TargetHealth.Reason)
+		}
+		if desc.TargetHealth.State == elbv2types.TargetHealthStateEnumHealthy {
+			return true, "healthy"
+		}
+	}
+	return false, state
 }
 
 func (d *Deployer) Teardown(ctx context.Context, slug string) error {
@@ -359,7 +485,7 @@ func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 							_, err = d.elbClient.DeleteRule(ctx, &elbv2.DeleteRuleInput{
 								RuleArn: r.RuleArn,
 							})
-							if err != nil {
+							if err != nil && !isNotFound(err) {
 								return fmt.Errorf("failed to delete listener rule: %w", err)
 							}
 						}
@@ -374,7 +500,7 @@ func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 		Service: aws.String(svcName),
 		Force:   aws.Bool(true),
 	})
-	if err != nil {
+	if err != nil && !isNotFound(err) {
 		return fmt.Errorf("failed to delete ECS service: %w", err)
 	}
 
@@ -387,10 +513,39 @@ func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 		_, err = d.elbClient.DeleteTargetGroup(ctx, &elbv2.DeleteTargetGroupInput{
 			TargetGroupArn: tgs.TargetGroups[0].TargetGroupArn,
 		})
-		if err != nil {
+		if err != nil && !isNotFound(err) {
 			return fmt.Errorf("failed to delete target group: %w", err)
 		}
 	}
 
 	return nil
+}
+
+func nextAvailablePriority(rules *elbv2.DescribeRulesOutput) (int32, error) {
+	used := map[int]bool{}
+	if rules != nil {
+		for _, rule := range rules.Rules {
+			if rule.Priority == nil || *rule.Priority == "default" {
+				continue
+			}
+			priority, err := strconv.Atoi(*rule.Priority)
+			if err == nil {
+				used[priority] = true
+			}
+		}
+	}
+
+	for priority := 1000; priority <= 50000; priority++ {
+		if !used[priority] {
+			return int32(priority), nil
+		}
+	}
+	return 0, fmt.Errorf("no available listener rule priorities")
+}
+
+func isNotFound(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "notfound") ||
+		strings.Contains(message, "not found") ||
+		strings.Contains(message, "not exist")
 }

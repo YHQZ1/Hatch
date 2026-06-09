@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
@@ -26,6 +27,8 @@ type Handler struct {
 	jwtSecret    string
 	queries      *dbpkg.Queries
 }
+
+const SessionCookieName = "hatch_session"
 
 func NewHandler(clientID, clientSecret, redirectURI, jwtSecret string, db *sql.DB) *Handler {
 	return &Handler{
@@ -75,14 +78,23 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	jwtToken, err := h.signJWT(dbUser.ID, ghUser.ID, ghUser.Login, token)
+	jwtToken, err := h.signJWT(dbUser.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "session signing failed"})
 		return
 	}
 
-	successURL := fmt.Sprintf("%s/auth/success?token=%s", os.Getenv("FRONTEND_URL"), jwtToken)
+	setSessionCookie(c, jwtToken)
+	EnsureCSRFCookie(c)
+
+	successURL := fmt.Sprintf("%s/auth/success", os.Getenv("FRONTEND_URL"))
 	c.Redirect(http.StatusTemporaryRedirect, successURL)
+}
+
+func (h *Handler) Logout(c *gin.Context) {
+	clearSessionCookie(c)
+	ClearCSRFCookie(c)
+	c.Status(http.StatusNoContent)
 }
 
 func (h *Handler) exchangeCodeForToken(code string) (string, error) {
@@ -139,14 +151,42 @@ func (h *Handler) fetchGitHubUser(token string) (*GitHubUser, error) {
 	return &user, nil
 }
 
-func (h *Handler) signJWT(userID uuid.UUID, githubID int64, username, accessToken string) (string, error) {
+func (h *Handler) signJWT(userID uuid.UUID) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id":      userID.String(),
-		"github_id":    githubID,
-		"username":     username,
-		"access_token": accessToken,
-		"exp":          time.Now().Add(24 * time.Hour).Unix(),
-		"iat":          time.Now().Unix(),
+		"user_id": userID.String(),
+		"exp":     time.Now().Add(24 * time.Hour).Unix(),
+		"iat":     time.Now().Unix(),
 	})
 	return token.SignedString([]byte(h.jwtSecret))
+}
+
+func setSessionCookie(c *gin.Context, token string) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     SessionCookieName,
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int((24 * time.Hour).Seconds()),
+		HttpOnly: true,
+		Secure:   isSecureRequest(c.Request),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func clearSessionCookie(c *gin.Context) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     SessionCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   isSecureRequest(c.Request),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func isSecureRequest(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }

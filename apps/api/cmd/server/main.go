@@ -34,7 +34,7 @@ func main() {
 	}
 
 	rdb := redis.NewClient(opt)
-	hub := wsHub.NewHub(cfg.RedisURL)
+	hub := wsHub.NewHub(cfg.RedisURL, cfg.JWTSecret, cfg.FrontendURL, db)
 
 	r := gin.Default()
 
@@ -43,7 +43,7 @@ func main() {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{cfg.FrontendURL},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", auth.CSRFHeaderName},
 		ExposeHeaders:    []string{"Content-Length", "X-Hatch-Trace-Duration"},
 		AllowCredentials: true,
 		MaxAge:           86400,
@@ -61,6 +61,8 @@ func main() {
 	deploymentHandler := handlers.NewDeploymentHandler(db, publisher, rdb)
 	githubHandler := handlers.NewGitHubHandler(rdb)
 	webhookHandler := handlers.NewWebhookHandler(db, publisher)
+	authMiddleware := auth.Middleware(cfg.JWTSecret, db)
+	csrfMiddleware := auth.CSRFMiddleware()
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -68,17 +70,22 @@ func main() {
 
 	r.GET("/auth/github", authHandler.RedirectToGitHub)
 	r.GET("/auth/callback", authHandler.HandleCallback)
+	r.POST("/auth/logout", authMiddleware, csrfMiddleware, authHandler.Logout)
 	r.GET("/ws/deployments/:id", hub.HandleDeploymentLogs)
 	r.POST("/api/webhooks/github", webhookHandler.HandlePush)
 
 	api := r.Group("/api")
-	api.Use(auth.Middleware(cfg.JWTSecret))
+	api.Use(authMiddleware, csrfMiddleware)
 	{
 		api.GET("/me", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
-				"user_id":  c.MustGet("user_id"),
-				"username": c.MustGet("username"),
+				"user_id":   c.MustGet("user_id"),
+				"github_id": c.MustGet("github_id"),
+				"username":  c.MustGet("username"),
 			})
+		})
+		api.GET("/csrf", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"csrf_token": auth.EnsureCSRFCookie(c)})
 		})
 
 		api.GET("/projects", projectHandler.ListProjects)
@@ -89,6 +96,7 @@ func main() {
 		api.GET("/activity", projectHandler.GetActivity)
 		api.POST("/deployments", deploymentHandler.CreateDeployment)
 		api.GET("/deployments/:id", deploymentHandler.GetDeployment)
+		api.POST("/deployments/:id/cancel", deploymentHandler.CancelDeployment)
 		api.GET("/deployments/:id/logs", deploymentHandler.GetDeploymentLogs)
 		api.GET("/github/repos", githubHandler.ListRepos)
 		api.GET("/github/repos/:owner/:repo/dockerfile", githubHandler.CheckDockerfile)

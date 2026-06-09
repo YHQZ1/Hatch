@@ -6,6 +6,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { apiFetch, redirectIfUnauthorized } from "@/app/lib/api";
 
 type Tab = "general" | "build" | "compute" | "vars" | "danger";
 
@@ -45,22 +46,16 @@ export default function ProjectSettingsClient() {
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
 
-  const [token, setToken] = useState<string | null>(null);
-
   useEffect(() => {
     setMounted(true);
-    const t = localStorage.getItem("hatch_token");
-    if (!t) {
-      router.push("/auth");
-      return;
-    }
-    setToken(t);
 
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/projects/${id}`, {
-      headers: { Authorization: `Bearer ${t}` },
-    })
-      .then((r) => r.json())
+    apiFetch(`/api/projects/${id}`)
+      .then((r) => {
+        if (redirectIfUnauthorized(r, router)) return null;
+        return r.json();
+      })
       .then((data) => {
+        if (!data) return;
         setProject(data);
         setProjectName(data.repo_name ?? "");
         setBranch(data.branch ?? "main");
@@ -72,7 +67,7 @@ export default function ProjectSettingsClient() {
   }, [id]);
 
   const handleSave = async () => {
-    if (!token || saving) return;
+    if (saving) return;
     setSaving(true);
     // Currently the API only supports delete & read for projects.
     // Save is a no-op stub — extend when PATCH /api/projects/:id is available.
@@ -83,13 +78,10 @@ export default function ProjectSettingsClient() {
   };
 
   const handleDelete = async () => {
-    if (!token || deleteConfirm !== project?.repo_name) return;
+    if (deleteConfirm !== project?.repo_name) return;
     setDeleting(true);
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${id}`,
-        { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
-      );
+      const res = await apiFetch(`/api/projects/${id}`, { method: "DELETE" });
       if (res.ok) router.push("/console");
     } catch (err) {
       console.error("Delete failed", err);

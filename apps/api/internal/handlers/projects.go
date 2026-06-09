@@ -110,13 +110,22 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 }
 
 func (h *ProjectHandler) GetProject(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
 
-	project, err := h.queries.GetProjectByID(c.Request.Context(), id)
+	project, err := h.queries.GetProjectByIDAndUserID(c.Request.Context(), dbpkg.GetProjectByIDAndUserIDParams{
+		ID:     id,
+		UserID: userID,
+	})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
 		return
@@ -126,13 +135,22 @@ func (h *ProjectHandler) GetProject(c *gin.Context) {
 }
 
 func (h *ProjectHandler) DeleteProject(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
 
-	project, err := h.queries.GetProjectByID(c.Request.Context(), id)
+	project, err := h.queries.GetProjectByIDAndUserID(c.Request.Context(), dbpkg.GetProjectByIDAndUserIDParams{
+		ID:     id,
+		UserID: userID,
+	})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
 		return
@@ -143,14 +161,20 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 		resourceName = project.Subdomain.String
 	}
 
-	h.publisher.PublishCleanupJob(c.Request.Context(), []string{resourceName})
+	if err := h.publisher.PublishCleanupJob(c.Request.Context(), []string{resourceName}); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to queue cleanup"})
+		return
+	}
 
-	if err := h.queries.DeleteProject(c.Request.Context(), id); err != nil {
+	if err := h.queries.DeleteProjectByIDAndUserID(c.Request.Context(), dbpkg.DeleteProjectByIDAndUserIDParams{
+		ID:     id,
+		UserID: userID,
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete project"})
 		return
 	}
 
-	h.recordActivity(c, project.UserID, "DELETE", fmt.Sprintf("Infrastructure destroyed for %s", project.RepoName))
+	h.recordActivity(c, userID, "DELETE", fmt.Sprintf("Infrastructure destroyed for %s", project.RepoName))
 	c.Status(http.StatusNoContent)
 }
 

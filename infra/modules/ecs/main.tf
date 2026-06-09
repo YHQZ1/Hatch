@@ -1,5 +1,11 @@
 variable "project_name" {}
-variable "aws_region"   {}
+variable "aws_region" {}
+
+variable "container_insights" {
+  description = "ECS Container Insights setting for the cluster."
+  type        = string
+  default     = "disabled"
+}
 
 # ECS Cluster
 resource "aws_ecs_cluster" "main" {
@@ -7,7 +13,7 @@ resource "aws_ecs_cluster" "main" {
 
   setting {
     name  = "containerInsights"
-    value = "disabled"
+    value = var.container_insights
   }
 
   tags = { Name = "${var.project_name}-cluster" }
@@ -59,6 +65,6 @@ resource "aws_iam_role_policy" "ecs_cloudwatch_logs" {
   })
 }
 
-output "cluster_arn"            { value = aws_ecs_cluster.main.arn }
-output "cluster_name"           { value = aws_ecs_cluster.main.name }
+output "cluster_arn" { value = aws_ecs_cluster.main.arn }
+output "cluster_name" { value = aws_ecs_cluster.main.name }
 output "task_execution_role_arn" { value = aws_iam_role.ecs_task_execution.arn }

@@ -12,17 +12,22 @@ import (
 )
 
 type Querier interface {
+	CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelDeploymentByIDAndUserIDParams) (Deployment, error)
 	CreateActivityLog(ctx context.Context, arg CreateActivityLogParams) (ActivityLog, error)
 	CreateDeployment(ctx context.Context, arg CreateDeploymentParams) (Deployment, error)
 	CreateEnvVar(ctx context.Context, arg CreateEnvVarParams) (EnvVar, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DeleteProject(ctx context.Context, id uuid.UUID) error
+	DeleteProjectByIDAndUserID(ctx context.Context, arg DeleteProjectByIDAndUserIDParams) error
 	GetActivityLogsByUserID(ctx context.Context, userID uuid.UUID) ([]ActivityLog, error)
 	GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployment, error)
+	GetDeploymentByIDAndUserID(ctx context.Context, arg GetDeploymentByIDAndUserIDParams) (Deployment, error)
 	GetDeploymentsByProjectID(ctx context.Context, projectID uuid.UUID) ([]Deployment, error)
+	GetDeploymentsByProjectIDAndUserID(ctx context.Context, arg GetDeploymentsByProjectIDAndUserIDParams) ([]Deployment, error)
 	GetEnvVarsByDeployment(ctx context.Context, deploymentID uuid.UUID) ([]EnvVar, error)
 	GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error)
+	GetProjectByIDAndUserID(ctx context.Context, arg GetProjectByIDAndUserIDParams) (Project, error)
 	GetProjectByRepoURL(ctx context.Context, repoUrl string) (Project, error)
 	GetProjectBySubdomain(ctx context.Context, subdomain sql.NullString) (Project, error)
 	GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]Project, error)

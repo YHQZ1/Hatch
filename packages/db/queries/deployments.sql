@@ -6,11 +6,34 @@ RETURNING *;
 -- name: GetDeploymentByID :one
 SELECT * FROM deployments WHERE id = $1;
 
+-- name: GetDeploymentByIDAndUserID :one
+SELECT deployments.*
+FROM deployments
+JOIN projects ON projects.id = deployments.project_id
+WHERE deployments.id = $1 AND projects.user_id = $2;
+
 -- name: GetDeploymentsByProjectID :many
 SELECT * FROM deployments WHERE project_id = $1 ORDER BY created_at DESC;
 
+-- name: GetDeploymentsByProjectIDAndUserID :many
+SELECT deployments.*
+FROM deployments
+JOIN projects ON projects.id = deployments.project_id
+WHERE deployments.project_id = $1 AND projects.user_id = $2
+ORDER BY deployments.created_at DESC;
+
 -- name: UpdateDeploymentStatus :one
 UPDATE deployments SET status = $2 WHERE id = $1 RETURNING *;
+
+-- name: CancelDeploymentByIDAndUserID :one
+UPDATE deployments
+SET status = 'canceled'
+FROM projects
+WHERE deployments.id = $1
+  AND deployments.project_id = projects.id
+  AND projects.user_id = $2
+  AND deployments.status IN ('queued', 'building')
+RETURNING deployments.*;
 
 -- name: UpdateDeploymentLive :one
 UPDATE deployments

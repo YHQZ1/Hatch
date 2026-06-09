@@ -1,10 +1,10 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
+import { apiFetch, logout } from "@/app/lib/api";
 
 export default function Navbar() {
   const router = useRouter();
@@ -24,24 +24,22 @@ export default function Navbar() {
     };
     document.addEventListener("mousedown", handleClickOutside);
 
-    const token = localStorage.getItem("hatch_token");
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
+    apiFetch("/api/me")
+      .then(async (res) => {
+        if (!res.ok) return;
+        const payload = await res.json();
         setUser({
           username: payload.username,
-          avatar:
-            payload.avatar_url || `https://github.com/${payload.username}.png`,
+          avatar: `https://github.com/${payload.username}.png`,
         });
-      } catch {
-        console.error("Session invalid");
-      }
-    }
+      })
+      .catch(() => {});
+
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleSignOut = () => {
-    localStorage.removeItem("hatch_token");
+  const handleSignOut = async () => {
+    await logout();
     router.push("/");
   };
 

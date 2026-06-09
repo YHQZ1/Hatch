@@ -2,6 +2,7 @@
 
 import { useEffect, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { apiFetch, clearClientSession } from "@/app/lib/api";
 
 function AuthSuccessContent() {
   const router = useRouter();
@@ -9,23 +10,29 @@ function AuthSuccessContent() {
   const [status, setStatus] = useState("Validating Session...");
 
   useEffect(() => {
-    const token = searchParams.get("token");
-
-    if (!token) {
-      router.push("/auth");
-      return;
+    if (searchParams.has("token")) {
+      window.history.replaceState({}, "", "/auth/success");
     }
 
-    localStorage.setItem("hatch_token", token);
-
-    const t1 = setTimeout(() => setStatus("Authorizing..."), 400);
-    const t2 = setTimeout(() => setStatus("Verified"), 800);
-    const t3 = setTimeout(() => router.push("/console"), 1500);
+    let cancelled = false;
+    const verifySession = async () => {
+      setStatus("Authorizing...");
+      try {
+        const res = await apiFetch("/api/me");
+        if (!res.ok) throw new Error("Session verification failed");
+        if (!cancelled) {
+          setStatus("Verified");
+          setTimeout(() => router.replace("/console"), 500);
+        }
+      } catch {
+        clearClientSession();
+        if (!cancelled) router.replace("/auth");
+      }
+    };
+    verifySession();
 
     return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
+      cancelled = true;
     };
   }, [router, searchParams]);
 

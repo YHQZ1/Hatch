@@ -5,6 +5,18 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { PageLoadingState } from "../../../../components/LoadingState";
+import {
+  apiFetch,
+  apiUrl,
+  consumeFlashNotice,
+  deploymentUrl,
+  readApiError,
+  redirectIfUnauthorized,
+} from "@/app/lib/api";
+import {
+  NoticeToast,
+  type NoticePayload,
+} from "../../../../components/NoticeToast";
 
 interface Project {
   id: string;
@@ -48,7 +60,6 @@ export default function ProjectDetail() {
   const router = useRouter();
   const projectId = params.id as string;
 
-  const [token, setToken] = useState<string | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [activeDeployment, setActiveDeployment] = useState<Deployment | null>(
@@ -56,8 +67,10 @@ export default function ProjectDetail() {
   );
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [deploying, setDeploying] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState<NoticePayload | null>(null);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -73,12 +86,10 @@ export default function ProjectDetail() {
 
   useEffect(() => {
     setMounted(true);
-    const t = localStorage.getItem("hatch_token");
-    if (!t) {
-      router.push("/auth");
-      return;
+    const flash = consumeFlashNotice();
+    if (flash) {
+      setNotice(flash);
     }
-    setToken(t);
 
     const cacheKey = `${CACHE_KEY_PREFIX}${projectId}`;
     const cached = localStorage.getItem(cacheKey);
@@ -98,19 +109,15 @@ export default function ProjectDetail() {
     const loadData = async () => {
       try {
         const [projRes, depsRes] = await Promise.all([
-          fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${projectId}`,
-            {
-              headers: { Authorization: `Bearer ${t}` },
-            },
-          ),
-          fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${projectId}/deployments`,
-            {
-              headers: { Authorization: `Bearer ${t}` },
-            },
-          ),
+          apiFetch(`/api/projects/${projectId}`),
+          apiFetch(`/api/projects/${projectId}/deployments`),
         ]);
+        if (
+          redirectIfUnauthorized(projRes, router) ||
+          redirectIfUnauthorized(depsRes, router)
+        ) {
+          return;
+        }
         const proj = await projRes.json();
         const deps = await depsRes.json();
         const depList: Deployment[] = Array.isArray(deps) ? deps : [];
@@ -126,6 +133,11 @@ export default function ProjectDetail() {
           }),
         );
       } catch {
+        setNotice({
+          type: "error",
+          title: "Project unavailable",
+          message: "We couldn't load the latest project state.",
+        });
       } finally {
         setLoading(false);
       }
@@ -135,7 +147,13 @@ export default function ProjectDetail() {
   }, [projectId, router]);
 
   useEffect(() => {
-    if (!activeDeployment || !token) return;
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
+  useEffect(() => {
+    if (!activeDeployment) return;
     const currentId = activeDeployment.id;
     activeIdRef.current = currentId;
     setLogs([]);
@@ -148,10 +166,15 @@ export default function ProjectDetail() {
     const isActive = ["building", "deploying", "queued"].includes(s);
 
     if (isActive) {
-      const wsUrl = `${process.env.NEXT_PUBLIC_API_URL?.replace("http", "ws")}/ws/deployments/${currentId}`;
+      const wsUrl = apiUrl(`/ws/deployments/${currentId}`).replace(
+        /^http/,
+        "ws",
+      );
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
-      ws.onopen = () => ws.send("READY");
+      ws.onopen = () => {
+        ws.send("READY");
+      };
       ws.onmessage = (event) => {
         const line = event.data;
         if (line === "READY" || activeIdRef.current !== currentId) return;
@@ -161,12 +184,7 @@ export default function ProjectDetail() {
         }
       };
     } else {
-      fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${currentId}/logs`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      )
+      apiFetch(`/api/deployments/${currentId}/logs`)
         .then((r) => r.json())
         .then((history) => {
           if (activeIdRef.current === currentId && Array.isArray(history)) {
@@ -176,7 +194,7 @@ export default function ProjectDetail() {
     }
 
     return () => wsRef.current?.close();
-  }, [activeDeployment?.id, token]);
+  }, [activeDeployment?.id]);
 
   const parseLogLine = (line: string): LogLine => {
     const isSuccess =
@@ -215,38 +233,90 @@ export default function ProjectDetail() {
   };
 
   const handleDeploy = async () => {
-    if (!project || !token || deploying) return;
+    if (!project || deploying) return;
     setDeploying(true);
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/deployments`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            project_id: project.id,
-            branch: activeDeployment?.branch || project.branch || "main",
-            cpu: Number(activeDeployment?.cpu || 256),
-            memory_mb: Number(activeDeployment?.memory_mb || 512),
-            port: Number(activeDeployment?.port || project.port || 80),
-            health_check: activeDeployment?.health_check || "/",
-            env_vars: {},
-          }),
-        },
-      );
+      const res = await apiFetch("/api/deployments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: project.id,
+          branch: activeDeployment?.branch || project.branch || "main",
+          cpu: Number(activeDeployment?.cpu || 256),
+          memory_mb: Number(activeDeployment?.memory_mb || 512),
+          port: Number(activeDeployment?.port || project.port || 80),
+          health_check: activeDeployment?.health_check || "/",
+          env_vars: {},
+        }),
+      });
+      if (redirectIfUnauthorized(res, router)) return;
       if (res.ok) {
         const newDep = await res.json();
         setDeployments((prev) => [newDep, ...prev]);
         setActiveDeployment(newDep);
         setLogs([]);
         localStorage.removeItem("hatch_projects_cache");
+        setNotice({
+          type: "success",
+          title: "Deployment queued",
+          message: "Live logs will stream here as the build starts.",
+        });
+      } else {
+        setNotice({
+          type: "error",
+          title: "Deploy failed to start",
+          message: await readApiError(res, "The deployment could not be queued."),
+        });
       }
     } catch {
+      setNotice({
+        type: "error",
+        title: "Deploy request failed",
+        message: "We couldn't reach the API to start a deployment.",
+      });
     } finally {
       setDeploying(false);
+    }
+  };
+
+  const handleCancelDeployment = async () => {
+    if (!activeDeployment || canceling) return;
+    if (!confirm("Cancel this deployment?")) return;
+
+    setCanceling(true);
+    try {
+      const res = await apiFetch(
+        `/api/deployments/${activeDeployment.id}/cancel`,
+        { method: "POST" },
+      );
+      if (redirectIfUnauthorized(res, router)) return;
+      if (!res.ok) {
+        setNotice({
+          type: "error",
+          title: "Cancel failed",
+          message: await readApiError(
+            res,
+            "This deployment can no longer be canceled.",
+          ),
+        });
+        return;
+      }
+
+      const canceled = await res.json();
+      setDeployments((prev) =>
+        prev.map((d) => (d.id === canceled.id ? canceled : d)),
+      );
+      setActiveDeployment(canceled);
+      setLogs((prev) => [...prev, parseLogLine("Deployment canceled by user")]);
+      wsRef.current?.close();
+      localStorage.removeItem("hatch_projects_cache");
+      setNotice({
+        type: "success",
+        title: "Deployment canceled",
+        message: "Provisioning has been stopped for this run.",
+      });
+    } finally {
+      setCanceling(false);
     }
   };
 
@@ -256,13 +326,14 @@ export default function ProjectDetail() {
   const isBuilding = ["building", "deploying", "queued"].includes(
     activeDeployment?.status?.toLowerCase() ?? "",
   );
-  const liveUrl =
-    isLive && activeDeployment?.url
-      ? `https://${activeDeployment.url.replace(/^https?:\/\//, "")}`
-      : null;
+  const isCancelable = ["building", "queued"].includes(
+    activeDeployment?.status?.toLowerCase() ?? "",
+  );
+  const liveUrl = isLive ? deploymentUrl(activeDeployment?.url) : null;
 
   return (
     <div className="flex h-[calc(100vh-64px)] bg-black text-zinc-400 overflow-hidden">
+      <NoticeToast notice={notice} onDismiss={() => setNotice(null)} />
       {/* SIDEBAR */}
       <aside className="w-72 border-r border-[#1a1a1a] flex flex-col bg-[#030303] shrink-0">
         {/* Project header */}
@@ -334,11 +405,20 @@ export default function ProjectDetail() {
         <div className="px-5 py-3 border-b border-[#1a1a1a] space-y-2">
           <button
             onClick={handleDeploy}
-            disabled={deploying}
+            disabled={deploying || canceling}
             className="w-full bg-white text-black text-[9px] font-bold uppercase tracking-[0.15em] py-2.5 rounded-[2px] hover:bg-zinc-200 transition-colors disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
           >
             {deploying ? "Deploying..." : "Deploy Manually"}
           </button>
+          {isCancelable && (
+            <button
+              onClick={handleCancelDeployment}
+              disabled={canceling}
+              className="w-full border border-[#2a1111] text-[#b91c1c] text-[9px] font-bold uppercase tracking-[0.15em] py-2.5 rounded-[2px] hover:border-[#7f1d1d] hover:text-[#ef4444] transition-colors disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+            >
+              {canceling ? "Canceling..." : "Cancel Deployment"}
+            </button>
+          )}
           {project?.auto_deploy && (
             <p className="text-[8px] text-zinc-800 uppercase tracking-widest text-center font-mono">
               auto-deploy enabled

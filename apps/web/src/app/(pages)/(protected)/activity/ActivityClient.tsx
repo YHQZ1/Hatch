@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "../../../components/PageHeader";
 import { PageLoadingState } from "../../../components/LoadingState";
+import { apiFetch, redirectIfUnauthorized } from "@/app/lib/api";
 
 interface ActivityEvent {
   id: string;
@@ -23,11 +24,6 @@ export default function ActivityClient() {
 
   useEffect(() => {
     setMounted(true);
-    const token = localStorage.getItem("hatch_token");
-    if (!token) {
-      router.push("/auth");
-      return;
-    }
 
     const cached = localStorage.getItem(CACHE_KEY);
     if (cached) {
@@ -43,12 +39,8 @@ export default function ActivityClient() {
 
     const fetchData = async () => {
       try {
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/activity`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
+        const res = await apiFetch("/api/activity");
+        if (redirectIfUnauthorized(res, router)) return;
         const data = await res.json();
         const eventsList: ActivityEvent[] = Array.isArray(data) ? data : [];
         setEvents(eventsList);

@@ -108,19 +108,21 @@ const TECHNOLOGIES = [
   { name: "Python", slug: "python", color: "3776AB" },
   { name: "Rust", slug: "rust", color: "CE422B" },
   { name: "Bun", slug: "bun", color: "FBF0DF" },
+  { name: "Deno", slug: "deno", color: "FFFFFF" },
   { name: "React", slug: "react", color: "61DAFB" },
+  { name: "Vite", slug: "vite", color: "646CFF" },
   { name: "Next.js", slug: "nextdotjs", color: "FFFFFF" },
+  { name: "Vue.js", slug: "vuedotjs", color: "4FC08D" },
+  { name: "SvelteKit", slug: "svelte", color: "FF3E00" },
+  { name: "Astro", slug: "astro", color: "FF5D01" },
+  { name: "NGINX", slug: "nginx", color: "009639" },
+  { name: "Express", slug: "express", color: "FFFFFF" },
   { name: "FastAPI", slug: "fastapi", color: "009688" },
   { name: "NestJS", slug: "nestjs", color: "E0234E" },
   { name: "Django", slug: "django", color: "44B78B" },
+  { name: "Flask", slug: "flask", color: "FFFFFF" },
   { name: "Laravel", slug: "laravel", color: "FF2D20" },
-  { name: "PostgreSQL", slug: "postgresql", color: "4169E1" },
-  { name: "MongoDB", slug: "mongodb", color: "47A248" },
-  { name: "Redis", slug: "redis", color: "FF4438" },
-  { name: "RabbitMQ", slug: "rabbitmq", color: "FF6600" },
-  { name: "Apache Kafka", slug: "apachekafka", color: "FFFFFF" },
-  { name: "NGINX", slug: "nginx", color: "009639" },
-  { name: "Grafana", slug: "grafana", color: "F46800" },
+  { name: "Spring Boot", slug: "springboot", color: "6DB33F" },
 ];
 
 function SupportedTechnologies() {
@@ -139,9 +141,9 @@ function SupportedTechnologies() {
       </div>
 
       <div className="relative z-10 flex flex-col gap-10">
-        <TechRow items={TECHNOLOGIES.slice(0, 6)} offset={0} />
-        <TechRow items={TECHNOLOGIES.slice(6, 13)} offset={1} />
-        <TechRow items={TECHNOLOGIES.slice(13, 19)} offset={2} />
+        <TechRow items={TECHNOLOGIES.slice(0, 7)} offset={0} />
+        <TechRow items={TECHNOLOGIES.slice(7, 14)} offset={1} />
+        <TechRow items={TECHNOLOGIES.slice(14)} offset={2} />
       </div>
     </section>
   );

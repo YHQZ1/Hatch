@@ -78,6 +78,12 @@ func NewDeploymentHandler(db *sql.DB, publisher *queue.Publisher, rdb *redis.Cli
 }
 
 func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	var body struct {
 		ProjectID   string            `json:"project_id" binding:"required"`
 		Branch      string            `json:"branch" binding:"required"`
@@ -99,9 +105,23 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		return
 	}
 
-	project, err := h.queries.GetProjectByID(c.Request.Context(), projectID)
+	project, err := h.queries.GetProjectByIDAndUserID(c.Request.Context(), dbpkg.GetProjectByIDAndUserIDParams{
+		ID:     projectID,
+		UserID: userID,
+	})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+		return
+	}
+
+	tokenRaw, ok := c.Get("access_token")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: missing access token"})
+		return
+	}
+	userToken, ok := tokenRaw.(string)
+	if !ok || userToken == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: invalid access token"})
 		return
 	}
 
@@ -115,7 +135,15 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		effectiveSubdomain = project.Subdomain.String
 	}
 
-	deployment, err := h.queries.CreateDeployment(c.Request.Context(), dbpkg.CreateDeploymentParams{
+	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start deployment transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	qtx := h.queries.WithTx(tx)
+	deployment, err := qtx.CreateDeployment(c.Request.Context(), dbpkg.CreateDeploymentParams{
 		ProjectID:   projectID,
 		Branch:      body.Branch,
 		Cpu:         body.CPU,
@@ -126,31 +154,32 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 	})
 	if err != nil {
 		fmt.Printf("DATABASE ERROR: %v\n", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create deployment"})
 		return
 	}
 
 	for key, value := range body.EnvVars {
 		if key != "" {
-			_, err = h.db.ExecContext(c.Request.Context(),
-				"INSERT INTO env_vars (deployment_id, key, value) VALUES ($1, $2, $3)",
-				deployment.ID, key, value,
-			)
+			_, err = qtx.CreateEnvVar(c.Request.Context(), dbpkg.CreateEnvVarParams{
+				DeploymentID: deployment.ID,
+				Key:          key,
+				Value:        value,
+				SecretArn:    sql.NullString{},
+			})
 			if err != nil {
 				fmt.Printf("SQL Error inserting env_var: %v\n", err)
-				continue
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save environment variables"})
+				return
 			}
 		}
 	}
 
-	tokenRaw, _ := c.Get("access_token")
-	userToken := fmt.Sprintf("%v", tokenRaw)
-	if userToken == "" || userToken == "<nil>" || tokenRaw == nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: missing access token"})
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit deployment"})
 		return
 	}
 
-	h.publisher.PublishBuildJob(c.Request.Context(), queue.BuildJobEvent{
+	if err := h.publisher.PublishBuildJob(c.Request.Context(), queue.BuildJobEvent{
 		DeploymentID:   deployment.ID.String(),
 		RepoURL:        project.RepoUrl,
 		Branch:         body.Branch,
@@ -161,19 +190,35 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		CPU:            body.CPU,
 		MemoryMB:       body.MemoryMB,
 		HealthCheck:    healthCheck,
-	})
+	}); err != nil {
+		_, _ = h.queries.UpdateDeploymentStatus(c.Request.Context(), dbpkg.UpdateDeploymentStatusParams{
+			ID:     deployment.ID,
+			Status: "failed",
+		})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to queue deployment"})
+		return
+	}
 
 	c.JSON(http.StatusCreated, h.toDeploymentResponse(deployment))
 }
 
 func (h *DeploymentHandler) GetDeployment(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
 
-	deployment, err := h.queries.GetDeploymentByID(c.Request.Context(), id)
+	deployment, err := h.queries.GetDeploymentByIDAndUserID(c.Request.Context(), dbpkg.GetDeploymentByIDAndUserIDParams{
+		ID:     id,
+		UserID: userID,
+	})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
 		return
@@ -182,14 +227,53 @@ func (h *DeploymentHandler) GetDeployment(c *gin.Context) {
 	c.JSON(http.StatusOK, h.toDeploymentResponse(deployment))
 }
 
-func (h *DeploymentHandler) ListDeployments(c *gin.Context) {
+func (h *DeploymentHandler) CancelDeployment(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
 
-	deployments, err := h.queries.GetDeploymentsByProjectID(c.Request.Context(), id)
+	deployment, err := h.queries.CancelDeploymentByIDAndUserID(c.Request.Context(), dbpkg.CancelDeploymentByIDAndUserIDParams{
+		ID:     id,
+		UserID: userID,
+	})
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "deployment cannot be canceled"})
+		return
+	}
+
+	key := fmt.Sprintf("logs:%s", id.String())
+	msg := "Deployment canceled by user"
+	h.rdb.RPush(c.Request.Context(), key, msg)
+	h.rdb.Publish(c.Request.Context(), fmt.Sprintf("deployment:%s", id.String()), msg)
+
+	c.JSON(http.StatusOK, h.toDeploymentResponse(deployment))
+}
+
+func (h *DeploymentHandler) ListDeployments(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	deployments, err := h.queries.GetDeploymentsByProjectIDAndUserID(c.Request.Context(), dbpkg.GetDeploymentsByProjectIDAndUserIDParams{
+		ProjectID: id,
+		UserID:    userID,
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch deployments"})
 		return
@@ -204,7 +288,27 @@ func (h *DeploymentHandler) ListDeployments(c *gin.Context) {
 }
 
 func (h *DeploymentHandler) GetDeploymentLogs(c *gin.Context) {
-	key := fmt.Sprintf("logs:%s", c.Param("id"))
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if _, err := h.queries.GetDeploymentByIDAndUserID(c.Request.Context(), dbpkg.GetDeploymentByIDAndUserIDParams{
+		ID:     id,
+		UserID: userID,
+	}); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+		return
+	}
+
+	key := fmt.Sprintf("logs:%s", id.String())
 	logs, err := h.rdb.LRange(c.Request.Context(), key, 0, -1).Result()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch logs"})

@@ -3,7 +3,7 @@ terraform {
     bucket = "hatch-terraform-state-362041633362"
     key    = "hatch/dev/terraform.tfstate"
     region = "ap-south-1"
-  } 
+  }
 
   required_providers {
     aws = {
@@ -49,4 +49,4 @@ module "hatch_server" {
 }
 
 output "hatch_server_ip" { value = module.hatch_server.public_ip }
-output "alb_dns_name"     { value = module.alb.alb_dns_name }
+output "alb_dns_name" { value = module.alb.alb_dns_name }

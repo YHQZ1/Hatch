@@ -2,15 +2,20 @@ package queue
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/YHQZ1/hatch/apps/builder/internal/docker"
 	gitpkg "github.com/YHQZ1/hatch/apps/builder/internal/git"
 	"github.com/YHQZ1/hatch/apps/builder/internal/logs"
+	_ "github.com/lib/pq"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -41,17 +46,31 @@ type Worker struct {
 	url      string
 	streamer *logs.Streamer
 	builder  *docker.Builder
+	db       *sql.DB
 	ch       *amqp.Channel
 	conn     *amqp.Connection
+	stages   sync.Map
 }
 
-func NewWorker(url, redis, registry, repo, region string) *Worker {
+func NewWorker(url, redis, registry, repo, region, databaseURL string) *Worker {
 	streamer := logs.NewStreamer(redis)
-	return &Worker{
+	db, err := sql.Open("postgres", databaseURL)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	if err := db.Ping(); err != nil {
+		log.Fatalf("Failed to ping database: %v", err)
+	}
+
+	worker := &Worker{
 		url:      url,
 		streamer: streamer,
-		builder:  docker.NewBuilder(registry, repo, region, streamer),
+		db:       db,
 	}
+
+	worker.builder = docker.NewBuilder(registry, repo, region, streamer, worker.setStage)
+
+	return worker
 }
 
 func (w *Worker) Start() error {
@@ -98,23 +117,52 @@ func (w *Worker) Start() error {
 }
 
 func (w *Worker) process(job BuildJobEvent) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	id := job.DeploymentID
 
 	buildPath := filepath.Join(os.TempDir(), "hatch-builds", id)
 	defer os.RemoveAll(buildPath)
+	defer w.clearStage(id)
+
+	stopWatch := w.watchCancellation(ctx, id, cancel)
+	defer stopWatch()
 
 	w.streamer.Publish(ctx, id, fmt.Sprintf("Job received: %s", id[:8]))
 	w.streamer.Publish(ctx, id, "Syncing source code...")
 
+	if w.isCanceled(context.Background(), id) {
+		w.streamer.Publish(ctx, id, "Deployment canceled before source sync")
+		return
+	}
+
 	if err := gitpkg.Clone(ctx, job.RepoURL, job.UserToken, buildPath); err != nil {
+		if errors.Is(err, context.Canceled) && w.isCanceled(context.Background(), id) {
+			w.streamer.Publish(context.Background(), id, "Build canceled during source sync")
+			return
+		}
 		w.streamer.Publish(ctx, id, fmt.Sprintf("Sync failed: %v", err))
+		return
+	}
+
+	if w.isCanceled(context.Background(), id) {
+		w.streamer.Publish(context.Background(), id, "Deployment canceled before Docker build")
 		return
 	}
 
 	imageURI, err := w.builder.BuildAndPush(ctx, id, buildPath, job.DockerfilePath)
 	if err != nil {
+		if errors.Is(err, docker.ErrCanceled) || (errors.Is(err, context.Canceled) && w.isCanceled(context.Background(), id)) {
+			w.publishCancellation(context.Background(), id, err)
+			return
+		}
 		w.streamer.Publish(ctx, id, fmt.Sprintf("Build failed: %v", err))
+		return
+	}
+
+	if w.isCanceled(context.Background(), id) {
+		w.streamer.Publish(context.Background(), id, "Deployment canceled before deploy handoff")
 		return
 	}
 
@@ -122,6 +170,11 @@ func (w *Worker) process(job BuildJobEvent) {
 }
 
 func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) {
+	if w.isCanceled(context.Background(), job.DeploymentID) {
+		w.streamer.Publish(context.Background(), job.DeploymentID, "Deployment canceled before orchestration handoff")
+		return
+	}
+
 	w.streamer.Publish(ctx, job.DeploymentID, "Triggering deployment orchestration...")
 
 	event := DeployJobEvent{
@@ -154,7 +207,107 @@ func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) {
 	w.streamer.Publish(ctx, job.DeploymentID, "Pipeline stage complete: Build and Push")
 }
 
+func (w *Worker) watchCancellation(ctx context.Context, deploymentID string, cancel context.CancelFunc) func() {
+	stop := make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-stop:
+				return
+			case <-ticker.C:
+				if w.isCanceled(context.Background(), deploymentID) {
+					w.publishCancellationDetected(context.Background(), deploymentID)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
+	return func() {
+		close(stop)
+	}
+}
+
+func (w *Worker) setStage(deploymentID string, stage docker.CancelStage) {
+	w.stages.Store(deploymentID, stage)
+}
+
+func (w *Worker) clearStage(deploymentID string) {
+	w.stages.Delete(deploymentID)
+}
+
+func (w *Worker) stage(deploymentID string) (docker.CancelStage, bool) {
+	stage, ok := w.stages.Load(deploymentID)
+	if !ok {
+		return "", false
+	}
+
+	cancelStage, ok := stage.(docker.CancelStage)
+	return cancelStage, ok
+}
+
+func (w *Worker) publishCancellationDetected(ctx context.Context, deploymentID string) {
+	stage, ok := w.stage(deploymentID)
+	if !ok {
+		return
+	}
+
+	switch stage {
+	case docker.CancelStageDuringDockerBuild:
+		w.streamer.Publish(ctx, deploymentID, "Cancellation detected during Docker build; waiting for Docker to stop")
+	case docker.CancelStageDuringECRAuth:
+		w.streamer.Publish(ctx, deploymentID, "Cancellation detected during ECR authentication")
+	case docker.CancelStageDuringDockerPush:
+		w.streamer.Publish(ctx, deploymentID, "Cancellation detected during docker push; waiting for Docker to stop")
+	case docker.CancelStageAfterDockerPush:
+		w.streamer.Publish(ctx, deploymentID, "Build canceled after image push; skipping deploy handoff")
+	}
+}
+
+func (w *Worker) publishCancellation(ctx context.Context, deploymentID string, err error) {
+	var canceledErr *docker.CanceledError
+	if errors.As(err, &canceledErr) {
+		switch canceledErr.Stage() {
+		case docker.CancelStageBeforeDockerBuild:
+			w.streamer.Publish(ctx, deploymentID, "Deployment canceled before Docker build")
+		case docker.CancelStageDuringDockerBuild:
+			w.streamer.Publish(ctx, deploymentID, "Build canceled during Docker build")
+		case docker.CancelStageBeforeECRAuth:
+			w.streamer.Publish(ctx, deploymentID, "Cancellation detected before ECR authentication")
+		case docker.CancelStageDuringECRAuth:
+			w.streamer.Publish(ctx, deploymentID, "Build canceled during ECR authentication")
+		case docker.CancelStageBeforeDockerPush:
+			w.streamer.Publish(ctx, deploymentID, "Cancellation detected before docker push")
+		case docker.CancelStageDuringDockerPush:
+			w.streamer.Publish(ctx, deploymentID, "Build canceled during docker push")
+		case docker.CancelStageAfterDockerPush:
+			w.streamer.Publish(ctx, deploymentID, "Build canceled after image push; skipping deploy handoff")
+		default:
+			w.streamer.Publish(ctx, deploymentID, "Build canceled before image handoff")
+		}
+		return
+	}
+
+	w.streamer.Publish(ctx, deploymentID, "Build canceled before image handoff")
+}
+
+func (w *Worker) isCanceled(ctx context.Context, deploymentID string) bool {
+	var status string
+	err := w.db.QueryRowContext(ctx, "SELECT status FROM deployments WHERE id = $1", deploymentID).Scan(&status)
+	return err == nil && status == "canceled"
+}
+
 func (w *Worker) Close() {
+	if w.db != nil {
+		w.db.Close()
+	}
 	if w.ch != nil {
 		w.ch.Close()
 	}

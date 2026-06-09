@@ -6,6 +6,16 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { debounce } from "lodash";
 import { PageLoadingState } from "../../../components/LoadingState";
+import {
+  apiFetch,
+  pushFlashNotice,
+  readApiError,
+  redirectIfUnauthorized,
+} from "@/app/lib/api";
+import {
+  NoticeToast,
+  type NoticePayload,
+} from "../../../components/NoticeToast";
 
 interface Repo {
   id: number;
@@ -51,7 +61,6 @@ const MEMORY_OPTIONS: Record<string, { label: string; value: string }[]> = {
 export default function NewProjectClient() {
   const router = useRouter();
   const [step, setStep] = useState<1 | 2>(1);
-  const [token, setToken] = useState<string | null>(null);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -72,25 +81,34 @@ export default function NewProjectClient() {
   const [checkingDocker, setCheckingDocker] = useState(false);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkEnv, setBulkEnv] = useState("");
+  const [notice, setNotice] = useState<NoticePayload | null>(null);
 
   useEffect(() => {
     setMounted(true);
-    const t = localStorage.getItem("hatch_token");
-    if (!t) {
-      router.push("/auth");
-      return;
-    }
-    setToken(t);
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/github/repos`, {
-      headers: { Authorization: `Bearer ${t}` },
-    })
-      .then((r) => r.json())
+    apiFetch("/api/github/repos")
+      .then((r) => {
+        if (redirectIfUnauthorized(r, router)) return [];
+        return r.json();
+      })
       .then((data) => {
         setRepos(Array.isArray(data) ? data : []);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        setNotice({
+          type: "error",
+          title: "GitHub unavailable",
+          message: "We couldn't load your repositories right now.",
+        });
+        setLoading(false);
+      });
   }, [router]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
 
   useEffect(() => {
     const opts = MEMORY_OPTIONS[cpu];
@@ -101,17 +119,17 @@ export default function NewProjectClient() {
     path.replace(/^\.\//, "").replace(/\/+$/, "").replace(/\/+/g, "/").trim();
 
   const debouncedCheck = useCallback(
-    debounce(async (repoFullName: string, t: string, path: string) => {
+    debounce(async (repoFullName: string, path: string) => {
       setCheckingDocker(true);
       const cleanRoot = sanitizePath(path);
       const fullDockerPath = cleanRoot
         ? `${cleanRoot}/Dockerfile`
         : "Dockerfile";
       try {
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/github/repos/${repoFullName}/dockerfile?path=${encodeURIComponent(fullDockerPath)}`,
-          { headers: { Authorization: `Bearer ${t}` } },
+        const res = await apiFetch(
+          `/api/github/repos/${repoFullName}/dockerfile?path=${encodeURIComponent(fullDockerPath)}`,
         );
+        if (redirectIfUnauthorized(res, router)) return;
         setHasDockerfile(res.status === 200);
       } catch {
         setHasDockerfile(false);
@@ -130,7 +148,7 @@ export default function NewProjectClient() {
     if (repo.language === "Go") setPort("8080");
     else if (repo.language === "Python") setPort("8000");
     else setPort("80");
-    if (token) debouncedCheck(repo.full_name, token, rootPath);
+    debouncedCheck(repo.full_name, rootPath);
     setStep(2);
   };
 
@@ -146,7 +164,7 @@ export default function NewProjectClient() {
   }, [selectedRepo, projectName, subdomain, port, hasDockerfile]);
 
   const handleDeploy = async () => {
-    if (validationErrors.length > 0 || !token) return;
+    if (validationErrors.length > 0) return;
     setDeploying(true);
     const envVarsMap: Record<string, string> = {};
     envVars.forEach(({ key, value }) => {
@@ -157,53 +175,74 @@ export default function NewProjectClient() {
       ? `${cleanRoot}/Dockerfile`
       : "Dockerfile";
     try {
-      const projectRes = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/projects`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            repo_name: projectName || selectedRepo?.name,
-            repo_url: selectedRepo?.html_url,
-            subdomain,
-            branch,
-            dockerfile_path: finalDockerPath,
-            port: parseInt(port),
-            env_vars: envVarsMap,
-          }),
-        },
-      );
+      const projectRes = await apiFetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo_name: projectName || selectedRepo?.name,
+          repo_url: selectedRepo?.html_url,
+          subdomain,
+          branch,
+          dockerfile_path: finalDockerPath,
+          port: parseInt(port),
+          env_vars: envVarsMap,
+        }),
+      });
+      if (redirectIfUnauthorized(projectRes, router)) return;
+      if (!projectRes.ok) {
+        setNotice({
+          type: "error",
+          title: "Project creation failed",
+          message: await readApiError(
+            projectRes,
+            "We couldn't create the service record.",
+          ),
+        });
+        setDeploying(false);
+        return;
+      }
       const project = await projectRes.json();
-      const deployRes = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/deployments`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            project_id: project.id,
-            branch,
-            cpu: parseInt(cpu),
-            memory_mb: parseInt(memory),
-            port: parseInt(port),
-            health_check_path: healthCheck,
-            env_vars: envVarsMap,
-          }),
-        },
-      );
+      const deployRes = await apiFetch("/api/deployments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: project.id,
+          branch,
+          cpu: parseInt(cpu),
+          memory_mb: parseInt(memory),
+          port: parseInt(port),
+          health_check_path: healthCheck,
+          env_vars: envVarsMap,
+        }),
+      });
+      if (redirectIfUnauthorized(deployRes, router)) return;
       if (deployRes.ok) {
         localStorage.removeItem("hatch_projects_cache");
         localStorage.removeItem("hatch_infrastructure_cache");
+        pushFlashNotice({
+          type: "success",
+          title: "Service created",
+          message: "The first deployment has been queued.",
+        });
         router.push(`/projects/${project.id}`);
       } else {
+        pushFlashNotice({
+          type: "error",
+          title: "Deployment failed to start",
+          message: await readApiError(
+            deployRes,
+            "The service was created, but the first deployment could not be queued.",
+          ),
+        });
+        router.push(`/projects/${project.id}`);
         setDeploying(false);
       }
     } catch {
+      setNotice({
+        type: "error",
+        title: "Request failed",
+        message: "We couldn't reach the API to create the service.",
+      });
       setDeploying(false);
     }
   };
@@ -256,6 +295,7 @@ export default function NewProjectClient() {
       className="w-full h-screen bg-black text-white flex flex-col overflow-hidden"
       style={{ fontFamily: "'GeistMono','Menlo','Courier New',monospace" }}
     >
+      <NoticeToast notice={notice} onDismiss={() => setNotice(null)} />
       {/* Header */}
       <header className="shrink-0 border-b border-[#1a1a1a] px-8 py-4 flex items-center justify-between bg-black">
         <div className="flex items-center gap-3">
@@ -442,11 +482,10 @@ export default function NewProjectClient() {
                   <FieldInput
                     label="Root Directory"
                     value={rootPath}
-                    onChange={(v) => {
-                      setRootPath(v);
-                      if (token && selectedRepo)
-                        debouncedCheck(selectedRepo.full_name, token, v);
-                    }}
+	                    onChange={(v) => {
+	                      setRootPath(v);
+	                      if (selectedRepo) debouncedCheck(selectedRepo.full_name, v);
+	                    }}
                     placeholder="./"
                   />
                   <FieldInput

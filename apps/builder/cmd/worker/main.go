@@ -19,12 +19,14 @@ func main() {
 		ECRRegistry string
 		ECRRepo     string
 		AWSRegion   string
+		DatabaseURL string
 	}{
 		RabbitMQ:    getEnv("RABBITMQ_URL"),
 		Redis:       getEnv("REDIS_URL"),
 		ECRRegistry: getEnv("ECR_REGISTRY"),
 		ECRRepo:     getEnv("ECR_REPOSITORY"),
 		AWSRegion:   getEnv("AWS_REGION"),
+		DatabaseURL: getEnv("DATABASE_URL"),
 	}
 
 	worker := queue.NewWorker(
@@ -33,6 +35,7 @@ func main() {
 		cfg.ECRRegistry,
 		cfg.ECRRepo,
 		cfg.AWSRegion,
+		cfg.DatabaseURL,
 	)
 
 	log.Printf("Hatch Builder started (Region: %s)", cfg.AWSRegion)

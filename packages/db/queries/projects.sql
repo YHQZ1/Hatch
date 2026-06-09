@@ -11,6 +11,9 @@ SELECT * FROM projects WHERE user_id = $1 ORDER BY created_at DESC;
 -- name: GetProjectByID :one
 SELECT * FROM projects WHERE id = $1;
 
+-- name: GetProjectByIDAndUserID :one
+SELECT * FROM projects WHERE id = $1 AND user_id = $2;
+
 -- name: GetProjectByRepoURL :one
 SELECT * FROM projects WHERE repo_url = $1 LIMIT 1;
 
@@ -19,6 +22,9 @@ UPDATE projects SET webhook_secret = $2 WHERE id = $1;
 
 -- name: DeleteProject :exec
 DELETE FROM projects WHERE id = $1;
+
+-- name: DeleteProjectByIDAndUserID :exec
+DELETE FROM projects WHERE id = $1 AND user_id = $2;
 
 -- name: GetProjectBySubdomain :one
 SELECT * FROM projects WHERE subdomain = $1 LIMIT 1;

@@ -12,6 +12,44 @@ import (
 	"github.com/google/uuid"
 )
 
+const cancelDeploymentByIDAndUserID = `-- name: CancelDeploymentByIDAndUserID :one
+UPDATE deployments
+SET status = 'canceled'
+FROM projects
+WHERE deployments.id = $1
+  AND deployments.project_id = projects.id
+  AND projects.user_id = $2
+  AND deployments.status IN ('queued', 'building')
+RETURNING deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at
+`
+
+type CancelDeploymentByIDAndUserIDParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelDeploymentByIDAndUserIDParams) (Deployment, error) {
+	row := q.db.QueryRowContext(ctx, cancelDeploymentByIDAndUserID, arg.ID, arg.UserID)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Branch,
+		&i.Status,
+		&i.Cpu,
+		&i.MemoryMb,
+		&i.Port,
+		&i.HealthCheck,
+		&i.ImageUri,
+		&i.EcsTaskArn,
+		&i.Subdomain,
+		&i.Url,
+		&i.CreatedAt,
+		&i.DeployedAt,
+	)
+	return i, err
+}
+
 const createDeployment = `-- name: CreateDeployment :one
 INSERT INTO deployments (project_id, branch, cpu, memory_mb, port, health_check, subdomain)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -84,12 +122,97 @@ func (q *Queries) GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployme
 	return i, err
 }
 
+const getDeploymentByIDAndUserID = `-- name: GetDeploymentByIDAndUserID :one
+SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at
+FROM deployments
+JOIN projects ON projects.id = deployments.project_id
+WHERE deployments.id = $1 AND projects.user_id = $2
+`
+
+type GetDeploymentByIDAndUserIDParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) GetDeploymentByIDAndUserID(ctx context.Context, arg GetDeploymentByIDAndUserIDParams) (Deployment, error) {
+	row := q.db.QueryRowContext(ctx, getDeploymentByIDAndUserID, arg.ID, arg.UserID)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Branch,
+		&i.Status,
+		&i.Cpu,
+		&i.MemoryMb,
+		&i.Port,
+		&i.HealthCheck,
+		&i.ImageUri,
+		&i.EcsTaskArn,
+		&i.Subdomain,
+		&i.Url,
+		&i.CreatedAt,
+		&i.DeployedAt,
+	)
+	return i, err
+}
+
 const getDeploymentsByProjectID = `-- name: GetDeploymentsByProjectID :many
 SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at FROM deployments WHERE project_id = $1 ORDER BY created_at DESC
 `
 
 func (q *Queries) GetDeploymentsByProjectID(ctx context.Context, projectID uuid.UUID) ([]Deployment, error) {
 	rows, err := q.db.QueryContext(ctx, getDeploymentsByProjectID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Deployment
+	for rows.Next() {
+		var i Deployment
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.Branch,
+			&i.Status,
+			&i.Cpu,
+			&i.MemoryMb,
+			&i.Port,
+			&i.HealthCheck,
+			&i.ImageUri,
+			&i.EcsTaskArn,
+			&i.Subdomain,
+			&i.Url,
+			&i.CreatedAt,
+			&i.DeployedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDeploymentsByProjectIDAndUserID = `-- name: GetDeploymentsByProjectIDAndUserID :many
+SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at
+FROM deployments
+JOIN projects ON projects.id = deployments.project_id
+WHERE deployments.project_id = $1 AND projects.user_id = $2
+ORDER BY deployments.created_at DESC
+`
+
+type GetDeploymentsByProjectIDAndUserIDParams struct {
+	ProjectID uuid.UUID `json:"project_id"`
+	UserID    uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) GetDeploymentsByProjectIDAndUserID(ctx context.Context, arg GetDeploymentsByProjectIDAndUserIDParams) ([]Deployment, error) {
+	rows, err := q.db.QueryContext(ctx, getDeploymentsByProjectIDAndUserID, arg.ProjectID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}

@@ -119,10 +119,10 @@ What happens between clicking Deploy and getting a live URL:
 --- Deployer picks up job ---
 
 9.  Registers ECS Task Definition
-10. Creates ALB target group + listener rule (path-based routing)
+10. Creates ALB target group + host-based listener rule
 11. Creates ECS Fargate service
-12. Polls until RunningCount >= 1
-13. Updates deployment record: status=live, url={alb-dns}/{subdomain}
+12. Polls until ECS is running and the ALB target is healthy
+13. Updates deployment record: status=live, url=https://{subdomain}.{domain}
 
 --- Frontend ---
 

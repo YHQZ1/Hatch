@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 
@@ -19,6 +20,7 @@ type Config struct {
 	AWSRegion            string
 	ECSClusterName       string
 	ALBListenerARN       string
+	PublicURLScheme      string
 	VPCID                string
 	SubnetA              string
 	SubnetB              string
@@ -49,13 +51,6 @@ type Worker struct {
 }
 
 func NewWorker(cfg Config) *Worker {
-	streamer := logs.NewStreamer(cfg.RedisURL)
-	deployer := ecsdeploy.NewDeployer(
-		cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN,
-		cfg.VPCID, cfg.SubnetA, cfg.SubnetB, cfg.ECSSgID,
-		cfg.TaskExecutionRoleARN, cfg.BaseDomain, streamer,
-	)
-
 	db, err := sql.Open("postgres", cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
@@ -65,12 +60,22 @@ func NewWorker(cfg Config) *Worker {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
 
-	return &Worker{
+	streamer := logs.NewStreamer(cfg.RedisURL)
+	deployer := ecsdeploy.NewDeployer(
+		cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN,
+		cfg.VPCID, cfg.SubnetA, cfg.SubnetB, cfg.ECSSgID,
+		cfg.TaskExecutionRoleARN, cfg.BaseDomain, cfg.PublicURLScheme, streamer,
+	)
+
+	worker := &Worker{
 		cfg:      cfg,
 		streamer: streamer,
 		deployer: deployer,
 		db:       db,
 	}
+	deployer.SetCancelChecker(worker.isDeploymentCanceled)
+
+	return worker
 }
 
 func (w *Worker) Start() error {
@@ -142,6 +147,11 @@ func (w *Worker) handleCleanupJobs(msgs <-chan amqp.Delivery) {
 
 func (w *Worker) processJob(job DeployJobEvent) {
 	ctx := context.Background()
+	if w.isCanceled(ctx, job.DeploymentID) {
+		w.streamer.Publish(ctx, job.DeploymentID, "Deployment canceled before provisioning")
+		return
+	}
+
 	w.updateDeploymentStatus(ctx, job.DeploymentID, "deploying")
 
 	envMap := w.fetchEnvVars(ctx, job.DeploymentID)
@@ -158,12 +168,36 @@ func (w *Worker) processJob(job DeployJobEvent) {
 	})
 
 	if err != nil {
+		if errors.Is(err, ecsdeploy.ErrCanceled) {
+			w.streamer.Publish(ctx, job.DeploymentID, "Deployment canceled")
+			w.updateDeploymentStatus(ctx, job.DeploymentID, "canceled")
+			return
+		}
 		w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("Deployment failed: %v", err))
 		w.updateDeploymentStatus(ctx, job.DeploymentID, "failed")
 		return
 	}
 
+	if w.isCanceled(ctx, job.DeploymentID) {
+		w.streamer.Publish(ctx, job.DeploymentID, "Deployment canceled before finalization")
+		return
+	}
+
 	w.finalizeDeployment(ctx, job.DeploymentID, job.ImageURI, url)
+}
+
+func (w *Worker) isCanceled(ctx context.Context, deploymentID string) bool {
+	canceled, err := w.isDeploymentCanceled(ctx, deploymentID)
+	return err == nil && canceled
+}
+
+func (w *Worker) isDeploymentCanceled(ctx context.Context, deploymentID string) (bool, error) {
+	var status string
+	err := w.db.QueryRowContext(ctx, "SELECT status FROM deployments WHERE id = $1", deploymentID).Scan(&status)
+	if err != nil {
+		return false, err
+	}
+	return status == "canceled", nil
 }
 
 func (w *Worker) fetchEnvVars(ctx context.Context, deploymentID string) map[string]string {

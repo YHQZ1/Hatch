@@ -7,6 +7,9 @@ import Link from "next/link";
 
 export default function AuthPage() {
   const [mounted, setMounted] = useState(false);
+  const githubAuthUrl = process.env.NEXT_PUBLIC_API_URL
+    ? `${process.env.NEXT_PUBLIC_API_URL}/auth/github`
+    : "";
 
   useEffect(() => {
     setMounted(true);
@@ -57,7 +60,8 @@ export default function AuthPage() {
           <div className="flex flex-col gap-8">
             <div className="grid grid-cols-2 gap-px bg-[#1f1f1f] border border-[#1f1f1f]">
               <a
-                href={`${process.env.NEXT_PUBLIC_API_URL}/auth/github`}
+                aria-disabled={!githubAuthUrl}
+                href={githubAuthUrl || undefined}
                 className="flex items-center justify-center gap-3 py-4 bg-[#030303] hover:bg-white hover:text-black transition-all group cursor-pointer"
               >
                 <img

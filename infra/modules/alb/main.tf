@@ -1,8 +1,8 @@
-variable "project_name"    {}
-variable "vpc_id"          {}
+variable "project_name" {}
+variable "vpc_id" {}
 variable "public_subnet_a" {}
 variable "public_subnet_b" {}
-variable "alb_sg_id"       {}
+variable "alb_sg_id" {}
 variable "acm_certificate_arn" {
   description = "The ARN of the issued ACM certificate"
 }
@@ -54,7 +54,7 @@ resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.main.arn
   port              = "443"
   protocol          = "HTTPS"
-  ssl_policy = "ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09"
   certificate_arn   = var.acm_certificate_arn
 
   default_action {
@@ -99,8 +99,8 @@ resource "aws_lb_listener_rule" "api" {
 }
 
 output "api_tg_arn" { value = aws_lb_target_group.api.arn }
-output "alb_arn"          { value = aws_lb.main.arn }
-output "alb_dns_name"     { value = aws_lb.main.dns_name }
+output "alb_arn" { value = aws_lb.main.arn }
+output "alb_dns_name" { value = aws_lb.main.dns_name }
 output "alb_listener_arn" { value = aws_lb_listener.http.arn }
 output "alb_https_listener_arn" { value = aws_lb_listener.https.arn }
-output "vpc_id"           { value = var.vpc_id }
+output "vpc_id" { value = var.vpc_id }

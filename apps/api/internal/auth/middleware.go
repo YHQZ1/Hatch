@@ -1,22 +1,26 @@
 package auth
 
 import (
+	"database/sql"
 	"net/http"
 	"strings"
 
+	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
-func Middleware(jwtSecret string) gin.HandlerFunc {
+func Middleware(jwtSecret string, db *sql.DB) gin.HandlerFunc {
+	queries := dbpkg.New(db)
+
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if !strings.HasPrefix(authHeader, "Bearer ") {
+		tokenStr, ok := tokenFromRequest(c)
+		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
 
-		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, jwt.ErrSignatureInvalid
@@ -35,11 +39,46 @@ func Middleware(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
-		c.Set("user_id", claims["user_id"])
-		c.Set("github_id", claims["github_id"])
-		c.Set("username", claims["username"])
-		c.Set("access_token", claims["access_token"])
+		userIDRaw, ok := claims["user_id"].(string)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid session claims"})
+			return
+		}
+		userID, err := uuid.Parse(userIDRaw)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid session claims"})
+			return
+		}
+
+		user, err := queries.GetUserByID(c.Request.Context(), userID)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "session user not found"})
+			return
+		}
+
+		c.Set("user_id", user.ID.String())
+		c.Set("github_id", user.GithubID)
+		c.Set("username", user.GithubUsername)
+		c.Set("access_token", user.AccessToken)
+
+		if !usesBearerAuth(c) {
+			EnsureCSRFCookie(c)
+		}
 
 		c.Next()
 	}
+}
+
+func tokenFromRequest(c *gin.Context) (string, bool) {
+	authHeader := c.GetHeader("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		return token, token != ""
+	}
+
+	cookie, err := c.Cookie(SessionCookieName)
+	if err != nil || cookie == "" {
+		return "", false
+	}
+	return cookie, true
 }

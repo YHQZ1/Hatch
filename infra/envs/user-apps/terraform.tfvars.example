@@ -1,0 +1,9 @@
+project_name = "hatch-user-apps"
+
+aws_region           = "ap-south-1"
+aws_profile          = "hatch-new"
+user_app_base_domain = "hatchcloud.xyz"
+
+acm_certificate_arn = "arn:aws:acm:ap-south-1:679777943956:certificate/6d1d73e6-8870-4fcb-8ad0-89222ea753e4"
+
+ecr_repository_name = "hatch-user-app-builds"

@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "../../../components/PageHeader";
 import { PageLoadingState } from "../../../components/LoadingState";
+import { apiFetch, redirectIfUnauthorized } from "@/app/lib/api";
 
 interface Deployment {
   id: string;
@@ -27,11 +28,6 @@ export default function InfrastructureClient() {
 
   useEffect(() => {
     setMounted(true);
-    const token = localStorage.getItem("hatch_token");
-    if (!token) {
-      router.push("/auth");
-      return;
-    }
 
     const cached = localStorage.getItem(CACHE_KEY);
     if (cached) {
@@ -47,22 +43,13 @@ export default function InfrastructureClient() {
 
     const fetchData = async () => {
       try {
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/projects`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
+        const res = await apiFetch("/api/projects");
+        if (redirectIfUnauthorized(res, router)) return;
         const projects = await res.json();
         const projectsList = Array.isArray(projects) ? projects : [];
 
         const dPromises = projectsList.map((p: any) =>
-          fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${p.id}/deployments`,
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            },
-          ).then((r) => r.json()),
+          apiFetch(`/api/projects/${p.id}/deployments`).then((r) => r.json()),
         );
 
         const allDeployments = await Promise.all(dPromises);

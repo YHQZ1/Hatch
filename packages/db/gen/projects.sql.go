@@ -68,12 +68,54 @@ func (q *Queries) DeleteProject(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const deleteProjectByIDAndUserID = `-- name: DeleteProjectByIDAndUserID :exec
+DELETE FROM projects WHERE id = $1 AND user_id = $2
+`
+
+type DeleteProjectByIDAndUserIDParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) DeleteProjectByIDAndUserID(ctx context.Context, arg DeleteProjectByIDAndUserIDParams) error {
+	_, err := q.db.ExecContext(ctx, deleteProjectByIDAndUserID, arg.ID, arg.UserID)
+	return err
+}
+
 const getProjectByID = `-- name: GetProjectByID :one
 SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, created_at FROM projects WHERE id = $1
 `
 
 func (q *Queries) GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error) {
 	row := q.db.QueryRowContext(ctx, getProjectByID, id)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.RepoName,
+		&i.RepoUrl,
+		&i.WebhookSecret,
+		&i.AutoDeploy,
+		&i.Branch,
+		&i.DockerfilePath,
+		&i.Port,
+		&i.Subdomain,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getProjectByIDAndUserID = `-- name: GetProjectByIDAndUserID :one
+SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, created_at FROM projects WHERE id = $1 AND user_id = $2
+`
+
+type GetProjectByIDAndUserIDParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) GetProjectByIDAndUserID(ctx context.Context, arg GetProjectByIDAndUserIDParams) (Project, error) {
+	row := q.db.QueryRowContext(ctx, getProjectByIDAndUserID, arg.ID, arg.UserID)
 	var i Project
 	err := row.Scan(
 		&i.ID,

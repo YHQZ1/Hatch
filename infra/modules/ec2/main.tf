@@ -3,10 +3,10 @@ variable "key_name" {
   type        = string
 }
 variable "project_name" {}
-variable "vpc_id"       {}
-variable "subnet_id"    {}
-variable "alb_sg_id"    {}
-variable "api_tg_arn"   {}
+variable "vpc_id" {}
+variable "subnet_id" {}
+variable "alb_sg_id" {}
+variable "api_tg_arn" {}
 
 data "aws_ami" "ubuntu" {
   most_recent = true
@@ -23,8 +23,8 @@ resource "aws_iam_role" "hatch_server_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
       Principal = { Service = "ec2.amazonaws.com" }
     }]
   })
@@ -68,13 +68,13 @@ resource "aws_security_group" "ec2" {
 }
 
 resource "aws_instance" "main" {
-  ami                  = data.aws_ami.ubuntu.id
-  instance_type        = "m7i-flex.large"
-  subnet_id            = var.subnet_id
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = "m7i-flex.large"
+  subnet_id              = var.subnet_id
   vpc_security_group_ids = [aws_security_group.ec2.id]
-  iam_instance_profile = aws_iam_instance_profile.hatch_server_profile.name
-  key_name = var.key_name
-  
+  iam_instance_profile   = aws_iam_instance_profile.hatch_server_profile.name
+  key_name               = var.key_name
+
   # User data to auto-install Docker/Go/PM2
   user_data = <<-EOF
               #!/bin/bash

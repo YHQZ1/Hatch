@@ -277,7 +277,7 @@ export default function SelfHosting() {
             <CodeBlock
               language="env"
               filename="apps/deployer/.env"
-              code={`RABBITMQ_URL=amqp://guest:guest@<rabbitmq-host>:5672/\nREDIS_URL=redis://<redis-endpoint>:6379\nECS_CLUSTER_NAME=hatch-cluster\nALB_LISTENER_ARN=arn:aws:elasticloadbalancing:...\nECR_REGISTRY=<account-id>.dkr.ecr.ap-south-1.amazonaws.com`}
+              code={`RABBITMQ_URL=amqp://guest:guest@<rabbitmq-host>:5672/\nREDIS_URL=redis://<redis-endpoint>:6379\nECS_CLUSTER_NAME=hatch-cluster\nALB_LISTENER_ARN=arn:aws:elasticloadbalancing:...\nALB_HTTPS_LISTENER_ARN=arn:aws:elasticloadbalancing:...\nDEPLOYMENT_URL_SCHEME=https\nECR_REGISTRY=<account-id>.dkr.ecr.ap-south-1.amazonaws.com`}
             />
           </section>
 
@@ -318,7 +318,7 @@ export default function SelfHosting() {
             </p>
             <CodeBlock
               language="env"
-              code={`NEXT_PUBLIC_API_URL=https://<your-alb-dns-name>`}
+              code={`NEXT_PUBLIC_API_URL=https://<your-alb-dns-name>\nNEXT_PUBLIC_DEPLOYMENT_URL_SCHEME=https`}
             />
             <SimpleNote>
               Once healthy, your container becomes reachable at your ALB DNS

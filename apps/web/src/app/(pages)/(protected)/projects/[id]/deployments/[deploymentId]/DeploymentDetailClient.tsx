@@ -5,6 +5,11 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { PageLoadingState } from "../../../../../../components/LoadingState";
+import {
+  apiFetch,
+  deploymentUrl,
+  redirectIfUnauthorized,
+} from "@/app/lib/api";
 
 interface Deployment {
   id: string;
@@ -44,11 +49,6 @@ export default function DeploymentDetailClient() {
 
   useEffect(() => {
     setMounted(true);
-    const token = localStorage.getItem("hatch_token");
-    if (!token) {
-      router.push("/auth");
-      return;
-    }
 
     const cacheKey = `${CACHE_KEY_PREFIX}${deploymentId}`;
     const cached = localStorage.getItem(cacheKey);
@@ -62,14 +62,13 @@ export default function DeploymentDetailClient() {
       } catch {}
     }
 
-    fetch(
-      `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${deploymentId}`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    )
-      .then((r) => r.json())
+    apiFetch(`/api/deployments/${deploymentId}`)
+      .then((r) => {
+        if (redirectIfUnauthorized(r, router)) return null;
+        return r.json();
+      })
       .then((json) => {
+        if (!json) return;
         setData(json);
         localStorage.setItem(
           cacheKey,
@@ -98,10 +97,7 @@ export default function DeploymentDetailClient() {
         )
       : null;
 
-  const liveUrl =
-    isLive && data?.url
-      ? `https://${data.url.replace(/^https?:\/\//, "")}`
-      : null;
+  const liveUrl = isLive ? deploymentUrl(data?.url) : null;
 
   const statusColor = isLive
     ? "text-white"
@@ -323,14 +319,14 @@ export default function DeploymentDetailClient() {
                 <Kv
                   label="URL"
                   value={
-                    data?.url ? (
+                    liveUrl ? (
                       <a
-                        href={data.url}
+                        href={liveUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-zinc-400 hover:text-white hover:underline text-[10px] font-mono transition-colors"
                       >
-                        {data.url.replace(/^https?:\/\//, "")}
+                        {liveUrl.replace(/^https?:\/\//, "")}
                       </a>
                     ) : (
                       "—"

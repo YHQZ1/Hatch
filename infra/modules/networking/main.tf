@@ -1,8 +1,36 @@
 variable "project_name" {}
 
+variable "vpc_cidr" {
+  description = "CIDR block for the data-plane VPC."
+  type        = string
+  default     = "10.0.0.0/16"
+}
+
+variable "availability_zones" {
+  description = "Availability zones used by public subnets."
+  type        = list(string)
+  default     = ["ap-south-1a", "ap-south-1b"]
+
+  validation {
+    condition     = length(var.availability_zones) >= 2
+    error_message = "At least two availability zones are required for an ALB."
+  }
+}
+
+variable "public_subnet_cidrs" {
+  description = "CIDR blocks for public subnets."
+  type        = list(string)
+  default     = ["10.0.1.0/24", "10.0.2.0/24"]
+
+  validation {
+    condition     = length(var.public_subnet_cidrs) >= 2
+    error_message = "At least two public subnet CIDRs are required for an ALB."
+  }
+}
+
 # VPC
 resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
+  cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
   enable_dns_support   = true
 
@@ -18,18 +46,18 @@ resource "aws_internet_gateway" "main" {
 # Public subnets (two AZs for ALB requirement)
 resource "aws_subnet" "public_a" {
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "ap-south-1a"
+  cidr_block              = var.public_subnet_cidrs[0]
+  availability_zone       = var.availability_zones[0]
   map_public_ip_on_launch = true
-  tags = { Name = "${var.project_name}-public-a" }
+  tags                    = { Name = "${var.project_name}-public-a" }
 }
 
 resource "aws_subnet" "public_b" {
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.2.0/24"
-  availability_zone       = "ap-south-1b"
+  cidr_block              = var.public_subnet_cidrs[1]
+  availability_zone       = var.availability_zones[1]
   map_public_ip_on_launch = true
-  tags = { Name = "${var.project_name}-public-b" }
+  tags                    = { Name = "${var.project_name}-public-b" }
 }
 
 # Route table
@@ -105,8 +133,14 @@ resource "aws_security_group" "ecs" {
   tags = { Name = "${var.project_name}-ecs-sg" }
 }
 
-output "vpc_id"          { value = aws_vpc.main.id }
+output "vpc_id" { value = aws_vpc.main.id }
 output "public_subnet_a" { value = aws_subnet.public_a.id }
 output "public_subnet_b" { value = aws_subnet.public_b.id }
-output "alb_sg_id"       { value = aws_security_group.alb.id }
-output "ecs_sg_id"       { value = aws_security_group.ecs.id }
+output "public_subnet_ids" {
+  value = [
+    aws_subnet.public_a.id,
+    aws_subnet.public_b.id,
+  ]
+}
+output "alb_sg_id" { value = aws_security_group.alb.id }
+output "ecs_sg_id" { value = aws_security_group.ecs.id }

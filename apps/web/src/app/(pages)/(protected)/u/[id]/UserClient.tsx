@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { PageHeader } from "../../../../components/PageHeader";
 import { PageLoadingState } from "../../../../components/LoadingState";
+import { apiFetch, logout, redirectIfUnauthorized } from "@/app/lib/api";
 
 interface UserSession {
   username: string;
@@ -30,21 +31,8 @@ export default function ProfileClient() {
 
   useEffect(() => {
     setMounted(true);
-    const token = localStorage.getItem("hatch_token");
-    if (!token) {
-      router.push("/auth");
-      return;
-    }
 
     try {
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      setUser({
-        username: id as string,
-        avatar: `https://github.com/${id}.png`,
-        github_id: payload.username === id ? payload.github_id : undefined,
-        user_id: payload.username === id ? payload.user_id : undefined,
-      });
-
       const cached = localStorage.getItem(CACHE_KEY);
       if (cached) {
         try {
@@ -56,10 +44,26 @@ export default function ProfileClient() {
         } catch {}
       }
 
-      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/projects`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((r) => r.json())
+      apiFetch("/api/me")
+        .then((r) => {
+          if (redirectIfUnauthorized(r, router)) return null;
+          return r.json();
+        })
+        .then((session) => {
+          if (!session) return null;
+          setUser({
+            username: id as string,
+            avatar: `https://github.com/${id}.png`,
+            github_id: session.username === id ? session.github_id : undefined,
+            user_id: session.username === id ? session.user_id : undefined,
+          });
+          return apiFetch("/api/projects");
+        })
+        .then((r) => {
+          if (!r) return [];
+          if (redirectIfUnauthorized(r, router)) return [];
+          return r.json();
+        })
         .then((data) => {
           const s = { projects: Array.isArray(data) ? data.length : 0 };
           setStats(s);
@@ -75,14 +79,8 @@ export default function ProfileClient() {
     }
   }, [id, router]);
 
-  const handleSignOut = () => {
-    [
-      "hatch_token",
-      "hatch_projects_cache",
-      "hatch_infrastructure_cache",
-      "hatch_activity_cache",
-      CACHE_KEY,
-    ].forEach((k) => localStorage.removeItem(k));
+  const handleSignOut = async () => {
+    await logout();
     router.push("/");
   };
 
