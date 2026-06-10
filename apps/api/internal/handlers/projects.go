@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"path"
 	"regexp"
 	"strings"
@@ -123,6 +124,16 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		return
 	}
 
+	userToken, ok := accessTokenFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: missing access token"})
+		return
+	}
+	if err := validateGitHubDeployInputs(c.Request.Context(), repoURL, branch, dockerfilePath, userToken); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	secret, err := generateSecret()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate webhook secret"})
@@ -169,8 +180,8 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 
 	h.recordActivity(c, userID, "CREATE", fmt.Sprintf("Project %s initialized", project.RepoName))
 
-	if token, ok := c.Get("access_token"); ok {
-		hookID, err := h.registerGitHubWebhook(repoURL, token.(string), secret)
+	if userToken != "" {
+		hookID, err := h.registerGitHubWebhook(repoURL, userToken, secret)
 		if err != nil {
 			log.Printf("failed to register GitHub webhook for project %s: %v", project.ID, err)
 			_ = h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
@@ -281,22 +292,30 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 		return
 	}
 
+	userToken, ok := accessTokenFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: missing access token"})
+		return
+	}
+	if branch != current.Branch || dockerfilePath != current.DockerfilePath {
+		if err := validateGitHubDeployInputs(c.Request.Context(), current.RepoUrl, branch, dockerfilePath, userToken); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
 	autoDeploy := current.AutoDeploy
 	if body.AutoDeploy != nil {
 		autoDeploy = *body.AutoDeploy
 	}
 
 	if current.AutoDeploy && !autoDeploy {
-		tokenRaw, ok := c.Get("access_token")
-		if ok && current.GithubWebhookID.Valid {
-			userToken, _ := tokenRaw.(string)
-			if userToken != "" {
-				if err := h.deleteGitHubWebhook(current.RepoUrl, userToken, current.GithubWebhookID.Int64); err != nil {
-					c.JSON(http.StatusBadGateway, gin.H{
-						"error": "auto-deploy could not be disabled because Hatch could not remove the GitHub webhook",
-					})
-					return
-				}
+		if current.GithubWebhookID.Valid {
+			if err := h.deleteGitHubWebhook(current.RepoUrl, userToken, current.GithubWebhookID.Int64); err != nil {
+				c.JSON(http.StatusBadGateway, gin.H{
+					"error": "auto-deploy could not be disabled because Hatch could not remove the GitHub webhook",
+				})
+				return
 			}
 		}
 		if err := h.queries.ClearProjectWebhook(c.Request.Context(), projectID); err != nil {
@@ -306,17 +325,6 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 	}
 
 	if autoDeploy && !current.AutoDeploy {
-		tokenRaw, ok := c.Get("access_token")
-		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: missing access token"})
-			return
-		}
-		userToken, ok := tokenRaw.(string)
-		if !ok || userToken == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: invalid access token"})
-			return
-		}
-
 		secret := current.WebhookSecret.String
 		if !current.WebhookSecret.Valid || strings.TrimSpace(secret) == "" {
 			secret, err = generateSecret()
@@ -629,6 +637,94 @@ func projectResourceName(project dbpkg.Project) string {
 type githubHook struct {
 	ID     int64             `json:"id"`
 	Config map[string]string `json:"config"`
+}
+
+type githubContentMetadata struct {
+	Type string `json:"type"`
+}
+
+func validateGitHubDeployInputs(ctx context.Context, repoURL, branch, dockerfilePath, token string) error {
+	owner, repo, err := parseRepoURL(repoURL)
+	if err != nil {
+		return err
+	}
+	if branch == "" {
+		return fmt.Errorf("branch is required")
+	}
+	if token == "" {
+		return fmt.Errorf("authentication required: missing access token")
+	}
+
+	branchURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/branches/%s", owner, repo, url.PathEscape(branch))
+	branchStatus, branchBody, err := githubGet(ctx, branchURL, token)
+	if err != nil {
+		return err
+	}
+	if branchStatus == http.StatusNotFound {
+		return fmt.Errorf("branch %q was not found or is not accessible", branch)
+	}
+	if branchStatus < 200 || branchStatus >= 300 {
+		return fmt.Errorf("github branch check failed with status %d: %s", branchStatus, branchBody)
+	}
+
+	dockerfileURL := fmt.Sprintf(
+		"https://api.github.com/repos/%s/%s/contents/%s?ref=%s",
+		owner,
+		repo,
+		escapeGitHubPath(dockerfilePath),
+		url.QueryEscape(branch),
+	)
+	dockerfileStatus, dockerfileBody, err := githubGet(ctx, dockerfileURL, token)
+	if err != nil {
+		return err
+	}
+	if dockerfileStatus == http.StatusNotFound {
+		return fmt.Errorf("Dockerfile not found at %q on branch %q", dockerfilePath, branch)
+	}
+	if dockerfileStatus < 200 || dockerfileStatus >= 300 {
+		return fmt.Errorf("github Dockerfile check failed with status %d: %s", dockerfileStatus, dockerfileBody)
+	}
+
+	var content githubContentMetadata
+	if err := json.Unmarshal([]byte(dockerfileBody), &content); err == nil && content.Type != "" && content.Type != "file" {
+		return fmt.Errorf("Dockerfile path %q is not a file", dockerfilePath)
+	}
+	return nil
+}
+
+func accessTokenFromContext(c *gin.Context) (string, bool) {
+	tokenRaw, ok := c.Get("access_token")
+	if !ok {
+		return "", false
+	}
+	token, ok := tokenRaw.(string)
+	return token, ok && token != ""
+}
+
+func escapeGitHubPath(value string) string {
+	parts := strings.Split(value, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
+}
+
+func githubGet(ctx context.Context, endpoint, token string) (int, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := outboundHTTPClient.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	return resp.StatusCode, strings.TrimSpace(string(body)), nil
 }
 
 func (h *ProjectHandler) registerGitHubWebhook(repoURL, token, secret string) (int64, error) {
