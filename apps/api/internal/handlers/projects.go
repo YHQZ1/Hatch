@@ -11,6 +11,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path"
+	"regexp"
 	"strings"
 
 	"github.com/YHQZ1/hatch/apps/api/internal/queue"
@@ -79,10 +81,25 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		return
 	}
 
-	subdomain := strings.ToLower(strings.TrimSpace(body.Subdomain))
-	branch := body.Branch
+	subdomain, err := normalizeSubdomain(body.Subdomain)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	branch := normalizeBranch(body.Branch)
 	if branch == "" {
 		branch = "main"
+	}
+
+	dockerfilePath, err := normalizeDockerfilePath(body.DockerfilePath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if body.Port < 1 || body.Port > 65535 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "port must be between 1 and 65535"})
+		return
 	}
 
 	secret, err := generateSecret()
@@ -104,7 +121,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		RepoName:       body.RepoName,
 		RepoUrl:        repoURL,
 		Branch:         branch,
-		DockerfilePath: body.DockerfilePath,
+		DockerfilePath: dockerfilePath,
 		Port:           body.Port,
 		Subdomain:      sql.NullString{String: subdomain, Valid: true},
 		WebhookSecret:  sql.NullString{String: secret, Valid: true},
@@ -206,12 +223,16 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 		repoName = current.RepoName
 	}
 
-	branch := strings.TrimSpace(body.Branch)
+	branch := normalizeBranch(body.Branch)
 	if branch == "" {
 		branch = current.Branch
 	}
 
-	dockerfilePath := strings.TrimSpace(body.DockerfilePath)
+	dockerfilePath, err := normalizeDockerfilePath(body.DockerfilePath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	if dockerfilePath == "" {
 		dockerfilePath = current.DockerfilePath
 	}
@@ -580,6 +601,66 @@ func normalizeGitHubRepoURL(raw string) (string, error) {
 	}
 
 	return fmt.Sprintf("https://github.com/%s/%s", parts[0], parts[1]), nil
+}
+
+var subdomainPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+
+var reservedSubdomains = map[string]struct{}{
+	"admin":   {},
+	"api":     {},
+	"app":     {},
+	"auth":    {},
+	"console": {},
+	"docs":    {},
+	"status":  {},
+	"support": {},
+	"www":     {},
+}
+
+func normalizeSubdomain(raw string) (string, error) {
+	subdomain := strings.ToLower(strings.TrimSpace(raw))
+	if subdomain == "" {
+		return "", fmt.Errorf("subdomain is required")
+	}
+	if _, reserved := reservedSubdomains[subdomain]; reserved {
+		return "", fmt.Errorf("subdomain is reserved")
+	}
+	if !subdomainPattern.MatchString(subdomain) {
+		return "", fmt.Errorf("subdomain must be 1-63 characters and contain only lowercase letters, numbers, and hyphens")
+	}
+	return subdomain, nil
+}
+
+func normalizeBranch(raw string) string {
+	return strings.TrimSpace(raw)
+}
+
+func normalizeDockerfilePath(raw string) (string, error) {
+	cleaned := strings.TrimSpace(raw)
+	if cleaned == "" {
+		return "", nil
+	}
+	if strings.Contains(cleaned, "\\") || strings.HasPrefix(cleaned, "/") || strings.Contains(cleaned, "\x00") {
+		return "", fmt.Errorf("dockerfile path must be a relative repository path")
+	}
+
+	cleaned = strings.TrimPrefix(cleaned, "./")
+	cleaned = strings.Trim(cleaned, "/")
+	if cleaned == "" || cleaned == "." {
+		return "Dockerfile", nil
+	}
+
+	normalized := path.Clean(cleaned)
+	if normalized == "." {
+		return "Dockerfile", nil
+	}
+	if normalized == ".." || strings.HasPrefix(normalized, "../") {
+		return "", fmt.Errorf("dockerfile path cannot leave the repository")
+	}
+	if strings.HasSuffix(normalized, "/Dockerfile") || normalized == "Dockerfile" {
+		return normalized, nil
+	}
+	return normalized + "/Dockerfile", nil
 }
 
 func replaceProjectEnvVars(ctx context.Context, q *dbpkg.Queries, projectID uuid.UUID, envVars map[string]string) error {

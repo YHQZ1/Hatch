@@ -123,7 +123,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 
 	var body struct {
 		ProjectID   string            `json:"project_id" binding:"required"`
-		Branch      string            `json:"branch" binding:"required"`
+		Branch      string            `json:"branch"`
 		CPU         int32             `json:"cpu"`
 		MemoryMB    int32             `json:"memory_mb"`
 		Port        int32             `json:"port" binding:"required"`
@@ -154,6 +154,10 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "project is not active"})
 		return
 	}
+	if body.Port < 1 || body.Port > 65535 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "port must be between 1 and 65535"})
+		return
+	}
 
 	if activeDeployment, ok := h.activeDeploymentForProject(c.Request.Context(), projectID, userID); ok {
 		c.JSON(http.StatusConflict, gin.H{
@@ -174,9 +178,15 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		return
 	}
 
-	healthCheck := "/"
-	if body.HealthCheck != "" {
-		healthCheck = body.HealthCheck
+	branch := strings.TrimSpace(body.Branch)
+	if branch == "" {
+		branch = project.Branch
+	}
+
+	healthCheck, err := normalizeHealthCheckPath(body.HealthCheck)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 	cpu := body.CPU
 	if cpu <= 0 {
@@ -195,7 +205,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 	commitSHA, commitMessage := fetchGitHubBranchHead(
 		c.Request.Context(),
 		project.RepoUrl,
-		body.Branch,
+		branch,
 		userToken,
 	)
 
@@ -209,7 +219,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 	qtx := h.queries.WithTx(tx)
 	deployment, err := qtx.CreateDeployment(c.Request.Context(), dbpkg.CreateDeploymentParams{
 		ProjectID:     projectID,
-		Branch:        body.Branch,
+		Branch:        branch,
 		Cpu:           cpu,
 		MemoryMb:      memoryMB,
 		Port:          body.Port,
@@ -265,7 +275,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 	if err := h.publisher.PublishBuildJob(c.Request.Context(), queue.BuildJobEvent{
 		DeploymentID:   deployment.ID.String(),
 		RepoURL:        project.RepoUrl,
-		Branch:         body.Branch,
+		Branch:         branch,
 		DockerfilePath: project.DockerfilePath,
 		UserToken:      userToken,
 		Port:           int(body.Port),
@@ -454,6 +464,17 @@ func firstCommitLine(message string) string {
 		}
 	}
 	return message
+}
+
+func normalizeHealthCheckPath(raw string) (string, error) {
+	healthCheck := strings.TrimSpace(raw)
+	if healthCheck == "" {
+		return "/", nil
+	}
+	if !strings.HasPrefix(healthCheck, "/") || strings.ContainsAny(healthCheck, " \t\r\n") {
+		return "", fmt.Errorf("health_check must be an absolute path without whitespace")
+	}
+	return healthCheck, nil
 }
 
 func buildDeploymentEnvSnapshot(ctx context.Context, q *dbpkg.Queries, projectID uuid.UUID, overrides map[string]string) (map[string]string, error) {
