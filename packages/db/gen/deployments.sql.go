@@ -14,13 +14,16 @@ import (
 
 const cancelDeploymentByIDAndUserID = `-- name: CancelDeploymentByIDAndUserID :one
 UPDATE deployments
-SET status = 'canceled'
+SET status = 'canceled',
+    error_stage = NULL,
+    error_message = NULL,
+    failed_at = NULL
 FROM projects
 WHERE deployments.id = $1
   AND deployments.project_id = projects.id
   AND projects.user_id = $2
   AND deployments.status IN ('queued', 'building', 'deploying')
-RETURNING deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn
+RETURNING deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at
 `
 
 type CancelDeploymentByIDAndUserIDParams struct {
@@ -50,6 +53,9 @@ func (q *Queries) CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelD
 		&i.CommitMessage,
 		&i.EcsServiceName,
 		&i.TargetGroupArn,
+		&i.ErrorStage,
+		&i.ErrorMessage,
+		&i.FailedAt,
 	)
 	return i, err
 }
@@ -57,7 +63,7 @@ func (q *Queries) CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelD
 const createDeployment = `-- name: CreateDeployment :one
 INSERT INTO deployments (project_id, branch, cpu, memory_mb, port, health_check, subdomain, commit_sha, commit_message)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn
+RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at
 `
 
 type CreateDeploymentParams struct {
@@ -104,12 +110,15 @@ func (q *Queries) CreateDeployment(ctx context.Context, arg CreateDeploymentPara
 		&i.CommitMessage,
 		&i.EcsServiceName,
 		&i.TargetGroupArn,
+		&i.ErrorStage,
+		&i.ErrorMessage,
+		&i.FailedAt,
 	)
 	return i, err
 }
 
 const getDeploymentByID = `-- name: GetDeploymentByID :one
-SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn FROM deployments WHERE id = $1
+SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at FROM deployments WHERE id = $1
 `
 
 func (q *Queries) GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployment, error) {
@@ -134,12 +143,15 @@ func (q *Queries) GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployme
 		&i.CommitMessage,
 		&i.EcsServiceName,
 		&i.TargetGroupArn,
+		&i.ErrorStage,
+		&i.ErrorMessage,
+		&i.FailedAt,
 	)
 	return i, err
 }
 
 const getDeploymentByIDAndUserID = `-- name: GetDeploymentByIDAndUserID :one
-SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn
+SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at
 FROM deployments
 JOIN projects ON projects.id = deployments.project_id
 WHERE deployments.id = $1 AND projects.user_id = $2
@@ -172,12 +184,15 @@ func (q *Queries) GetDeploymentByIDAndUserID(ctx context.Context, arg GetDeploym
 		&i.CommitMessage,
 		&i.EcsServiceName,
 		&i.TargetGroupArn,
+		&i.ErrorStage,
+		&i.ErrorMessage,
+		&i.FailedAt,
 	)
 	return i, err
 }
 
 const getDeploymentsByProjectID = `-- name: GetDeploymentsByProjectID :many
-SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn FROM deployments WHERE project_id = $1 ORDER BY created_at DESC
+SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at FROM deployments WHERE project_id = $1 ORDER BY created_at DESC
 `
 
 func (q *Queries) GetDeploymentsByProjectID(ctx context.Context, projectID uuid.UUID) ([]Deployment, error) {
@@ -208,6 +223,9 @@ func (q *Queries) GetDeploymentsByProjectID(ctx context.Context, projectID uuid.
 			&i.CommitMessage,
 			&i.EcsServiceName,
 			&i.TargetGroupArn,
+			&i.ErrorStage,
+			&i.ErrorMessage,
+			&i.FailedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -223,7 +241,7 @@ func (q *Queries) GetDeploymentsByProjectID(ctx context.Context, projectID uuid.
 }
 
 const getDeploymentsByProjectIDAndUserID = `-- name: GetDeploymentsByProjectIDAndUserID :many
-SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn
+SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at
 FROM deployments
 JOIN projects ON projects.id = deployments.project_id
 WHERE deployments.project_id = $1 AND projects.user_id = $2
@@ -263,6 +281,9 @@ func (q *Queries) GetDeploymentsByProjectIDAndUserID(ctx context.Context, arg Ge
 			&i.CommitMessage,
 			&i.EcsServiceName,
 			&i.TargetGroupArn,
+			&i.ErrorStage,
+			&i.ErrorMessage,
+			&i.FailedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -277,6 +298,51 @@ func (q *Queries) GetDeploymentsByProjectIDAndUserID(ctx context.Context, arg Ge
 	return items, nil
 }
 
+const markDeploymentFailed = `-- name: MarkDeploymentFailed :one
+UPDATE deployments
+SET status = 'failed',
+    error_stage = $2,
+    error_message = $3,
+    failed_at = now()
+WHERE id = $1
+RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at
+`
+
+type MarkDeploymentFailedParams struct {
+	ID           uuid.UUID      `json:"id"`
+	ErrorStage   sql.NullString `json:"error_stage"`
+	ErrorMessage sql.NullString `json:"error_message"`
+}
+
+func (q *Queries) MarkDeploymentFailed(ctx context.Context, arg MarkDeploymentFailedParams) (Deployment, error) {
+	row := q.db.QueryRowContext(ctx, markDeploymentFailed, arg.ID, arg.ErrorStage, arg.ErrorMessage)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Branch,
+		&i.Status,
+		&i.Cpu,
+		&i.MemoryMb,
+		&i.Port,
+		&i.HealthCheck,
+		&i.ImageUri,
+		&i.EcsTaskArn,
+		&i.Subdomain,
+		&i.Url,
+		&i.CreatedAt,
+		&i.DeployedAt,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.EcsServiceName,
+		&i.TargetGroupArn,
+		&i.ErrorStage,
+		&i.ErrorMessage,
+		&i.FailedAt,
+	)
+	return i, err
+}
+
 const updateDeploymentLive = `-- name: UpdateDeploymentLive :one
 UPDATE deployments
 SET status      = 'live',
@@ -285,9 +351,12 @@ SET status      = 'live',
     url         = $4,
     ecs_service_name = $5,
     target_group_arn = $6,
+    error_stage = NULL,
+    error_message = NULL,
+    failed_at = NULL,
     deployed_at = now()
 WHERE id = $1
-RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn
+RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at
 `
 
 type UpdateDeploymentLiveParams struct {
@@ -328,12 +397,15 @@ func (q *Queries) UpdateDeploymentLive(ctx context.Context, arg UpdateDeployment
 		&i.CommitMessage,
 		&i.EcsServiceName,
 		&i.TargetGroupArn,
+		&i.ErrorStage,
+		&i.ErrorMessage,
+		&i.FailedAt,
 	)
 	return i, err
 }
 
 const updateDeploymentStatus = `-- name: UpdateDeploymentStatus :one
-UPDATE deployments SET status = $2 WHERE id = $1 RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn
+UPDATE deployments SET status = $2 WHERE id = $1 RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at
 `
 
 type UpdateDeploymentStatusParams struct {
@@ -363,6 +435,9 @@ func (q *Queries) UpdateDeploymentStatus(ctx context.Context, arg UpdateDeployme
 		&i.CommitMessage,
 		&i.EcsServiceName,
 		&i.TargetGroupArn,
+		&i.ErrorStage,
+		&i.ErrorMessage,
+		&i.FailedAt,
 	)
 	return i, err
 }

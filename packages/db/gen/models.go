@@ -38,6 +38,9 @@ type Deployment struct {
 	CommitMessage  sql.NullString `json:"commit_message"`
 	EcsServiceName sql.NullString `json:"ecs_service_name"`
 	TargetGroupArn sql.NullString `json:"target_group_arn"`
+	ErrorStage     sql.NullString `json:"error_stage"`
+	ErrorMessage   sql.NullString `json:"error_message"`
+	FailedAt       sql.NullTime   `json:"failed_at"`
 }
 
 type EnvVar struct {

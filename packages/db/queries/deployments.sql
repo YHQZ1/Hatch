@@ -25,9 +25,21 @@ ORDER BY deployments.created_at DESC;
 -- name: UpdateDeploymentStatus :one
 UPDATE deployments SET status = $2 WHERE id = $1 RETURNING *;
 
+-- name: MarkDeploymentFailed :one
+UPDATE deployments
+SET status = 'failed',
+    error_stage = $2,
+    error_message = $3,
+    failed_at = now()
+WHERE id = $1
+RETURNING *;
+
 -- name: CancelDeploymentByIDAndUserID :one
 UPDATE deployments
-SET status = 'canceled'
+SET status = 'canceled',
+    error_stage = NULL,
+    error_message = NULL,
+    failed_at = NULL
 FROM projects
 WHERE deployments.id = $1
   AND deployments.project_id = projects.id
@@ -43,6 +55,9 @@ SET status      = 'live',
     url         = $4,
     ecs_service_name = $5,
     target_group_arn = $6,
+    error_stage = NULL,
+    error_message = NULL,
+    failed_at = NULL,
     deployed_at = now()
 WHERE id = $1
 RETURNING *;

@@ -237,12 +237,13 @@ func (w *Worker) processJob(job DeployJobEvent) {
 			return
 		}
 		w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("Deployment failed: %v", err))
-		w.updateDeploymentStatus(ctx, job.DeploymentID, "failed")
+		w.markDeploymentFailed(ctx, job.DeploymentID, "deploy", err)
 		return
 	}
 
 	if w.isCanceled(ctx, job.DeploymentID) {
 		w.streamer.Publish(ctx, job.DeploymentID, "Deployment canceled before finalization")
+		w.updateDeploymentStatus(ctx, job.DeploymentID, "canceled")
 		return
 	}
 
@@ -283,9 +284,39 @@ func (w *Worker) fetchEnvVars(ctx context.Context, deploymentID string) map[stri
 }
 
 func (w *Worker) updateDeploymentStatus(ctx context.Context, id, status string) {
-	_, err := w.db.ExecContext(ctx, "UPDATE deployments SET status = $1 WHERE id = $2", status, id)
+	_, err := w.db.ExecContext(
+		ctx,
+		`
+			UPDATE deployments
+			SET status = $1,
+			    error_stage = NULL,
+			    error_message = NULL,
+			    failed_at = NULL
+			WHERE id = $2`,
+		status,
+		id,
+	)
 	if err != nil {
 		log.Printf("Failed to update deployment status for %s: %v", id, err)
+	}
+}
+
+func (w *Worker) markDeploymentFailed(ctx context.Context, id, stage string, cause error) {
+	_, err := w.db.ExecContext(
+		ctx,
+		`
+			UPDATE deployments
+			SET status = 'failed',
+			    error_stage = $2,
+			    error_message = $3,
+			    failed_at = now()
+			WHERE id = $1 AND status <> 'canceled'`,
+		id,
+		stage,
+		cause.Error(),
+	)
+	if err != nil {
+		log.Printf("Failed to mark deployment failed for %s: %v", id, err)
 	}
 }
 
@@ -334,6 +365,9 @@ func (w *Worker) finalizeDeployment(ctx context.Context, id, image string, resul
 		    ecs_task_arn = $4,
 		    ecs_service_name = $5,
 		    target_group_arn = $6,
+		    error_stage = NULL,
+		    error_message = NULL,
+		    failed_at = NULL,
 		    deployed_at = now()
 		WHERE id = $1`
 

@@ -33,8 +33,11 @@ type DeploymentResponse struct {
 	URL         *string `json:"url"`
 	CommitSHA   *string `json:"commit_sha"`
 	CommitMsg   *string `json:"commit_message"`
+	ErrorStage  *string `json:"error_stage"`
+	ErrorMsg    *string `json:"error_message"`
 	CreatedAt   string  `json:"created_at"`
 	DeployedAt  *string `json:"deployed_at"`
+	FailedAt    *string `json:"failed_at"`
 }
 
 func (h *DeploymentHandler) toDeploymentResponse(d dbpkg.Deployment) DeploymentResponse {
@@ -73,9 +76,19 @@ func (h *DeploymentHandler) toDeploymentResponse(d dbpkg.Deployment) DeploymentR
 	if d.CommitMessage.Valid {
 		r.CommitMsg = &d.CommitMessage.String
 	}
+	if d.ErrorStage.Valid {
+		r.ErrorStage = &d.ErrorStage.String
+	}
+	if d.ErrorMessage.Valid {
+		r.ErrorMsg = &d.ErrorMessage.String
+	}
 	if d.DeployedAt.Valid {
 		s := d.DeployedAt.Time.Format(time.RFC3339)
 		r.DeployedAt = &s
+	}
+	if d.FailedAt.Valid {
+		s := d.FailedAt.Time.Format(time.RFC3339)
+		r.FailedAt = &s
 	}
 	return r
 }
@@ -242,9 +255,10 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		MemoryMB:       memoryMB,
 		HealthCheck:    healthCheck,
 	}); err != nil {
-		_, _ = h.queries.UpdateDeploymentStatus(c.Request.Context(), dbpkg.UpdateDeploymentStatusParams{
-			ID:     deployment.ID,
-			Status: "failed",
+		_, _ = h.queries.MarkDeploymentFailed(c.Request.Context(), dbpkg.MarkDeploymentFailedParams{
+			ID:           deployment.ID,
+			ErrorStage:   sql.NullString{String: "queue", Valid: true},
+			ErrorMessage: sql.NullString{String: "failed to queue deployment", Valid: true},
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to queue deployment"})
 		return

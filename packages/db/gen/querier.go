@@ -37,6 +37,7 @@ type Querier interface {
 	GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]Project, error)
 	GetUserByGithubID(ctx context.Context, githubID int64) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
+	MarkDeploymentFailed(ctx context.Context, arg MarkDeploymentFailedParams) (Deployment, error)
 	MarkProjectDeleteFailed(ctx context.Context, arg MarkProjectDeleteFailedParams) error
 	MarkProjectDeleting(ctx context.Context, arg MarkProjectDeletingParams) (Project, error)
 	MarkProjectOperationFailed(ctx context.Context, arg MarkProjectOperationFailedParams) error

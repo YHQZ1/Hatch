@@ -126,7 +126,7 @@ func (w *Worker) process(job BuildJobEvent) {
 			err := fmt.Errorf("builder panic: %v", r)
 			log.Printf("Builder panic while processing deployment %s: %v", id, r)
 			w.streamer.Publish(context.Background(), id, fmt.Sprintf("Build failed: %v", err))
-			w.markDeploymentFailed(context.Background(), id)
+			w.markDeploymentFailed(context.Background(), id, "builder", err)
 		}
 	}()
 
@@ -152,7 +152,7 @@ func (w *Worker) process(job BuildJobEvent) {
 			return
 		}
 		w.streamer.Publish(ctx, id, fmt.Sprintf("Sync failed: %v", err))
-		w.markDeploymentFailed(context.Background(), id)
+		w.markDeploymentFailed(context.Background(), id, "source_sync", err)
 		return
 	}
 
@@ -168,7 +168,7 @@ func (w *Worker) process(job BuildJobEvent) {
 			return
 		}
 		w.streamer.Publish(ctx, id, fmt.Sprintf("Build failed: %v", err))
-		w.markDeploymentFailed(context.Background(), id)
+		w.markDeploymentFailed(context.Background(), id, "build", err)
 		return
 	}
 
@@ -179,7 +179,7 @@ func (w *Worker) process(job BuildJobEvent) {
 
 	if err := w.handoff(ctx, job, imageURI); err != nil {
 		w.streamer.Publish(ctx, id, err.Error())
-		w.markDeploymentFailed(context.Background(), id)
+		w.markDeploymentFailed(context.Background(), id, "handoff", err)
 	}
 }
 
@@ -317,14 +317,35 @@ func (w *Worker) isCanceled(ctx context.Context, deploymentID string) bool {
 	return err == nil && status == "canceled"
 }
 
-func (w *Worker) markDeploymentFailed(ctx context.Context, deploymentID string) {
-	w.updateDeploymentStatus(ctx, deploymentID, "failed")
+func (w *Worker) markDeploymentFailed(ctx context.Context, deploymentID, stage string, cause error) {
+	_, err := w.db.ExecContext(
+		ctx,
+		`
+			UPDATE deployments
+			SET status = 'failed',
+			    error_stage = $2,
+			    error_message = $3,
+			    failed_at = now()
+			WHERE id = $1 AND status <> 'canceled'`,
+		deploymentID,
+		stage,
+		cause.Error(),
+	)
+	if err != nil {
+		log.Printf("Failed to mark deployment failed for %s: %v", deploymentID, err)
+	}
 }
 
 func (w *Worker) updateDeploymentStatus(ctx context.Context, deploymentID, status string) {
 	_, err := w.db.ExecContext(
 		ctx,
-		"UPDATE deployments SET status = $2 WHERE id = $1 AND status <> 'canceled'",
+		`
+			UPDATE deployments
+			SET status = $2,
+			    error_stage = NULL,
+			    error_message = NULL,
+			    failed_at = NULL
+			WHERE id = $1 AND status <> 'canceled'`,
 		deploymentID,
 		status,
 	)
