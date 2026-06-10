@@ -2,6 +2,8 @@ package ecs
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -212,27 +214,13 @@ func (d *Deployer) registerTaskDefinition(ctx context.Context, input DeployInput
 }
 
 func (d *Deployer) upsertTargetGroup(ctx context.Context, input DeployInput) (string, error) {
-	name := fmt.Sprintf("h-%s", input.Subdomain)
-	if len(name) > 32 {
-		name = name[:32]
-	}
+	name := targetGroupName(input.Subdomain, input.Port)
 
 	tgs, err := d.elbClient.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{
 		Names: []string{name},
 	})
 	if err == nil && len(tgs.TargetGroups) > 0 {
-		tg := tgs.TargetGroups[0]
-		if *tg.Port == input.Port {
-			return *tg.TargetGroupArn, nil
-		}
-
-		_, err = d.elbClient.DeleteTargetGroup(ctx, &elbv2.DeleteTargetGroupInput{
-			TargetGroupArn: tg.TargetGroupArn,
-		})
-		if err != nil {
-			d.streamer.Publish(ctx, input.DeploymentID, fmt.Sprintf("Warning: Failed to delete old target group: %v", err))
-		}
-		time.Sleep(2 * time.Second)
+		return *tgs.TargetGroups[0].TargetGroupArn, nil
 	}
 
 	out, err := d.elbClient.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
@@ -484,10 +472,6 @@ func (d *Deployer) targetGroupHealthy(ctx context.Context, tgArn string) (bool, 
 
 func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 	svcName := serviceName(slug)
-	tgName := fmt.Sprintf("h-%s", slug)
-	if len(tgName) > 32 {
-		tgName = tgName[:32]
-	}
 
 	host := fmt.Sprintf("%s.%s", slug, d.baseDomain)
 	rules, err := d.elbClient.DescribeRules(ctx, &elbv2.DescribeRulesInput{
@@ -527,12 +511,13 @@ func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 		}
 	}
 
-	tgs, err := d.elbClient.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{
-		Names: []string{tgName},
-	})
-	if err == nil && tgs != nil && len(tgs.TargetGroups) > 0 {
+	targetGroups, err := d.targetGroupsForService(ctx, slug)
+	if err != nil {
+		return err
+	}
+	for _, tg := range targetGroups {
 		_, err = d.elbClient.DeleteTargetGroup(ctx, &elbv2.DeleteTargetGroupInput{
-			TargetGroupArn: tgs.TargetGroups[0].TargetGroupArn,
+			TargetGroupArn: tg.TargetGroupArn,
 		})
 		if err != nil && !isNotFound(err) {
 			return fmt.Errorf("failed to delete target group: %w", err)
@@ -680,6 +665,77 @@ func (d *Deployer) waitForDesiredCount(ctx context.Context, service string, desi
 
 func serviceName(slug string) string {
 	return fmt.Sprintf("hatch-%s", slug)
+}
+
+func targetGroupName(slug string, port int32) string {
+	portText := strconv.FormatInt(int64(port), 10)
+	base := fmt.Sprintf("%s-%s", targetGroupNamePrefix(slug), portText)
+	if len(base) <= 32 {
+		return base
+	}
+
+	hash := sha1.Sum([]byte(fmt.Sprintf("%s:%s", slug, portText)))
+	suffix := hex.EncodeToString(hash[:])[:8]
+	maxPrefixLen := 32 - len(portText) - len(suffix) - 2
+	prefix := targetGroupNamePrefix(slug)
+	if len(prefix) > maxPrefixLen {
+		prefix = prefix[:maxPrefixLen]
+	}
+	return fmt.Sprintf("%s-%s-%s", prefix, portText, suffix)
+}
+
+func targetGroupNamePrefix(slug string) string {
+	prefix := fmt.Sprintf("h-%s", slug)
+	if len(prefix) > 24 {
+		return fmt.Sprintf("h-%s-%s", slug[:13], shortHash(slug))
+	}
+	return prefix
+}
+
+func shortHash(value string) string {
+	hash := sha1.Sum([]byte(value))
+	return hex.EncodeToString(hash[:])[:8]
+}
+
+func legacyTargetGroupName(slug string) string {
+	name := fmt.Sprintf("h-%s", slug)
+	if len(name) > 32 {
+		return name[:32]
+	}
+	return name
+}
+
+func (d *Deployer) targetGroupsForService(ctx context.Context, slug string) ([]elbv2types.TargetGroup, error) {
+	prefix := targetGroupNamePrefix(slug)
+	legacyName := legacyTargetGroupName(slug)
+	var groups []elbv2types.TargetGroup
+	var marker *string
+
+	for {
+		out, err := d.elbClient.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{
+			Marker: marker,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to describe target groups: %w", err)
+		}
+
+		for _, tg := range out.TargetGroups {
+			if tg.TargetGroupName == nil {
+				continue
+			}
+			name := *tg.TargetGroupName
+			if name == legacyName || strings.HasPrefix(name, prefix+"-") {
+				groups = append(groups, tg)
+			}
+		}
+
+		if out.NextMarker == nil || *out.NextMarker == "" {
+			break
+		}
+		marker = out.NextMarker
+	}
+
+	return groups, nil
 }
 
 func nextAvailablePriority(rules *elbv2.DescribeRulesOutput) (int32, error) {
