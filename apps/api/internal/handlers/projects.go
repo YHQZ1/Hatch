@@ -14,6 +14,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/YHQZ1/hatch/apps/api/internal/queue"
 	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
@@ -26,6 +27,22 @@ type ProjectHandler struct {
 	db             *sql.DB
 	publisher      *queue.Publisher
 	webhookBaseURL string
+}
+
+type ProjectResponse struct {
+	ID                string  `json:"id"`
+	UserID            string  `json:"user_id"`
+	RepoName          string  `json:"repo_name"`
+	RepoURL           string  `json:"repo_url"`
+	AutoDeploy        bool    `json:"auto_deploy"`
+	Branch            string  `json:"branch"`
+	DockerfilePath    string  `json:"dockerfile_path"`
+	Port              int32   `json:"port"`
+	Subdomain         *string `json:"subdomain"`
+	Status            string  `json:"status"`
+	DeleteRequestedAt *string `json:"delete_requested_at"`
+	DeleteError       *string `json:"delete_error"`
+	CreatedAt         string  `json:"created_at"`
 }
 
 func NewProjectHandler(db *sql.DB, publisher *queue.Publisher, webhookBaseURL string) *ProjectHandler {
@@ -50,7 +67,11 @@ func (h *ProjectHandler) ListProjects(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, projects)
+	responses := make([]ProjectResponse, len(projects))
+	for i, project := range projects {
+		responses[i] = toProjectResponse(project)
+	}
+	c.JSON(http.StatusOK, responses)
 }
 
 func (h *ProjectHandler) CreateProject(c *gin.Context) {
@@ -170,7 +191,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusCreated, project)
+	c.JSON(http.StatusCreated, toProjectResponse(project))
 }
 
 func (h *ProjectHandler) GetProject(c *gin.Context) {
@@ -195,7 +216,7 @@ func (h *ProjectHandler) GetProject(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, project)
+	c.JSON(http.StatusOK, toProjectResponse(project))
 }
 
 func (h *ProjectHandler) UpdateProject(c *gin.Context) {
@@ -347,7 +368,7 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 	}
 
 	h.recordActivity(c, userID, "UPDATE", fmt.Sprintf("Settings updated for %s", project.RepoName))
-	c.JSON(http.StatusOK, project)
+	c.JSON(http.StatusOK, toProjectResponse(project))
 }
 
 func (h *ProjectHandler) GetProjectEnvVars(c *gin.Context) {
@@ -488,7 +509,7 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 	}
 
 	h.recordActivity(c, userID, "DELETE", fmt.Sprintf("Deletion queued for %s", project.RepoName))
-	c.JSON(http.StatusAccepted, project)
+	c.JSON(http.StatusAccepted, toProjectResponse(project))
 }
 
 func (h *ProjectHandler) SuspendProject(c *gin.Context) {
@@ -526,11 +547,11 @@ func (h *ProjectHandler) handleServiceControl(c *gin.Context, action, nextStatus
 		return
 	}
 	if action == "suspend" && project.Status == "suspended" {
-		c.JSON(http.StatusOK, project)
+		c.JSON(http.StatusOK, toProjectResponse(project))
 		return
 	}
 	if action == "resume" && project.Status == "active" {
-		c.JSON(http.StatusOK, project)
+		c.JSON(http.StatusOK, toProjectResponse(project))
 		return
 	}
 
@@ -568,7 +589,33 @@ func (h *ProjectHandler) handleServiceControl(c *gin.Context, action, nextStatus
 		activityVerb = "Resume"
 	}
 	h.recordActivity(c, userID, "UPDATE", fmt.Sprintf("%s queued for %s", activityVerb, project.RepoName))
-	c.JSON(http.StatusAccepted, project)
+	c.JSON(http.StatusAccepted, toProjectResponse(project))
+}
+
+func toProjectResponse(project dbpkg.Project) ProjectResponse {
+	response := ProjectResponse{
+		ID:             project.ID.String(),
+		UserID:         project.UserID.String(),
+		RepoName:       project.RepoName,
+		RepoURL:        project.RepoUrl,
+		AutoDeploy:     project.AutoDeploy,
+		Branch:         project.Branch,
+		DockerfilePath: project.DockerfilePath,
+		Port:           project.Port,
+		Status:         project.Status,
+		CreatedAt:      project.CreatedAt.Format(time.RFC3339),
+	}
+	if project.Subdomain.Valid {
+		response.Subdomain = &project.Subdomain.String
+	}
+	if project.DeleteRequestedAt.Valid {
+		value := project.DeleteRequestedAt.Time.Format(time.RFC3339)
+		response.DeleteRequestedAt = &value
+	}
+	if project.DeleteError.Valid {
+		response.DeleteError = &project.DeleteError.String
+	}
+	return response
 }
 
 func projectResourceName(project dbpkg.Project) string {
