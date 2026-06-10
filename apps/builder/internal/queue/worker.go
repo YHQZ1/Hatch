@@ -121,6 +121,14 @@ func (w *Worker) process(job BuildJobEvent) {
 	defer cancel()
 
 	id := job.DeploymentID
+	defer func() {
+		if r := recover(); r != nil {
+			err := fmt.Errorf("builder panic: %v", r)
+			log.Printf("Builder panic while processing deployment %s: %v", id, r)
+			w.streamer.Publish(context.Background(), id, fmt.Sprintf("Build failed: %v", err))
+			w.markDeploymentFailed(context.Background(), id)
+		}
+	}()
 
 	buildPath := filepath.Join(os.TempDir(), "hatch-builds", id)
 	defer os.RemoveAll(buildPath)
@@ -129,8 +137,9 @@ func (w *Worker) process(job BuildJobEvent) {
 	stopWatch := w.watchCancellation(ctx, id, cancel)
 	defer stopWatch()
 
-	w.streamer.Publish(ctx, id, fmt.Sprintf("Job received: %s", id[:8]))
+	w.streamer.Publish(ctx, id, fmt.Sprintf("Job received: %s", shortDeploymentID(id)))
 	w.streamer.Publish(ctx, id, "Syncing source code...")
+	w.updateDeploymentStatus(context.Background(), id, "building")
 
 	if w.isCanceled(context.Background(), id) {
 		w.streamer.Publish(ctx, id, "Deployment canceled before source sync")
@@ -143,6 +152,7 @@ func (w *Worker) process(job BuildJobEvent) {
 			return
 		}
 		w.streamer.Publish(ctx, id, fmt.Sprintf("Sync failed: %v", err))
+		w.markDeploymentFailed(context.Background(), id)
 		return
 	}
 
@@ -158,6 +168,7 @@ func (w *Worker) process(job BuildJobEvent) {
 			return
 		}
 		w.streamer.Publish(ctx, id, fmt.Sprintf("Build failed: %v", err))
+		w.markDeploymentFailed(context.Background(), id)
 		return
 	}
 
@@ -166,13 +177,16 @@ func (w *Worker) process(job BuildJobEvent) {
 		return
 	}
 
-	w.handoff(ctx, job, imageURI)
+	if err := w.handoff(ctx, job, imageURI); err != nil {
+		w.streamer.Publish(ctx, id, err.Error())
+		w.markDeploymentFailed(context.Background(), id)
+	}
 }
 
-func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) {
+func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) error {
 	if w.isCanceled(context.Background(), job.DeploymentID) {
 		w.streamer.Publish(context.Background(), job.DeploymentID, "Deployment canceled before orchestration handoff")
-		return
+		return nil
 	}
 
 	w.streamer.Publish(ctx, job.DeploymentID, "Triggering deployment orchestration...")
@@ -189,8 +203,7 @@ func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) {
 
 	body, err := json.Marshal(event)
 	if err != nil {
-		w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("Failed to marshal deploy job: %v", err))
-		return
+		return fmt.Errorf("Failed to marshal deploy job: %v", err)
 	}
 
 	err = w.ch.PublishWithContext(ctx, "", "hatch.deploy.jobs", false, false, amqp.Publishing{
@@ -200,11 +213,11 @@ func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) {
 	})
 
 	if err != nil {
-		w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("Orchestration handoff failed: %v", err))
-		return
+		return fmt.Errorf("Orchestration handoff failed: %v", err)
 	}
 
 	w.streamer.Publish(ctx, job.DeploymentID, "Pipeline stage complete: Build and Push")
+	return nil
 }
 
 func (w *Worker) watchCancellation(ctx context.Context, deploymentID string, cancel context.CancelFunc) func() {
@@ -302,6 +315,29 @@ func (w *Worker) isCanceled(ctx context.Context, deploymentID string) bool {
 	var status string
 	err := w.db.QueryRowContext(ctx, "SELECT status FROM deployments WHERE id = $1", deploymentID).Scan(&status)
 	return err == nil && status == "canceled"
+}
+
+func (w *Worker) markDeploymentFailed(ctx context.Context, deploymentID string) {
+	w.updateDeploymentStatus(ctx, deploymentID, "failed")
+}
+
+func (w *Worker) updateDeploymentStatus(ctx context.Context, deploymentID, status string) {
+	_, err := w.db.ExecContext(
+		ctx,
+		"UPDATE deployments SET status = $2 WHERE id = $1 AND status <> 'canceled'",
+		deploymentID,
+		status,
+	)
+	if err != nil {
+		log.Printf("Failed to update deployment status for %s: %v", deploymentID, err)
+	}
+}
+
+func shortDeploymentID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8]
 }
 
 func (w *Worker) Close() {
