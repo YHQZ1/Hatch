@@ -155,6 +155,14 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		return
 	}
 
+	if activeDeployment, ok := h.activeDeploymentForProject(c.Request.Context(), projectID, userID); ok {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":      "deployment already running",
+			"deployment": h.toDeploymentResponse(activeDeployment),
+		})
+		return
+	}
+
 	tokenRaw, ok := c.Get("access_token")
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: missing access token"})
@@ -211,6 +219,17 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		CommitMessage: nullString(commitMessage),
 	})
 	if err != nil {
+		if isActiveDeploymentConflict(err) {
+			if activeDeployment, ok := h.activeDeploymentForProject(c.Request.Context(), projectID, userID); ok {
+				c.JSON(http.StatusConflict, gin.H{
+					"error":      "deployment already running",
+					"deployment": h.toDeploymentResponse(activeDeployment),
+				})
+				return
+			}
+			c.JSON(http.StatusConflict, gin.H{"error": "deployment already running"})
+			return
+		}
 		fmt.Printf("DATABASE ERROR: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create deployment"})
 		return
@@ -451,4 +470,26 @@ func buildDeploymentEnvSnapshot(ctx context.Context, q *dbpkg.Queries, projectID
 		envSnapshot[key] = value
 	}
 	return envSnapshot, nil
+}
+
+func (h *DeploymentHandler) activeDeploymentForProject(ctx context.Context, projectID, userID uuid.UUID) (dbpkg.Deployment, bool) {
+	deployments, err := h.queries.GetDeploymentsByProjectIDAndUserID(ctx, dbpkg.GetDeploymentsByProjectIDAndUserIDParams{
+		ProjectID: projectID,
+		UserID:    userID,
+	})
+	if err != nil {
+		return dbpkg.Deployment{}, false
+	}
+
+	for _, deployment := range deployments {
+		if deployment.Status == "queued" || deployment.Status == "building" || deployment.Status == "deploying" {
+			return deployment, true
+		}
+	}
+
+	return dbpkg.Deployment{}, false
+}
+
+func isActiveDeploymentConflict(err error) bool {
+	return strings.Contains(err.Error(), "idx_one_active_deployment_per_project")
 }
