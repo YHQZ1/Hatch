@@ -438,12 +438,13 @@ function ProjectRow({
   const [deleting, setDeleting] = useState(false);
   const { project, lastDeployment, status, liveUrl, repoSlug } = row;
   const branch = lastDeployment?.branch ?? project.branch;
+  const retryingCleanup = project.status === "delete_failed";
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
-    if (!confirmDelete) {
+    if (!retryingCleanup && !confirmDelete) {
       setConfirmDelete(true);
       window.setTimeout(() => setConfirmDelete(false), 4500);
       return;
@@ -459,8 +460,10 @@ function ProjectRow({
       onDeleteQueued(nextProject);
       onNotice({
         type: "success",
-        title: "Deletion queued",
-        message: `${project.repo_name} will disappear after cloud cleanup finishes.`,
+        title: retryingCleanup ? "Cleanup retry queued" : "Deletion queued",
+        message: retryingCleanup
+          ? `${project.repo_name} cleanup is being retried.`
+          : `${project.repo_name} will disappear after cloud cleanup finishes.`,
       });
       setDeleting(false);
       setConfirmDelete(false);
@@ -691,6 +694,7 @@ function RowActions({
   mobile?: boolean;
 }) {
   const projectDeleting = project.status === "deleting";
+  const projectDeleteFailed = project.status === "delete_failed";
   return (
     <div
       className={`flex items-center justify-end gap-2 ${mobile ? "flex-wrap" : ""}`}
@@ -721,12 +725,22 @@ function RowActions({
         onClick={onDelete}
         disabled={deleting || projectDeleting}
         className={`h-7 px-2.5 border rounded-[3px] text-[9px] uppercase tracking-widest font-bold transition-all cursor-pointer disabled:cursor-not-allowed ${
-          confirmDelete
+          projectDeleteFailed
+            ? "text-[#d88a8a] border-[#4a2020] bg-[#120606] hover:border-[#7a2a2a]"
+            : confirmDelete
             ? "text-[#d05252] border-[#5a1d1d] bg-[#1a0808] hover:border-[#7a2a2a]"
             : "text-zinc-700 border-[#1a1a1a] hover:text-[#d05252] hover:border-[#5a1d1d]"
         } disabled:opacity-50`}
       >
-        {projectDeleting ? "Deleting" : deleting ? "..." : confirmDelete ? "Confirm" : "Del"}
+        {projectDeleting
+          ? "Deleting"
+          : deleting
+            ? "..."
+            : projectDeleteFailed
+              ? "Retry"
+              : confirmDelete
+                ? "Confirm"
+                : "Del"}
       </button>
     </div>
   );

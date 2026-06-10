@@ -303,8 +303,14 @@ export default function ProjectSettingsClient() {
     if (project) hydrateProjectForm(project);
   }
 
-  async function handleDelete() {
-    if (!project || deleteConfirm !== project.repo_name || deleting) return;
+  async function handleDelete({ retry = false }: { retry?: boolean } = {}) {
+    if (
+      !project ||
+      deleting ||
+      (!retry && deleteConfirm !== project.repo_name)
+    ) {
+      return;
+    }
     setDeleting(true);
     try {
       const res = await apiFetch(`/api/projects/${id}`, { method: "DELETE" });
@@ -315,8 +321,10 @@ export default function ProjectSettingsClient() {
       clearProjectCaches();
       setNotice({
         type: "success",
-        title: "Deletion queued",
-        message: "Hatch will remove the service after cloud cleanup finishes.",
+        title: retry ? "Cleanup retry queued" : "Deletion queued",
+        message: retry
+          ? "Hatch is retrying the failed cloud cleanup."
+          : "Hatch will remove the service after cloud cleanup finishes.",
       });
       router.push("/console");
     } catch (err) {
@@ -778,11 +786,14 @@ export default function ProjectSettingsClient() {
                           serviceActioning ||
                           project?.status === "suspended" ||
                           project?.status === "suspending" ||
-                          project?.status === "deleting"
+                          project?.status === "deleting" ||
+                          project?.status === "resume_failed"
                         }
                         className="cursor-pointer border border-[#3a2d18] px-4 py-2.5 text-[9px] font-bold uppercase tracking-[0.15em] text-[#b8872f] transition-colors hover:border-[#b8872f] hover:text-[#d6a34a] disabled:cursor-not-allowed disabled:opacity-30"
                       >
-                        {project?.status === "suspending"
+                        {project?.status === "suspend_failed"
+                          ? "Retry suspend"
+                          : project?.status === "suspending"
                           ? "Suspending"
                           : "Suspend"}
                       </button>
@@ -792,11 +803,16 @@ export default function ProjectSettingsClient() {
                           serviceActioning ||
                           project?.status === "active" ||
                           project?.status === "resuming" ||
-                          project?.status === "deleting"
+                          project?.status === "deleting" ||
+                          project?.status === "suspend_failed"
                         }
                         className="cursor-pointer border border-[#244837] px-4 py-2.5 text-[9px] font-bold uppercase tracking-[0.15em] text-[#74c69d] transition-colors hover:border-[#74c69d] hover:text-[#91d9b4] disabled:cursor-not-allowed disabled:opacity-30"
                       >
-                        {project?.status === "resuming" ? "Resuming" : "Resume"}
+                        {project?.status === "resume_failed"
+                          ? "Retry resume"
+                          : project?.status === "resuming"
+                            ? "Resuming"
+                            : "Resume"}
                       </button>
                     </div>
                   </div>
@@ -826,17 +842,26 @@ export default function ProjectSettingsClient() {
                     className="mt-2 w-full border border-[#231313] bg-black px-3 py-2.5 font-mono text-[11px] text-zinc-400 outline-none transition-colors placeholder:text-zinc-800 focus:border-[#5a2525]"
                   />
                   <button
-                    onClick={handleDelete}
+                    onClick={() => handleDelete()}
                     disabled={deleteConfirm !== project?.repo_name || deleting}
                     className="mt-4 w-full cursor-pointer border border-[#3a1b1b] px-4 py-2.5 text-[9px] font-bold uppercase tracking-[0.15em] text-[#c56b6b] transition-colors hover:border-[#6b2d2d] hover:text-[#d88a8a] disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     {deleting ? "Queueing cleanup" : "Delete service"}
                   </button>
                   {project?.status === "delete_failed" && (
-                    <p className="mt-3 text-[11px] leading-relaxed text-[#c56b6b]">
-                      Previous cleanup failed. Try deleting again after checking
-                      the deployer worker logs.
-                    </p>
+                    <div className="mt-4 flex flex-col gap-3 border border-[#2b1919] bg-[#080303] p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-[11px] leading-relaxed text-[#c56b6b]">
+                        Previous cleanup failed. Check the deployer worker logs,
+                        then retry the cleanup job.
+                      </p>
+                      <button
+                        onClick={() => handleDelete({ retry: true })}
+                        disabled={deleting}
+                        className="shrink-0 cursor-pointer border border-[#4a2020] px-4 py-2.5 text-[9px] font-bold uppercase tracking-[0.15em] text-[#d88a8a] transition-colors hover:border-[#7a2a2a] hover:text-[#f0a0a0] disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        {deleting ? "Retrying" : "Retry cleanup"}
+                      </button>
+                    </div>
                   )}
                 </div>
               </Section>
