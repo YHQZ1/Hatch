@@ -12,12 +12,24 @@ import (
 	"github.com/google/uuid"
 )
 
+const clearProjectWebhook = `-- name: ClearProjectWebhook :exec
+UPDATE projects
+SET github_webhook_id = NULL,
+    auto_deploy = false
+WHERE id = $1
+`
+
+func (q *Queries) ClearProjectWebhook(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, clearProjectWebhook, id)
+	return err
+}
+
 const createProject = `-- name: CreateProject :one
 INSERT INTO projects (
   user_id, repo_name, repo_url, branch, dockerfile_path, port, subdomain, webhook_secret
 ) VALUES (
   $1, $2, $3, $4, $5, $6, $7, $8
-) RETURNING id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at
+) RETURNING id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at
 `
 
 type CreateProjectParams struct {
@@ -49,6 +61,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 		&i.RepoName,
 		&i.RepoUrl,
 		&i.WebhookSecret,
+		&i.GithubWebhookID,
 		&i.AutoDeploy,
 		&i.Branch,
 		&i.DockerfilePath,
@@ -86,7 +99,7 @@ func (q *Queries) DeleteProjectByIDAndUserID(ctx context.Context, arg DeleteProj
 }
 
 const getProjectByID = `-- name: GetProjectByID :one
-SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at FROM projects WHERE id = $1
+SELECT id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at FROM projects WHERE id = $1
 `
 
 func (q *Queries) GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error) {
@@ -98,6 +111,7 @@ func (q *Queries) GetProjectByID(ctx context.Context, id uuid.UUID) (Project, er
 		&i.RepoName,
 		&i.RepoUrl,
 		&i.WebhookSecret,
+		&i.GithubWebhookID,
 		&i.AutoDeploy,
 		&i.Branch,
 		&i.DockerfilePath,
@@ -112,7 +126,7 @@ func (q *Queries) GetProjectByID(ctx context.Context, id uuid.UUID) (Project, er
 }
 
 const getProjectByIDAndUserID = `-- name: GetProjectByIDAndUserID :one
-SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at FROM projects WHERE id = $1 AND user_id = $2
+SELECT id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at FROM projects WHERE id = $1 AND user_id = $2
 `
 
 type GetProjectByIDAndUserIDParams struct {
@@ -129,6 +143,7 @@ func (q *Queries) GetProjectByIDAndUserID(ctx context.Context, arg GetProjectByI
 		&i.RepoName,
 		&i.RepoUrl,
 		&i.WebhookSecret,
+		&i.GithubWebhookID,
 		&i.AutoDeploy,
 		&i.Branch,
 		&i.DockerfilePath,
@@ -143,7 +158,7 @@ func (q *Queries) GetProjectByIDAndUserID(ctx context.Context, arg GetProjectByI
 }
 
 const getProjectByRepoURL = `-- name: GetProjectByRepoURL :one
-SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at FROM projects WHERE repo_url = $1 LIMIT 1
+SELECT id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at FROM projects WHERE repo_url = $1 LIMIT 1
 `
 
 func (q *Queries) GetProjectByRepoURL(ctx context.Context, repoUrl string) (Project, error) {
@@ -155,6 +170,7 @@ func (q *Queries) GetProjectByRepoURL(ctx context.Context, repoUrl string) (Proj
 		&i.RepoName,
 		&i.RepoUrl,
 		&i.WebhookSecret,
+		&i.GithubWebhookID,
 		&i.AutoDeploy,
 		&i.Branch,
 		&i.DockerfilePath,
@@ -169,7 +185,7 @@ func (q *Queries) GetProjectByRepoURL(ctx context.Context, repoUrl string) (Proj
 }
 
 const getProjectBySubdomain = `-- name: GetProjectBySubdomain :one
-SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at FROM projects WHERE subdomain = $1 LIMIT 1
+SELECT id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at FROM projects WHERE subdomain = $1 LIMIT 1
 `
 
 func (q *Queries) GetProjectBySubdomain(ctx context.Context, subdomain sql.NullString) (Project, error) {
@@ -181,6 +197,7 @@ func (q *Queries) GetProjectBySubdomain(ctx context.Context, subdomain sql.NullS
 		&i.RepoName,
 		&i.RepoUrl,
 		&i.WebhookSecret,
+		&i.GithubWebhookID,
 		&i.AutoDeploy,
 		&i.Branch,
 		&i.DockerfilePath,
@@ -195,7 +212,7 @@ func (q *Queries) GetProjectBySubdomain(ctx context.Context, subdomain sql.NullS
 }
 
 const getProjectsByRepoURL = `-- name: GetProjectsByRepoURL :many
-SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at FROM projects WHERE repo_url = $1 ORDER BY created_at DESC
+SELECT id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at FROM projects WHERE repo_url = $1 ORDER BY created_at DESC
 `
 
 func (q *Queries) GetProjectsByRepoURL(ctx context.Context, repoUrl string) ([]Project, error) {
@@ -213,6 +230,7 @@ func (q *Queries) GetProjectsByRepoURL(ctx context.Context, repoUrl string) ([]P
 			&i.RepoName,
 			&i.RepoUrl,
 			&i.WebhookSecret,
+			&i.GithubWebhookID,
 			&i.AutoDeploy,
 			&i.Branch,
 			&i.DockerfilePath,
@@ -237,7 +255,7 @@ func (q *Queries) GetProjectsByRepoURL(ctx context.Context, repoUrl string) ([]P
 }
 
 const getProjectsByUserID = `-- name: GetProjectsByUserID :many
-SELECT id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at FROM projects
+SELECT id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at FROM projects
 WHERE user_id = $1
   AND status <> 'deleted'
 ORDER BY created_at DESC
@@ -258,6 +276,7 @@ func (q *Queries) GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]
 			&i.RepoName,
 			&i.RepoUrl,
 			&i.WebhookSecret,
+			&i.GithubWebhookID,
 			&i.AutoDeploy,
 			&i.Branch,
 			&i.DockerfilePath,
@@ -304,7 +323,7 @@ SET status = 'deleting',
     delete_requested_at = now(),
     delete_error = NULL
 WHERE id = $1 AND user_id = $2
-RETURNING id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at
+RETURNING id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at
 `
 
 type MarkProjectDeletingParams struct {
@@ -321,6 +340,7 @@ func (q *Queries) MarkProjectDeleting(ctx context.Context, arg MarkProjectDeleti
 		&i.RepoName,
 		&i.RepoUrl,
 		&i.WebhookSecret,
+		&i.GithubWebhookID,
 		&i.AutoDeploy,
 		&i.Branch,
 		&i.DockerfilePath,
@@ -357,7 +377,7 @@ UPDATE projects
 SET status = $3,
     delete_error = NULL
 WHERE id = $1 AND user_id = $2
-RETURNING id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at
+RETURNING id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at
 `
 
 type UpdateProjectLifecycleStatusParams struct {
@@ -375,6 +395,7 @@ func (q *Queries) UpdateProjectLifecycleStatus(ctx context.Context, arg UpdatePr
 		&i.RepoName,
 		&i.RepoUrl,
 		&i.WebhookSecret,
+		&i.GithubWebhookID,
 		&i.AutoDeploy,
 		&i.Branch,
 		&i.DockerfilePath,
@@ -396,7 +417,7 @@ SET repo_name = $3,
     port = $6,
     auto_deploy = $7
 WHERE id = $1 AND user_id = $2
-RETURNING id, user_id, repo_name, repo_url, webhook_secret, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at
+RETURNING id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at
 `
 
 type UpdateProjectSettingsParams struct {
@@ -426,6 +447,7 @@ func (q *Queries) UpdateProjectSettings(ctx context.Context, arg UpdateProjectSe
 		&i.RepoName,
 		&i.RepoUrl,
 		&i.WebhookSecret,
+		&i.GithubWebhookID,
 		&i.AutoDeploy,
 		&i.Branch,
 		&i.DockerfilePath,
@@ -440,15 +462,26 @@ func (q *Queries) UpdateProjectSettings(ctx context.Context, arg UpdateProjectSe
 }
 
 const updateProjectWebhook = `-- name: UpdateProjectWebhook :exec
-UPDATE projects SET webhook_secret = $2 WHERE id = $1
+UPDATE projects
+SET webhook_secret = $2,
+    github_webhook_id = $3,
+    auto_deploy = $4
+WHERE id = $1
 `
 
 type UpdateProjectWebhookParams struct {
-	ID            uuid.UUID      `json:"id"`
-	WebhookSecret sql.NullString `json:"webhook_secret"`
+	ID              uuid.UUID      `json:"id"`
+	WebhookSecret   sql.NullString `json:"webhook_secret"`
+	GithubWebhookID sql.NullInt64  `json:"github_webhook_id"`
+	AutoDeploy      bool           `json:"auto_deploy"`
 }
 
 func (q *Queries) UpdateProjectWebhook(ctx context.Context, arg UpdateProjectWebhookParams) error {
-	_, err := q.db.ExecContext(ctx, updateProjectWebhook, arg.ID, arg.WebhookSecret)
+	_, err := q.db.ExecContext(ctx, updateProjectWebhook,
+		arg.ID,
+		arg.WebhookSecret,
+		arg.GithubWebhookID,
+		arg.AutoDeploy,
+	)
 	return err
 }

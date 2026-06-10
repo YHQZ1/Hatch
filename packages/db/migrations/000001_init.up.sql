@@ -14,6 +14,7 @@ CREATE TABLE projects (
     repo_name       TEXT NOT NULL,
     repo_url        TEXT NOT NULL,
     webhook_secret  TEXT,
+    github_webhook_id BIGINT,
     auto_deploy     BOOLEAN NOT NULL DEFAULT true,
     branch          TEXT NOT NULL DEFAULT 'main',
     dockerfile_path TEXT NOT NULL DEFAULT 'Dockerfile',

@@ -133,6 +133,10 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		CommitMessage: nullString(firstCommitLine(payload.HeadCommit.Message)),
 	})
 	if err != nil {
+		if isActiveDeploymentConflict(err) {
+			c.JSON(http.StatusAccepted, gin.H{"status": "deployment already running"})
+			return
+		}
 		c.Status(http.StatusInternalServerError)
 		return
 	}
@@ -171,9 +175,10 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		MemoryMB:       defaultDeploymentMemoryMB,
 		HealthCheck:    "/",
 	}); err != nil {
-		_, _ = h.queries.UpdateDeploymentStatus(c.Request.Context(), dbpkg.UpdateDeploymentStatusParams{
-			ID:     deployment.ID,
-			Status: "failed",
+		_, _ = h.queries.MarkDeploymentFailed(c.Request.Context(), dbpkg.MarkDeploymentFailedParams{
+			ID:           deployment.ID,
+			ErrorStage:   sql.NullString{String: "queue", Valid: true},
+			ErrorMessage: sql.NullString{String: "failed to queue webhook deployment", Valid: true},
 		})
 		c.Status(http.StatusServiceUnavailable)
 		return

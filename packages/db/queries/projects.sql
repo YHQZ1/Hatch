@@ -24,7 +24,17 @@ SELECT * FROM projects WHERE repo_url = $1 LIMIT 1;
 SELECT * FROM projects WHERE repo_url = $1 ORDER BY created_at DESC;
 
 -- name: UpdateProjectWebhook :exec
-UPDATE projects SET webhook_secret = $2 WHERE id = $1;
+UPDATE projects
+SET webhook_secret = $2,
+    github_webhook_id = $3,
+    auto_deploy = $4
+WHERE id = $1;
+
+-- name: ClearProjectWebhook :exec
+UPDATE projects
+SET github_webhook_id = NULL,
+    auto_deploy = false
+WHERE id = $1;
 
 -- name: UpdateProjectSettings :one
 UPDATE projects

@@ -58,6 +58,7 @@ type Project struct {
 	RepoName          string         `json:"repo_name"`
 	RepoUrl           string         `json:"repo_url"`
 	WebhookSecret     sql.NullString `json:"webhook_secret"`
+	GithubWebhookID   sql.NullInt64  `json:"github_webhook_id"`
 	AutoDeploy        bool           `json:"auto_deploy"`
 	Branch            string         `json:"branch"`
 	DockerfilePath    string         `json:"dockerfile_path"`

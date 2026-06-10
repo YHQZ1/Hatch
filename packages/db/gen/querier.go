@@ -13,6 +13,7 @@ import (
 
 type Querier interface {
 	CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelDeploymentByIDAndUserIDParams) (Deployment, error)
+	ClearProjectWebhook(ctx context.Context, id uuid.UUID) error
 	CreateActivityLog(ctx context.Context, arg CreateActivityLogParams) (ActivityLog, error)
 	CreateDeployment(ctx context.Context, arg CreateDeploymentParams) (Deployment, error)
 	CreateEnvVar(ctx context.Context, arg CreateEnvVarParams) (EnvVar, error)
