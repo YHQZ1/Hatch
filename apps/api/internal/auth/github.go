@@ -30,6 +30,8 @@ type Handler struct {
 
 const SessionCookieName = "hatch_session"
 
+var githubHTTPClient = &http.Client{Timeout: 12 * time.Second}
+
 func NewHandler(clientID, clientSecret, redirectURI, jwtSecret string, db *sql.DB) *Handler {
 	return &Handler{
 		clientID:     clientID,
@@ -109,11 +111,14 @@ func (h *Handler) exchangeCodeForToken(code string) (string, error) {
 	}
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := githubHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("github token exchange failed with status %d", resp.StatusCode)
+	}
 
 	var result struct {
 		AccessToken string `json:"access_token"`
@@ -137,11 +142,14 @@ func (h *Handler) fetchGitHubUser(token string) (*GitHubUser, error) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := githubHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("github profile fetch failed with status %d", resp.StatusCode)
+	}
 
 	var user GitHubUser
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
