@@ -49,6 +49,7 @@ type Worker struct {
 	db       *sql.DB
 	ch       *amqp.Channel
 	conn     *amqp.Connection
+	confirms <-chan amqp.Confirmation
 	stages   sync.Map
 }
 
@@ -84,6 +85,10 @@ func (w *Worker) Start() error {
 	if err != nil {
 		return fmt.Errorf("failed to open channel: %w", err)
 	}
+	if err := w.ch.Confirm(false); err != nil {
+		return fmt.Errorf("failed to enable RabbitMQ publisher confirms: %w", err)
+	}
+	w.confirms = w.ch.NotifyPublish(make(chan amqp.Confirmation, 1))
 
 	_, err = w.ch.QueueDeclare("hatch.build.jobs", true, false, false, false, nil)
 	if err != nil {
@@ -206,7 +211,7 @@ func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) err
 		return fmt.Errorf("Failed to marshal deploy job: %v", err)
 	}
 
-	err = w.ch.PublishWithContext(ctx, "", "hatch.deploy.jobs", false, false, amqp.Publishing{
+	err = w.ch.PublishWithContext(ctx, "", "hatch.deploy.jobs", true, false, amqp.Publishing{
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
 		Body:         body,
@@ -215,9 +220,32 @@ func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) err
 	if err != nil {
 		return fmt.Errorf("Orchestration handoff failed: %v", err)
 	}
+	if err := w.waitForPublishConfirm(ctx, "hatch.deploy.jobs"); err != nil {
+		return fmt.Errorf("Orchestration handoff failed: %v", err)
+	}
 
 	w.streamer.Publish(ctx, job.DeploymentID, "Pipeline stage complete: Build and Push")
 	return nil
+}
+
+func (w *Worker) waitForPublishConfirm(ctx context.Context, queueName string) error {
+	timeout := time.NewTimer(10 * time.Second)
+	defer timeout.Stop()
+
+	select {
+	case confirm, ok := <-w.confirms:
+		if !ok {
+			return fmt.Errorf("rabbitmq confirmation channel closed")
+		}
+		if !confirm.Ack {
+			return fmt.Errorf("rabbitmq rejected publish to %s", queueName)
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timeout.C:
+		return fmt.Errorf("timed out waiting for rabbitmq publish confirmation")
+	}
 }
 
 func (w *Worker) watchCancellation(ctx context.Context, deploymentID string, cancel context.CancelFunc) func() {

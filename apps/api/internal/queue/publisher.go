@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -119,6 +120,9 @@ func (p *Publisher) publish(ctx context.Context, queue string, body []byte) erro
 		return err
 	}
 
+	timeout := time.NewTimer(10 * time.Second)
+	defer timeout.Stop()
+
 	select {
 	case confirm, ok := <-p.confirms:
 		if !ok {
@@ -130,6 +134,8 @@ func (p *Publisher) publish(ctx context.Context, queue string, body []byte) erro
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-timeout.C:
+		return fmt.Errorf("timed out waiting for rabbitmq publish confirmation")
 	}
 }
 
