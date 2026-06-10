@@ -344,7 +344,9 @@ func (d *Deployer) upsertService(ctx context.Context, input DeployInput, taskArn
 		if err != nil {
 			d.streamer.Publish(ctx, input.DeploymentID, fmt.Sprintf("Warning: Failed to delete old service: %v", err))
 		}
-		time.Sleep(5 * time.Second)
+		if err := d.waitForServiceInactive(ctx, name); err != nil {
+			return "", err
+		}
 	}
 
 	out, err := d.ecsClient.CreateService(ctx, &ecs.CreateServiceInput{
@@ -519,7 +521,11 @@ func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 		return fmt.Errorf("failed to delete ECS service: %w", err)
 	}
 
-	time.Sleep(5 * time.Second)
+	if err == nil {
+		if err := d.waitForServiceInactive(ctx, svcName); err != nil {
+			return err
+		}
+	}
 
 	tgs, err := d.elbClient.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{
 		Names: []string{tgName},
@@ -534,6 +540,59 @@ func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 	}
 
 	return nil
+}
+
+func (d *Deployer) waitForServiceInactive(ctx context.Context, service string) error {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	timeout := time.After(6 * time.Minute)
+
+	check := func() (bool, error) {
+		out, err := d.ecsClient.DescribeServices(ctx, &ecs.DescribeServicesInput{
+			Cluster:  aws.String(d.clusterName),
+			Services: []string{service},
+		})
+		if err != nil {
+			if isNotFound(err) {
+				return true, nil
+			}
+			return false, fmt.Errorf("failed to describe ECS service during deletion: %w", err)
+		}
+		if len(out.Services) == 0 {
+			return true, nil
+		}
+		svc := out.Services[0]
+		if svc.Status == nil || *svc.Status == "INACTIVE" {
+			return true, nil
+		}
+		return false, nil
+	}
+
+	ok, err := check()
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for ECS service %s to become inactive", service)
+		case <-ticker.C:
+			ok, err := check()
+			if err != nil {
+				return err
+			}
+			if ok {
+				return nil
+			}
+		}
+	}
 }
 
 func (d *Deployer) SetServiceDesiredCount(ctx context.Context, slug string, desiredCount int32) error {
