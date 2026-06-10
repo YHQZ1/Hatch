@@ -1,6 +1,6 @@
 -- name: CreateDeployment :one
-INSERT INTO deployments (project_id, branch, cpu, memory_mb, port, health_check, subdomain)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO deployments (project_id, branch, cpu, memory_mb, port, health_check, subdomain, commit_sha, commit_message)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
 -- name: GetDeploymentByID :one
@@ -32,7 +32,7 @@ FROM projects
 WHERE deployments.id = $1
   AND deployments.project_id = projects.id
   AND projects.user_id = $2
-  AND deployments.status IN ('queued', 'building')
+  AND deployments.status IN ('queued', 'building', 'deploying')
 RETURNING deployments.*;
 
 -- name: UpdateDeploymentLive :one
@@ -41,6 +41,8 @@ SET status      = 'live',
     image_uri   = $2,
     ecs_task_arn = $3,
     url         = $4,
+    ecs_service_name = $5,
+    target_group_arn = $6,
     deployed_at = now()
 WHERE id = $1
 RETURNING *;

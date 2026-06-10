@@ -19,6 +19,10 @@ type Config struct {
 	RabbitMQURL        string
 	WebhookBaseURL     string
 	Environment        string
+	AWSRegion          string
+	ECSClusterName     string
+	ALBListenerARN     string
+	ALBArn             string
 }
 
 func Load() *Config {
@@ -36,7 +40,20 @@ func Load() *Config {
 		RabbitMQURL:        mustGetEnv("RABBITMQ_URL"),
 		WebhookBaseURL:     mustGetEnv("WEBHOOK_BASE_URL"),
 		Environment:        getEnv("ENVIRONMENT", "development"),
+		AWSRegion:          getEnv("AWS_REGION", "ap-south-1"),
+		ECSClusterName:     getEnv("ECS_CLUSTER_NAME", ""),
+		ALBListenerARN:     firstNonEmpty(getEnv("ALB_HTTPS_LISTENER_ARN", ""), getEnv("ALB_LISTENER_ARN", "")),
+		ALBArn:             getEnv("ALB_ARN", ""),
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func getEnv(key, fallback string) string {

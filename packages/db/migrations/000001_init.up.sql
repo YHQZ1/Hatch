@@ -19,6 +19,9 @@ CREATE TABLE projects (
     dockerfile_path TEXT NOT NULL DEFAULT 'Dockerfile',
     port            INTEGER NOT NULL DEFAULT 80,
     subdomain       TEXT UNIQUE,
+    status          TEXT NOT NULL DEFAULT 'active',
+    delete_requested_at TIMESTAMPTZ,
+    delete_error    TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -33,7 +36,7 @@ CREATE TABLE deployments (
     health_check     TEXT NOT NULL DEFAULT '/',
     image_uri        TEXT,
     ecs_task_arn     TEXT,
-    subdomain        TEXT UNIQUE,
+    subdomain        TEXT,
     url              TEXT,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     deployed_at      TIMESTAMPTZ

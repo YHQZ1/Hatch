@@ -19,8 +19,8 @@ FROM projects
 WHERE deployments.id = $1
   AND deployments.project_id = projects.id
   AND projects.user_id = $2
-  AND deployments.status IN ('queued', 'building')
-RETURNING deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at
+  AND deployments.status IN ('queued', 'building', 'deploying')
+RETURNING deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn
 `
 
 type CancelDeploymentByIDAndUserIDParams struct {
@@ -46,24 +46,30 @@ func (q *Queries) CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelD
 		&i.Url,
 		&i.CreatedAt,
 		&i.DeployedAt,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.EcsServiceName,
+		&i.TargetGroupArn,
 	)
 	return i, err
 }
 
 const createDeployment = `-- name: CreateDeployment :one
-INSERT INTO deployments (project_id, branch, cpu, memory_mb, port, health_check, subdomain)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at
+INSERT INTO deployments (project_id, branch, cpu, memory_mb, port, health_check, subdomain, commit_sha, commit_message)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn
 `
 
 type CreateDeploymentParams struct {
-	ProjectID   uuid.UUID      `json:"project_id"`
-	Branch      string         `json:"branch"`
-	Cpu         int32          `json:"cpu"`
-	MemoryMb    int32          `json:"memory_mb"`
-	Port        int32          `json:"port"`
-	HealthCheck string         `json:"health_check"`
-	Subdomain   sql.NullString `json:"subdomain"`
+	ProjectID     uuid.UUID      `json:"project_id"`
+	Branch        string         `json:"branch"`
+	Cpu           int32          `json:"cpu"`
+	MemoryMb      int32          `json:"memory_mb"`
+	Port          int32          `json:"port"`
+	HealthCheck   string         `json:"health_check"`
+	Subdomain     sql.NullString `json:"subdomain"`
+	CommitSha     sql.NullString `json:"commit_sha"`
+	CommitMessage sql.NullString `json:"commit_message"`
 }
 
 func (q *Queries) CreateDeployment(ctx context.Context, arg CreateDeploymentParams) (Deployment, error) {
@@ -75,6 +81,8 @@ func (q *Queries) CreateDeployment(ctx context.Context, arg CreateDeploymentPara
 		arg.Port,
 		arg.HealthCheck,
 		arg.Subdomain,
+		arg.CommitSha,
+		arg.CommitMessage,
 	)
 	var i Deployment
 	err := row.Scan(
@@ -92,12 +100,16 @@ func (q *Queries) CreateDeployment(ctx context.Context, arg CreateDeploymentPara
 		&i.Url,
 		&i.CreatedAt,
 		&i.DeployedAt,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.EcsServiceName,
+		&i.TargetGroupArn,
 	)
 	return i, err
 }
 
 const getDeploymentByID = `-- name: GetDeploymentByID :one
-SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at FROM deployments WHERE id = $1
+SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn FROM deployments WHERE id = $1
 `
 
 func (q *Queries) GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployment, error) {
@@ -118,12 +130,16 @@ func (q *Queries) GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployme
 		&i.Url,
 		&i.CreatedAt,
 		&i.DeployedAt,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.EcsServiceName,
+		&i.TargetGroupArn,
 	)
 	return i, err
 }
 
 const getDeploymentByIDAndUserID = `-- name: GetDeploymentByIDAndUserID :one
-SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at
+SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn
 FROM deployments
 JOIN projects ON projects.id = deployments.project_id
 WHERE deployments.id = $1 AND projects.user_id = $2
@@ -152,12 +168,16 @@ func (q *Queries) GetDeploymentByIDAndUserID(ctx context.Context, arg GetDeploym
 		&i.Url,
 		&i.CreatedAt,
 		&i.DeployedAt,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.EcsServiceName,
+		&i.TargetGroupArn,
 	)
 	return i, err
 }
 
 const getDeploymentsByProjectID = `-- name: GetDeploymentsByProjectID :many
-SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at FROM deployments WHERE project_id = $1 ORDER BY created_at DESC
+SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn FROM deployments WHERE project_id = $1 ORDER BY created_at DESC
 `
 
 func (q *Queries) GetDeploymentsByProjectID(ctx context.Context, projectID uuid.UUID) ([]Deployment, error) {
@@ -184,6 +204,10 @@ func (q *Queries) GetDeploymentsByProjectID(ctx context.Context, projectID uuid.
 			&i.Url,
 			&i.CreatedAt,
 			&i.DeployedAt,
+			&i.CommitSha,
+			&i.CommitMessage,
+			&i.EcsServiceName,
+			&i.TargetGroupArn,
 		); err != nil {
 			return nil, err
 		}
@@ -199,7 +223,7 @@ func (q *Queries) GetDeploymentsByProjectID(ctx context.Context, projectID uuid.
 }
 
 const getDeploymentsByProjectIDAndUserID = `-- name: GetDeploymentsByProjectIDAndUserID :many
-SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at
+SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn
 FROM deployments
 JOIN projects ON projects.id = deployments.project_id
 WHERE deployments.project_id = $1 AND projects.user_id = $2
@@ -235,6 +259,10 @@ func (q *Queries) GetDeploymentsByProjectIDAndUserID(ctx context.Context, arg Ge
 			&i.Url,
 			&i.CreatedAt,
 			&i.DeployedAt,
+			&i.CommitSha,
+			&i.CommitMessage,
+			&i.EcsServiceName,
+			&i.TargetGroupArn,
 		); err != nil {
 			return nil, err
 		}
@@ -255,16 +283,20 @@ SET status      = 'live',
     image_uri   = $2,
     ecs_task_arn = $3,
     url         = $4,
+    ecs_service_name = $5,
+    target_group_arn = $6,
     deployed_at = now()
 WHERE id = $1
-RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at
+RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn
 `
 
 type UpdateDeploymentLiveParams struct {
-	ID         uuid.UUID      `json:"id"`
-	ImageUri   sql.NullString `json:"image_uri"`
-	EcsTaskArn sql.NullString `json:"ecs_task_arn"`
-	Url        sql.NullString `json:"url"`
+	ID             uuid.UUID      `json:"id"`
+	ImageUri       sql.NullString `json:"image_uri"`
+	EcsTaskArn     sql.NullString `json:"ecs_task_arn"`
+	Url            sql.NullString `json:"url"`
+	EcsServiceName sql.NullString `json:"ecs_service_name"`
+	TargetGroupArn sql.NullString `json:"target_group_arn"`
 }
 
 func (q *Queries) UpdateDeploymentLive(ctx context.Context, arg UpdateDeploymentLiveParams) (Deployment, error) {
@@ -273,6 +305,8 @@ func (q *Queries) UpdateDeploymentLive(ctx context.Context, arg UpdateDeployment
 		arg.ImageUri,
 		arg.EcsTaskArn,
 		arg.Url,
+		arg.EcsServiceName,
+		arg.TargetGroupArn,
 	)
 	var i Deployment
 	err := row.Scan(
@@ -290,12 +324,16 @@ func (q *Queries) UpdateDeploymentLive(ctx context.Context, arg UpdateDeployment
 		&i.Url,
 		&i.CreatedAt,
 		&i.DeployedAt,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.EcsServiceName,
+		&i.TargetGroupArn,
 	)
 	return i, err
 }
 
 const updateDeploymentStatus = `-- name: UpdateDeploymentStatus :one
-UPDATE deployments SET status = $2 WHERE id = $1 RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at
+UPDATE deployments SET status = $2 WHERE id = $1 RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn
 `
 
 type UpdateDeploymentStatusParams struct {
@@ -321,6 +359,10 @@ func (q *Queries) UpdateDeploymentStatus(ctx context.Context, arg UpdateDeployme
 		&i.Url,
 		&i.CreatedAt,
 		&i.DeployedAt,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.EcsServiceName,
+		&i.TargetGroupArn,
 	)
 	return i, err
 }

@@ -2,7 +2,7 @@ const CACHE_PREFIXES = ["hatch_project_", "hatch_deployment_"];
 const CACHE_KEYS = [
   "hatch_token",
   "hatch_projects_cache",
-  "hatch_infrastructure_cache",
+  "hatch_insights_cache",
   "hatch_activity_cache",
   "hatch_profile_cache",
 ];

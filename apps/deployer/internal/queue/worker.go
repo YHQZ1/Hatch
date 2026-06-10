@@ -41,6 +41,17 @@ type DeployJobEvent struct {
 	Subdomain    string `json:"subdomain"`
 }
 
+type CleanupJobEvent struct {
+	ProjectID string `json:"project_id"`
+	Slug      string `json:"slug"`
+}
+
+type ServiceControlJobEvent struct {
+	ProjectID string `json:"project_id"`
+	Slug      string `json:"slug"`
+	Action    string `json:"action"`
+}
+
 type Worker struct {
 	cfg      Config
 	streamer *logs.Streamer
@@ -100,6 +111,11 @@ func (w *Worker) Start() error {
 		return fmt.Errorf("failed to declare cleanup queue: %w", err)
 	}
 
+	_, err = w.ch.QueueDeclare("hatch.service.jobs", true, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("failed to declare service queue: %w", err)
+	}
+
 	deployMsgs, err := w.ch.Consume("hatch.deploy.jobs", "", false, false, false, false, nil)
 	if err != nil {
 		return fmt.Errorf("failed to consume deploy queue: %w", err)
@@ -110,7 +126,13 @@ func (w *Worker) Start() error {
 		return fmt.Errorf("failed to consume cleanup queue: %w", err)
 	}
 
+	serviceMsgs, err := w.ch.Consume("hatch.service.jobs", "", false, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("failed to consume service queue: %w", err)
+	}
+
 	go w.handleCleanupJobs(cleanupMsgs)
+	go w.handleServiceControlJobs(serviceMsgs)
 
 	log.Println("Deployer worker started")
 
@@ -128,19 +150,60 @@ func (w *Worker) Start() error {
 	return nil
 }
 
-func (w *Worker) handleCleanupJobs(msgs <-chan amqp.Delivery) {
+func (w *Worker) handleServiceControlJobs(msgs <-chan amqp.Delivery) {
 	for msg := range msgs {
-		var slugs []string
-		if err := json.Unmarshal(msg.Body, &slugs); err != nil {
+		var job ServiceControlJobEvent
+		if err := json.Unmarshal(msg.Body, &job); err != nil || job.ProjectID == "" || job.Slug == "" {
 			msg.Nack(false, false)
 			continue
 		}
 
-		for _, slug := range slugs {
-			if err := w.deployer.Teardown(context.Background(), slug); err != nil {
-				log.Printf("Failed to teardown %s: %v", slug, err)
-			}
+		ctx := context.Background()
+		var desiredCount int32
+		successStatus := "active"
+		failedStatus := "resume_failed"
+		switch job.Action {
+		case "suspend":
+			desiredCount = 0
+			successStatus = "suspended"
+			failedStatus = "suspend_failed"
+		case "resume":
+			desiredCount = 1
+			successStatus = "active"
+			failedStatus = "resume_failed"
+		default:
+			msg.Nack(false, false)
+			continue
 		}
+
+		if err := w.deployer.SetServiceDesiredCount(ctx, job.Slug, desiredCount); err != nil {
+			log.Printf("Failed to %s %s: %v", job.Action, job.Slug, err)
+			w.markProjectOperationFailed(ctx, job.ProjectID, failedStatus, err)
+			msg.Ack(false)
+			continue
+		}
+
+		w.updateProjectLifecycleStatus(ctx, job.ProjectID, successStatus)
+		msg.Ack(false)
+	}
+}
+
+func (w *Worker) handleCleanupJobs(msgs <-chan amqp.Delivery) {
+	for msg := range msgs {
+		var job CleanupJobEvent
+		if err := json.Unmarshal(msg.Body, &job); err != nil || job.ProjectID == "" || job.Slug == "" {
+			msg.Nack(false, false)
+			continue
+		}
+
+		ctx := context.Background()
+		if err := w.deployer.Teardown(ctx, job.Slug); err != nil {
+			log.Printf("Failed to teardown %s: %v", job.Slug, err)
+			w.markProjectDeleteFailed(ctx, job.ProjectID, err)
+			msg.Ack(false)
+			continue
+		}
+		w.deleteProjectRecord(ctx, job.ProjectID)
 		msg.Ack(false)
 	}
 }
@@ -156,7 +219,7 @@ func (w *Worker) processJob(job DeployJobEvent) {
 
 	envMap := w.fetchEnvVars(ctx, job.DeploymentID)
 
-	url, err := w.deployer.Deploy(ctx, ecsdeploy.DeployInput{
+	result, err := w.deployer.Deploy(ctx, ecsdeploy.DeployInput{
 		DeploymentID: job.DeploymentID,
 		ImageURI:     job.ImageURI,
 		Port:         job.Port,
@@ -183,7 +246,7 @@ func (w *Worker) processJob(job DeployJobEvent) {
 		return
 	}
 
-	w.finalizeDeployment(ctx, job.DeploymentID, job.ImageURI, url)
+	w.finalizeDeployment(ctx, job.DeploymentID, job.ImageURI, result)
 }
 
 func (w *Worker) isCanceled(ctx context.Context, deploymentID string) bool {
@@ -226,13 +289,64 @@ func (w *Worker) updateDeploymentStatus(ctx context.Context, id, status string) 
 	}
 }
 
-func (w *Worker) finalizeDeployment(ctx context.Context, id, image, url string) {
+func (w *Worker) markProjectDeleteFailed(ctx context.Context, projectID string, cause error) {
+	w.markProjectOperationFailed(ctx, projectID, "delete_failed", cause)
+}
+
+func (w *Worker) markProjectOperationFailed(ctx context.Context, projectID, status string, cause error) {
+	_, err := w.db.ExecContext(
+		ctx,
+		"UPDATE projects SET status = $2, delete_error = $3 WHERE id = $1",
+		projectID,
+		status,
+		cause.Error(),
+	)
+	if err != nil {
+		log.Printf("Failed to mark project operation failed for %s: %v", projectID, err)
+	}
+}
+
+func (w *Worker) updateProjectLifecycleStatus(ctx context.Context, projectID, status string) {
+	_, err := w.db.ExecContext(
+		ctx,
+		"UPDATE projects SET status = $2, delete_error = NULL WHERE id = $1",
+		projectID,
+		status,
+	)
+	if err != nil {
+		log.Printf("Failed to update project lifecycle status for %s: %v", projectID, err)
+	}
+}
+
+func (w *Worker) deleteProjectRecord(ctx context.Context, projectID string) {
+	_, err := w.db.ExecContext(ctx, "DELETE FROM projects WHERE id = $1", projectID)
+	if err != nil {
+		log.Printf("Failed to delete project record %s after cleanup: %v", projectID, err)
+	}
+}
+
+func (w *Worker) finalizeDeployment(ctx context.Context, id, image string, result ecsdeploy.DeployResult) {
 	query := `
 		UPDATE deployments 
-		SET status = 'live', image_uri = $2, url = $3, deployed_at = now() 
+		SET status = 'live',
+		    image_uri = $2,
+		    url = $3,
+		    ecs_task_arn = $4,
+		    ecs_service_name = $5,
+		    target_group_arn = $6,
+		    deployed_at = now()
 		WHERE id = $1`
 
-	_, err := w.db.ExecContext(ctx, query, id, image, url)
+	_, err := w.db.ExecContext(
+		ctx,
+		query,
+		id,
+		image,
+		result.PublicURL,
+		result.TaskDefinitionARN,
+		result.ServiceName,
+		result.TargetGroupARN,
+	)
 	if err != nil {
 		log.Printf("Failed to finalize deployment %s: %v", id, err)
 		w.streamer.Publish(ctx, id, fmt.Sprintf("Warning: Deployment live but status update failed: %v", err))

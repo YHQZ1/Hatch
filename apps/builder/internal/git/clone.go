@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func Clone(ctx context.Context, repoURL, token, destDir string) error {
+func Clone(ctx context.Context, repoURL, token, branch, destDir string) error {
 	repoPath := strings.TrimPrefix(repoURL, "https://")
 	authedURL := fmt.Sprintf("https://%s@%s", token, repoPath)
 
@@ -20,7 +20,13 @@ func Clone(ctx context.Context, repoURL, token, destDir string) error {
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", authedURL, destDir)
+	args := []string{"clone", "--depth=1"}
+	if branch != "" {
+		args = append(args, "--branch", branch)
+	}
+	args = append(args, authedURL, destDir)
+
+	cmd := exec.CommandContext(ctx, "git", args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git clone failed: %s", string(out))
 	}

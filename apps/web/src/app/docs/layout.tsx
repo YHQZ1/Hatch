@@ -9,8 +9,21 @@ const NAV_SECTIONS = [
   {
     title: "Getting Started",
     items: [
-      { label: "Quick Start", href: "/docs/quick-start" },
+      { label: "Deploy Your First App", href: "/docs/deploy-your-first-app" },
+      { label: "Run Hatch Locally", href: "/docs/quick-start" },
       { label: "Self-Hosting", href: "/docs/self-hosting" },
+    ],
+  },
+  {
+    title: "Deploying Apps",
+    items: [
+      {
+        label: "Dockerfile Requirements",
+        href: "/docs/dockerfile-requirements",
+      },
+      { label: "Deployment Lifecycle", href: "/docs/deployment-lifecycle" },
+      { label: "Custom Domains", href: "/docs/custom-domains" },
+      { label: "Troubleshooting", href: "/docs/troubleshooting" },
     ],
   },
   {
@@ -91,12 +104,6 @@ export default function DocsLayout({
               >
                 Primitives
               </Link>
-              <Link
-                href="/#architecture"
-                className="text-[#888] hover:text-white transition-colors uppercase"
-              >
-                Architecture
-              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-5">
@@ -147,12 +154,9 @@ export default function DocsLayout({
             <div className="flex-1">{children}</div>
 
             <footer className="w-full border-t border-[#111] py-6 mt-20 shrink-0">
-              <div className="px-10 lg:px-20 flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className="px-10 lg:px-20 flex items-center justify-center">
                 <span className="font-mono text-[11px] uppercase text-zinc-500">
-                  © 2026 Hatch · MIT License
-                </span>
-                <span className="font-mono text-[11px] uppercase text-zinc-500">
-                  AWS · Terraform · RabbitMQ · Go
+                  © 2026 Hatch
                 </span>
               </div>
             </footer>

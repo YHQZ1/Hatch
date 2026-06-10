@@ -20,20 +20,24 @@ type ActivityLog struct {
 }
 
 type Deployment struct {
-	ID          uuid.UUID      `json:"id"`
-	ProjectID   uuid.UUID      `json:"project_id"`
-	Branch      string         `json:"branch"`
-	Status      string         `json:"status"`
-	Cpu         int32          `json:"cpu"`
-	MemoryMb    int32          `json:"memory_mb"`
-	Port        int32          `json:"port"`
-	HealthCheck string         `json:"health_check"`
-	ImageUri    sql.NullString `json:"image_uri"`
-	EcsTaskArn  sql.NullString `json:"ecs_task_arn"`
-	Subdomain   sql.NullString `json:"subdomain"`
-	Url         sql.NullString `json:"url"`
-	CreatedAt   time.Time      `json:"created_at"`
-	DeployedAt  sql.NullTime   `json:"deployed_at"`
+	ID             uuid.UUID      `json:"id"`
+	ProjectID      uuid.UUID      `json:"project_id"`
+	Branch         string         `json:"branch"`
+	Status         string         `json:"status"`
+	Cpu            int32          `json:"cpu"`
+	MemoryMb       int32          `json:"memory_mb"`
+	Port           int32          `json:"port"`
+	HealthCheck    string         `json:"health_check"`
+	ImageUri       sql.NullString `json:"image_uri"`
+	EcsTaskArn     sql.NullString `json:"ecs_task_arn"`
+	Subdomain      sql.NullString `json:"subdomain"`
+	Url            sql.NullString `json:"url"`
+	CreatedAt      time.Time      `json:"created_at"`
+	DeployedAt     sql.NullTime   `json:"deployed_at"`
+	CommitSha      sql.NullString `json:"commit_sha"`
+	CommitMessage  sql.NullString `json:"commit_message"`
+	EcsServiceName sql.NullString `json:"ecs_service_name"`
+	TargetGroupArn sql.NullString `json:"target_group_arn"`
 }
 
 type EnvVar struct {
@@ -46,17 +50,30 @@ type EnvVar struct {
 }
 
 type Project struct {
-	ID             uuid.UUID      `json:"id"`
-	UserID         uuid.UUID      `json:"user_id"`
-	RepoName       string         `json:"repo_name"`
-	RepoUrl        string         `json:"repo_url"`
-	WebhookSecret  sql.NullString `json:"webhook_secret"`
-	AutoDeploy     bool           `json:"auto_deploy"`
-	Branch         string         `json:"branch"`
-	DockerfilePath string         `json:"dockerfile_path"`
-	Port           int32          `json:"port"`
-	Subdomain      sql.NullString `json:"subdomain"`
-	CreatedAt      time.Time      `json:"created_at"`
+	ID                uuid.UUID      `json:"id"`
+	UserID            uuid.UUID      `json:"user_id"`
+	RepoName          string         `json:"repo_name"`
+	RepoUrl           string         `json:"repo_url"`
+	WebhookSecret     sql.NullString `json:"webhook_secret"`
+	AutoDeploy        bool           `json:"auto_deploy"`
+	Branch            string         `json:"branch"`
+	DockerfilePath    string         `json:"dockerfile_path"`
+	Port              int32          `json:"port"`
+	Subdomain         sql.NullString `json:"subdomain"`
+	Status            string         `json:"status"`
+	DeleteRequestedAt sql.NullTime   `json:"delete_requested_at"`
+	DeleteError       sql.NullString `json:"delete_error"`
+	CreatedAt         time.Time      `json:"created_at"`
+}
+
+type ProjectEnvVar struct {
+	ID        uuid.UUID      `json:"id"`
+	ProjectID uuid.UUID      `json:"project_id"`
+	Key       string         `json:"key"`
+	Value     string         `json:"value"`
+	SecretArn sql.NullString `json:"secret_arn"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 }
 
 type User struct {

@@ -22,6 +22,17 @@ type BuildJobEvent struct {
 	HealthCheck    string `json:"health_check"`
 }
 
+type CleanupJobEvent struct {
+	ProjectID string `json:"project_id"`
+	Slug      string `json:"slug"`
+}
+
+type ServiceControlJobEvent struct {
+	ProjectID string `json:"project_id"`
+	Slug      string `json:"slug"`
+	Action    string `json:"action"`
+}
+
 type Publisher struct {
 	conn *amqp.Connection
 	ch   *amqp.Channel
@@ -48,6 +59,11 @@ func NewPublisher(url string) *Publisher {
 		log.Fatalf("Failed to declare cleanup queue: %v", err)
 	}
 
+	_, err = ch.QueueDeclare("hatch.service.jobs", true, false, false, false, nil)
+	if err != nil {
+		log.Fatalf("Failed to declare service queue: %v", err)
+	}
+
 	return &Publisher{conn: conn, ch: ch}
 }
 
@@ -70,8 +86,8 @@ func (p *Publisher) PublishBuildJob(ctx context.Context, job BuildJobEvent) erro
 	)
 }
 
-func (p *Publisher) PublishCleanupJob(ctx context.Context, deploymentIDs []string) error {
-	body, err := json.Marshal(deploymentIDs)
+func (p *Publisher) PublishCleanupJob(ctx context.Context, job CleanupJobEvent) error {
+	body, err := json.Marshal(job)
 	if err != nil {
 		return fmt.Errorf("failed to marshal cleanup job: %w", err)
 	}
@@ -79,6 +95,25 @@ func (p *Publisher) PublishCleanupJob(ctx context.Context, deploymentIDs []strin
 	return p.ch.PublishWithContext(ctx,
 		"",
 		"hatch.cleanup.jobs",
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Body:         body,
+		},
+	)
+}
+
+func (p *Publisher) PublishServiceControlJob(ctx context.Context, job ServiceControlJobEvent) error {
+	body, err := json.Marshal(job)
+	if err != nil {
+		return fmt.Errorf("failed to marshal service control job: %w", err)
+	}
+
+	return p.ch.PublishWithContext(ctx,
+		"",
+		"hatch.service.jobs",
 		false,
 		false,
 		amqp.Publishing{

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 
 function TableOfContents() {
-  const [active, setActive] = useState("resources");
+  const [active, setActive] = useState("networking");
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -14,7 +14,7 @@ function TableOfContents() {
       },
       { rootMargin: "-20% 0px -60% 0px" },
     );
-    const ids = ["resources", "networking", "build-settings", "health-checks"];
+    const ids = ["networking", "build-settings", "health-checks"];
     ids.forEach((id) => {
       const el = document.getElementById(id);
       if (el) observer.observe(el);
@@ -29,7 +29,6 @@ function TableOfContents() {
       </div>
       <div className="flex flex-col gap-1.5">
         {[
-          { id: "resources", label: "Compute Resources" },
           { id: "networking", label: "Networking" },
           { id: "build-settings", label: "Build Settings" },
           { id: "health-checks", label: "Health Checks" },
@@ -119,26 +118,6 @@ export default function ConfigurationReference() {
           </div>
         </div>
 
-        <section id="resources" className="mb-20">
-          <h2 className="text-2xl font-medium text-white mb-4 tracking-tight">
-            Compute Resources
-          </h2>
-          <div className="border-t border-[#111] mt-8">
-            <ConfigRow
-              label="cpu"
-              desc="The number of CPU units used by the task. 1024 units is equivalent to 1 vCPU."
-              type="int"
-              defaultValue="256"
-            />
-            <ConfigRow
-              label="memory"
-              desc="The amount of memory (in MiB) used by the task."
-              type="int"
-              defaultValue="512"
-            />
-          </div>
-        </section>
-
         <section id="networking" className="mb-20">
           <h2 className="text-2xl font-medium text-white mb-4 tracking-tight">
             Networking
@@ -146,9 +125,9 @@ export default function ConfigurationReference() {
           <div className="border-t border-[#111] mt-8">
             <ConfigRow
               label="port"
-              desc="The container port that your application listens on. Hatch routes ALB traffic to this port."
+              desc="The container port your application listens on. Hatch detects this from Dockerfile EXPOSE when possible, then lets you override it."
               type="int"
-              defaultValue="80"
+              defaultValue="detected"
             />
             <ConfigRow
               label="subdomain"

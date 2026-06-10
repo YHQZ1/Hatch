@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -18,12 +19,14 @@ import (
 
 type WebhookHandler struct {
 	queries   *dbpkg.Queries
+	db        *sql.DB
 	publisher *queue.Publisher
 }
 
 func NewWebhookHandler(db *sql.DB, publisher *queue.Publisher) *WebhookHandler {
 	return &WebhookHandler{
 		queries:   dbpkg.New(db),
+		db:        db,
 		publisher: publisher,
 	}
 }
@@ -33,6 +36,10 @@ type githubPushEvent struct {
 	Repository struct {
 		HTMLURL string `json:"html_url"`
 	} `json:"repository"`
+	HeadCommit struct {
+		ID      string `json:"id"`
+		Message string `json:"message"`
+	} `json:"head_commit"`
 }
 
 func (h *WebhookHandler) HandlePush(c *gin.Context) {
@@ -59,11 +66,20 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 	// We trim it to match whatever is stored in your DB
 	repoURL := strings.TrimSuffix(payload.Repository.HTMLURL, ".git")
 
-	// 4. Look up project
-	project, err := h.queries.GetProjectByRepoURL(c.Request.Context(), repoURL)
+	// 4. Look up projects. Multiple Hatch services may point at the same repo,
+	// so use the webhook signature to select the exact project/secret.
+	projects, err := h.queries.GetProjectsByRepoURL(c.Request.Context(), repoURL)
 	if err != nil {
 		// If project doesn't exist, we return 202 to avoid GitHub retries
 		c.Status(http.StatusAccepted)
+		return
+	}
+
+	signature := c.GetHeader("X-Hub-Signature-256")
+	project, ok := matchWebhookProject(projects, body, signature)
+	if !ok {
+		log.Printf("[SECURITY] No matching webhook signature for repo: %s", repoURL)
+		c.Status(http.StatusUnauthorized)
 		return
 	}
 
@@ -71,15 +87,9 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 		return
 	}
-
-	// 5. FLEXIBLE SECURITY: Only verify if a secret is actually set in DB
-	signature := c.GetHeader("X-Hub-Signature-256")
-	if project.WebhookSecret.Valid && project.WebhookSecret.String != "" {
-		if !verifySignature(body, project.WebhookSecret.String, signature) {
-			fmt.Printf("[SECURITY] Signature mismatch for project: %s\n", project.ID)
-			c.Status(http.StatusUnauthorized)
-			return
-		}
+	if project.Status != "" && project.Status != "active" {
+		c.Status(http.StatusNoContent)
+		return
 	}
 
 	// 6. Branch Check
@@ -103,16 +113,47 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 	}
 
 	// 9. Database Entry
-	deployment, err := h.queries.CreateDeployment(c.Request.Context(), dbpkg.CreateDeploymentParams{
-		ProjectID:   project.ID,
-		Branch:      project.Branch,
-		Cpu:         512,
-		MemoryMb:    1024,
-		Port:        project.Port,
-		HealthCheck: "/",
-		Subdomain:   sql.NullString{String: resourceName, Valid: true},
+	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	qtx := h.queries.WithTx(tx)
+	deployment, err := qtx.CreateDeployment(c.Request.Context(), dbpkg.CreateDeploymentParams{
+		ProjectID:     project.ID,
+		Branch:        project.Branch,
+		Cpu:           defaultDeploymentCPU,
+		MemoryMb:      defaultDeploymentMemoryMB,
+		Port:          project.Port,
+		HealthCheck:   "/",
+		Subdomain:     sql.NullString{String: resourceName, Valid: true},
+		CommitSha:     nullString(payload.HeadCommit.ID),
+		CommitMessage: nullString(firstCommitLine(payload.HeadCommit.Message)),
 	})
 	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	envSnapshot, err := buildDeploymentEnvSnapshot(c.Request.Context(), qtx, project.ID, nil)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	for key, value := range envSnapshot {
+		if _, err := qtx.CreateEnvVar(c.Request.Context(), dbpkg.CreateEnvVarParams{
+			DeploymentID: deployment.ID,
+			Key:          key,
+			Value:        value,
+			SecretArn:    sql.NullString{},
+		}); err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
@@ -126,8 +167,8 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		UserToken:      user.AccessToken,
 		Port:           int(project.Port),
 		Subdomain:      resourceName,
-		CPU:            512,
-		MemoryMB:       1024,
+		CPU:            defaultDeploymentCPU,
+		MemoryMB:       defaultDeploymentMemoryMB,
 		HealthCheck:    "/",
 	}); err != nil {
 		_, _ = h.queries.UpdateDeploymentStatus(c.Request.Context(), dbpkg.UpdateDeploymentStatusParams{
@@ -142,6 +183,29 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		"status": "deploying",
 		"id":     deployment.ID,
 	})
+}
+
+func matchWebhookProject(projects []dbpkg.Project, body []byte, signature string) (dbpkg.Project, bool) {
+	for _, project := range projects {
+		if project.WebhookSecret.Valid && project.WebhookSecret.String != "" {
+			if verifySignature(body, project.WebhookSecret.String, signature) {
+				return project, true
+			}
+			continue
+		}
+	}
+
+	if signature != "" {
+		return dbpkg.Project{}, false
+	}
+
+	for _, project := range projects {
+		if !project.WebhookSecret.Valid || project.WebhookSecret.String == "" {
+			return project, true
+		}
+	}
+
+	return dbpkg.Project{}, false
 }
 
 func verifySignature(body []byte, secret, signature string) bool {

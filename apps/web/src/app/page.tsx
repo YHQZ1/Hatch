@@ -14,7 +14,6 @@ export default function Hatch() {
       <SupportedTechnologies />
       <WorkloadPrimitives />
       <ProductFeatures />
-      <ArchitectureDiagram />
       <Footer />
     </div>
   );
@@ -32,17 +31,8 @@ function HeroSection() {
           </h1>
 
           <p className="text-lg md:text-xl text-[#888] max-w-2xl leading-relaxed font-light">
-            You provide the{" "}
-            <a
-              href="https://docs.docker.com/reference/dockerfile/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-[#111] px-2 py-1 text-white font-mono text-sm border border-[#333] hover:border-[#555] transition-colors underline decoration-[#555]"
-            >
-              Dockerfile
-            </a>
-            . Hatch provisions the queue, builds the image, registers the ECS
-            task, routes the ALB, and points the wildcard SSL.
+            A PaaS for shipping Dockerized apps on your own cloud. Connect a
+            repo, set your runtime, and Hatch handles the path to production.
           </p>
 
           <div className="flex flex-wrap items-center gap-4 mt-4 font-mono text-sm">
@@ -50,7 +40,7 @@ function HeroSection() {
               href="/auth"
               className="bg-white text-black px-8 py-4 font-bold transition-colors uppercase tracking-wider"
             >
-              Initialize Stack
+              Start Deploying
             </Link>
           </div>
         </div>
@@ -72,7 +62,7 @@ function HowItWorks() {
     >
       <div className="max-w-3xl mb-20">
         <h2 className="text-4xl md:text-5xl font-medium tracking-tight text-white mb-6">
-          Your cloud. Our control plane.
+          Your cloud. One deployment layer.
         </h2>
         <p className="text-xl text-[#888] font-light leading-relaxed">
           Hatch is a self-hosted alternative to platforms like Render and
@@ -190,10 +180,11 @@ function WorkloadPrimitives() {
     >
       <div className="max-w-3xl mb-20">
         <h2 className="text-4xl md:text-5xl font-medium tracking-tight text-white mb-6">
-          Everything you need to build.
+          Built for every workload your app grows into.
         </h2>
         <p className="text-xl text-[#888] font-light leading-relaxed">
-          Deploy complex architectures using simple building blocks.
+          Start with a web service today, then expand into private services,
+          workers, and scheduled jobs as your system evolves.
         </p>
       </div>
 
@@ -285,152 +276,6 @@ function ProductFeatures() {
   );
 }
 
-function ArchitectureDiagram() {
-  return (
-    <section
-      id="architecture"
-      className="px-6 lg:px-12 py-12"
-      style={{ background: "#030303" }}
-    >
-      <div className="max-w-4xl mb-20">
-        <h2 className="font-mono text-xs tracking-widest uppercase text-[#888] mb-6">
-          System Blueprint
-        </h2>
-        <h3 className="text-4xl md:text-5xl font-medium tracking-tight text-white mb-6">
-          Engineered for decoupling.
-        </h3>
-        <p className="text-xl text-[#888] font-light leading-relaxed">
-          Hatch operates as a monorepo of independent microservices
-          communicating over RabbitMQ.
-        </p>
-      </div>
-
-      <div className="w-full border border-[#1f1f1f] bg-[#050505] py-16 overflow-x-auto relative shadow-2xl flex justify-center">
-        <div className="flex flex-col items-center w-[900px]">
-          <div className="grid grid-cols-[180px_1fr_180px_1fr_180px] w-full items-center h-[100px]">
-            <ArchNode
-              title="GitHub"
-              sub="Source control"
-              icon="github"
-              color="FFFFFF"
-            />
-            <FlowArrow direction="right" label="OAuth + Webhooks" />
-            <ArchNode
-              title="API Gateway"
-              sub="Go · Gin"
-              icon="go"
-              color="00ADD8"
-            />
-            <FlowArrow direction="right" label="BuildJobEvent" />
-            <ArchNode
-              title="RabbitMQ"
-              sub="Message broker"
-              icon="rabbitmq"
-              color="FF6600"
-            />
-          </div>
-
-          <div className="grid grid-cols-[180px_1fr_180px_1fr_180px] w-full h-16">
-            <div />
-            <div />
-            <FlowArrow direction="down" label="Pub/Sub" />
-            <div />
-            <FlowArrow direction="down" label="Consume" />
-          </div>
-
-          <div className="grid grid-cols-[180px_1fr_180px_1fr_180px] w-full items-start">
-            <div className="flex flex-col gap-3">
-              <ArchNode
-                title="PostgreSQL"
-                sub="RDS · App data"
-                icon="postgresql"
-                color="4169E1"
-                className="h-[130px]"
-              />
-              <div className="flex items-center justify-center my-1">
-                <FlowArrow direction="down" label="Cache" />
-              </div>
-              <ArchNode
-                title="Redis"
-                sub="ElastiCache · Logs"
-                icon="redis"
-                color="FF4438"
-                className="h-[100px]"
-              />
-            </div>
-            <div className="flex items-center justify-center mt-20">
-              <FlowArrow direction="right" label="Read / Write" />
-            </div>
-            <ArchNode
-              title="API Gateway"
-              sub="Stateless"
-              icon="go"
-              color="00ADD8"
-              className="h-[262px]"
-            />
-            <div />
-            <div className="flex flex-col w-[180px]">
-              <ArchNode
-                title="Builder"
-                sub="Clone → Build → ECR"
-                icon="docker"
-                color="2496ED"
-                className="h-[105px] shrink-0"
-              />
-              <div className="h-12 w-full relative">
-                <FlowArrow direction="down" label="Image URI" />
-              </div>
-              <ArchNode
-                title="Deployer"
-                sub="ECS · ALB · Route53"
-                customIcon={<AwsIcon />}
-                className="h-[110px] shrink-0"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-[180px_1fr_180px_1fr_180px] w-full h-18">
-            <div />
-            <div />
-            <div />
-            <div />
-            <FlowArrow direction="down" label="Provision" />
-          </div>
-
-          <div className="relative w-full mt-5">
-            <div className="absolute inset-x-[-32px] inset-y-[-24px] border border-[#333] bg-[#0a0a0a] pointer-events-none rounded-xl" />
-            <span className="absolute -top-10 left-[-16px] bg-[#050505] px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-[#888] border border-[#333] rounded-md z-10">
-              Target Infrastructure
-            </span>
-            <div className="grid grid-cols-[180px_1fr_180px_1fr_180px] w-full items-center relative z-10 h-[140px]">
-              <ArchNode
-                title="ECR Registry"
-                sub="Private images"
-                customIcon={<AwsIcon />}
-                className="h-[140px]"
-              />
-              <FlowArrow direction="right" />
-              <ArchNode
-                title="ECS Fargate"
-                sub="Serverless compute"
-                customIcon={<AwsIcon />}
-                className="h-[140px]"
-              />
-              <FlowArrow direction="right" />
-              <ArchNode
-                title="ALB + Route53"
-                sub="Traffic + DNS + TLS"
-                customIcon={<AwsIcon />}
-                className="h-[140px]"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function StepCard({
   step,
   title,
@@ -494,109 +339,6 @@ function FeatureRow({ title, desc }: { title: string; desc: string }) {
       </div>
     </div>
   );
-}
-
-function ArchNode({
-  title,
-  sub,
-  icon,
-  color = "FFFFFF",
-  customIcon,
-  className = "h-[100px]",
-}: {
-  title: string;
-  sub: string;
-  icon?: string;
-  color?: string;
-  customIcon?: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={`w-[180px] ${className} p-4 border border-[#333] bg-[#050505] flex flex-col items-center justify-center text-center gap-2 relative z-10`}
-    >
-      {icon && (
-        <img
-          src={`https://cdn.simpleicons.org/${icon}/${color}`}
-          alt=""
-          className="w-6 h-6 opacity-90"
-        />
-      )}
-      {customIcon && (
-        <div className="w-6 h-6 flex items-center justify-center opacity-90">
-          {customIcon}
-        </div>
-      )}
-      <div>
-        <div className="text-sm font-medium text-white">{title}</div>
-        <div className="font-mono text-[10px] text-[#888] mt-1">{sub}</div>
-      </div>
-    </div>
-  );
-}
-
-function FlowArrow({
-  direction = "right",
-  label,
-}: {
-  direction?: "right" | "down";
-  label?: string;
-}) {
-  if (direction === "right") {
-    return (
-      <div className="relative w-full h-full flex items-center justify-center self-stretch z-0">
-        {label && (
-          <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full -mt-1 bg-[#050505] px-2 py-0.5 font-mono text-[9px] text-[#888] border border-[#222] rounded whitespace-nowrap z-10">
-            {label}
-          </span>
-        )}
-        <svg
-          className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full h-[2px]"
-          preserveAspectRatio="none"
-        >
-          <line
-            x1="0"
-            y1="1"
-            x2="100%"
-            y2="1"
-            stroke="#555"
-            strokeWidth="2"
-            strokeDasharray="4 4"
-            className="animate-flow"
-          />
-        </svg>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative w-full h-full flex items-center justify-center self-stretch z-0">
-      {label && (
-        <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#050505] px-2 py-0.5 font-mono text-[9px] text-[#888] border border-[#222] rounded whitespace-nowrap z-10">
-          {label}
-        </span>
-      )}
-      <svg
-        className="absolute inset-y-0 left-1/2 -translate-x-1/2 h-full w-[2px]"
-        preserveAspectRatio="none"
-      >
-        <line
-          x1="1"
-          y1="0"
-          x2="1"
-          y2="100%"
-          stroke="#555"
-          strokeWidth="2"
-          strokeDasharray="4 4"
-          className="animate-flow"
-        />
-      </svg>
-    </div>
-  );
-}
-
-function AwsIcon() {
-  return <img src="/aws.svg" alt="AWS" width={24} height={24} />;
 }
 
 const TERMINAL_STEPS = [
@@ -739,12 +481,6 @@ function Header() {
             >
               Primitives
             </button>
-            <button
-              onClick={() => scrollToSection("architecture")}
-              className="text-[#888] hover:text-white transition-colors cursor-pointer uppercase"
-            >
-              Architecture
-            </button>
           </nav>
         </div>
 
@@ -831,12 +567,6 @@ function Footer() {
               Background Workers
             </a>
             <a
-              href="#architecture"
-              className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
-            >
-              Architecture
-            </a>
-            <a
               href="#primitives"
               className="text-[#888] text-sm hover:text-white transition-colors block"
             >
@@ -878,12 +608,17 @@ function Footer() {
           </div>
         </div>
       </div>
-      <div className="px-6 lg:px-12 pt-8 border-t border-[#1f1f1f] flex flex-col md:flex-row items-center justify-between gap-6">
+      <div className="px-6 lg:px-12 pt-8 border-t border-[#1f1f1f] flex items-center justify-center">
         <span className="font-mono text-[12px] uppercase text-zinc-300">
-          © {new Date().getFullYear()} Hatch · MIT License
-        </span>
-        <span className="font-mono text-[12px] uppercase text-zinc-300">
-          AWS · Terraform · RabbitMQ · Go
+          © {new Date().getFullYear()} Hatch ·{" "}
+          <Link
+            href="https://github.com/YHQZ1/Hatch"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-white transition-colors"
+          >
+            GitHub
+          </Link>
         </span>
       </div>
     </footer>

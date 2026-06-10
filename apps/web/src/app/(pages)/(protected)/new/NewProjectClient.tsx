@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { debounce } from "lodash";
 import { PageLoadingState } from "../../../components/LoadingState";
@@ -34,30 +34,6 @@ interface EnvVar {
   value: string;
 }
 
-const CPU_OPTIONS = [
-  { label: "0.25 vCPU", value: "256" },
-  { label: "0.5 vCPU", value: "512" },
-  { label: "1 vCPU", value: "1024" },
-  { label: "2 vCPU", value: "2048" },
-];
-
-const MEMORY_OPTIONS: Record<string, { label: string; value: string }[]> = {
-  "256": [{ label: "512 MB", value: "512" }],
-  "512": [
-    { label: "1 GB", value: "1024" },
-    { label: "2 GB", value: "2048" },
-  ],
-  "1024": [
-    { label: "2 GB", value: "2048" },
-    { label: "3 GB", value: "3072" },
-    { label: "4 GB", value: "4096" },
-  ],
-  "2048": [
-    { label: "4 GB", value: "4096" },
-    { label: "8 GB", value: "8192" },
-  ],
-};
-
 export default function NewProjectClient() {
   const router = useRouter();
   const [step, setStep] = useState<1 | 2>(1);
@@ -65,6 +41,9 @@ export default function NewProjectClient() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
+  const [sourceMode, setSourceMode] = useState<"connected" | "url">("connected");
+  const [manualRepoUrl, setManualRepoUrl] = useState("");
+  const [manualRepoError, setManualRepoError] = useState("");
   const [deploying, setDeploying] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -72,16 +51,16 @@ export default function NewProjectClient() {
   const [subdomain, setSubdomain] = useState("");
   const [branch, setBranch] = useState("main");
   const [port, setPort] = useState("");
-  const [cpu, setCpu] = useState("512");
-  const [memory, setMemory] = useState("1024");
   const [healthCheck, setHealthCheck] = useState("/health");
   const [rootPath, setRootPath] = useState("./");
+  const [detectedPorts, setDetectedPorts] = useState<number[]>([]);
   const [envVars, setEnvVars] = useState<EnvVar[]>([]);
   const [hasDockerfile, setHasDockerfile] = useState<boolean | null>(null);
   const [checkingDocker, setCheckingDocker] = useState(false);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkEnv, setBulkEnv] = useState("");
   const [notice, setNotice] = useState<NoticePayload | null>(null);
+  const userEditedPortRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
@@ -110,11 +89,6 @@ export default function NewProjectClient() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
-  useEffect(() => {
-    const opts = MEMORY_OPTIONS[cpu];
-    if (opts) setMemory(opts[0].value);
-  }, [cpu]);
-
   const sanitizePath = (path: string) =>
     path.replace(/^\.\//, "").replace(/\/+$/, "").replace(/\/+/g, "/").trim();
 
@@ -130,9 +104,26 @@ export default function NewProjectClient() {
           `/api/github/repos/${repoFullName}/dockerfile?path=${encodeURIComponent(fullDockerPath)}`,
         );
         if (redirectIfUnauthorized(res, router)) return;
-        setHasDockerfile(res.status === 200);
+        if (res.status === 200) {
+          const data = await res.json();
+          const ports = Array.isArray(data.ports)
+            ? data.ports.filter(
+                (value: unknown) =>
+                  typeof value === "number" && Number.isInteger(value),
+              )
+            : [];
+          setHasDockerfile(true);
+          setDetectedPorts(ports);
+          if (ports.length > 0 && !userEditedPortRef.current) {
+            setPort(String(ports[0]));
+          }
+        } else {
+          setHasDockerfile(false);
+          setDetectedPorts([]);
+        }
       } catch {
         setHasDockerfile(false);
+        setDetectedPorts([]);
       } finally {
         setCheckingDocker(false);
       }
@@ -142,13 +133,49 @@ export default function NewProjectClient() {
 
   const handleSelectRepo = (repo: Repo) => {
     setSelectedRepo(repo);
+    setManualRepoError("");
     setProjectName(repo.name);
     setBranch(repo.default_branch || "main");
     setSubdomain("");
+    userEditedPortRef.current = false;
     if (repo.language === "Go") setPort("8080");
     else if (repo.language === "Python") setPort("8000");
     else setPort("80");
+    setDetectedPorts([]);
     debouncedCheck(repo.full_name, rootPath);
+    setStep(2);
+  };
+
+  const handleManualRepoContinue = () => {
+    const parsed = parseGitHubRepoUrl(manualRepoUrl);
+    if (!parsed) {
+      setManualRepoError("Enter a valid GitHub repository URL.");
+      return;
+    }
+
+    const repo: Repo = {
+      id: -Date.now(),
+      name: parsed.repo,
+      full_name: parsed.fullName,
+      private: false,
+      html_url: parsed.url,
+      description: "",
+      language: "",
+      updated_at: new Date().toISOString(),
+      default_branch: branch || "main",
+    };
+
+    setSourceMode("url");
+    setSelectedRepo(repo);
+    setManualRepoUrl(parsed.url);
+    setManualRepoError("");
+    setProjectName(parsed.repo);
+    setBranch(branch || "main");
+    setSubdomain("");
+    userEditedPortRef.current = false;
+    setPort("80");
+    setDetectedPorts([]);
+    debouncedCheck(parsed.fullName, rootPath);
     setStep(2);
   };
 
@@ -208,17 +235,15 @@ export default function NewProjectClient() {
         body: JSON.stringify({
           project_id: project.id,
           branch,
-          cpu: parseInt(cpu),
-          memory_mb: parseInt(memory),
           port: parseInt(port),
-          health_check_path: healthCheck,
+          health_check: healthCheck,
           env_vars: envVarsMap,
         }),
       });
       if (redirectIfUnauthorized(deployRes, router)) return;
       if (deployRes.ok) {
         localStorage.removeItem("hatch_projects_cache");
-        localStorage.removeItem("hatch_infrastructure_cache");
+        localStorage.removeItem("hatch_insights_cache");
         pushFlashNotice({
           type: "success",
           title: "Service created",
@@ -289,25 +314,41 @@ export default function NewProjectClient() {
   const filteredRepos = repos.filter((r) =>
     r.full_name.toLowerCase().includes(search.toLowerCase()),
   );
+  const preflight = [
+    { label: "Repository", ready: Boolean(selectedRepo) },
+    { label: "Service name", ready: Boolean(projectName.trim()) },
+    { label: "Subdomain", ready: Boolean(subdomain.trim()) },
+    { label: "Port", ready: Boolean(port.trim()) },
+    { label: "Dockerfile", ready: hasDockerfile === true },
+  ];
+  const repoSourceLabel =
+    sourceMode === "url" ? "external repository" : "connected repository";
+
+  const hasSource = step === 2 && Boolean(selectedRepo);
 
   return (
     <div
-      className="w-full h-screen bg-black text-white flex flex-col overflow-hidden"
+      className="w-full min-h-[calc(100vh-4rem)] xl:h-[calc(100vh-4rem)] bg-black text-white flex flex-col xl:overflow-hidden"
       style={{ fontFamily: "'GeistMono','Menlo','Courier New',monospace" }}
     >
       <NoticeToast notice={notice} onDismiss={() => setNotice(null)} />
       {/* Header */}
-      <header className="shrink-0 border-b border-[#1a1a1a] px-8 py-4 flex items-center justify-between bg-black">
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#555]">
-            New Service
-          </span>
-          <span className="text-[#2a2a2a]">/</span>
-          <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#777]">
-            {step === 1
-              ? "Select Repository"
-              : (selectedRepo?.name ?? "Configure")}
-          </span>
+      <header className="shrink-0 border-b border-[#1a1a1a] px-5 sm:px-8 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-black">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#555]">
+              New Service
+            </span>
+            <span className="text-[#2a2a2a]">/</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#777] truncate">
+              {step === 1
+                ? "Select Repository"
+                : (selectedRepo?.name ?? "Configure")}
+            </span>
+          </div>
+          <p className="text-[11px] text-[#3a3a3a] mt-1.5">
+            Create a deployable service from a GitHub repository.
+          </p>
         </div>
         <button
           onClick={() => router.push("/console")}
@@ -318,15 +359,15 @@ export default function NewProjectClient() {
         </button>
       </header>
 
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 min-h-0 flex flex-col xl:flex-row xl:overflow-hidden">
         {/* ── LEFT: form ── */}
         <div
-          className="w-3/5 border-r border-[#1a1a1a] flex flex-col overflow-y-scroll bg-black"
+          className="w-full xl:w-[62%] xl:border-r border-[#1a1a1a] flex flex-col bg-black xl:overflow-y-auto"
           style={{ scrollbarWidth: "none" }}
         >
-          <div className="px-8 py-2 space-y-2 pb-4">
+          <div className="px-5 sm:px-8 py-7 pb-12 max-w-5xl w-full">
             {/* 01 — Repository */}
-            <section className="space-y-4">
+            <section className="space-y-5 pb-7 border-b border-[#141414]">
               <SectionHeader index="01" title="Source Repository">
                 {step === 2 && (
                   <button
@@ -335,6 +376,7 @@ export default function NewProjectClient() {
                       setSelectedRepo(null);
                       setProjectName("");
                       setHasDockerfile(null);
+                      setManualRepoError("");
                     }}
                     className="text-[10px] font-bold text-[#444] hover:text-[#aaa] uppercase tracking-widest transition-colors cursor-pointer"
                   >
@@ -344,56 +386,122 @@ export default function NewProjectClient() {
               </SectionHeader>
 
               {step === 1 ? (
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    placeholder="Search repositories…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-full bg-black border border-[#1e1e1e] px-4 py-3 text-[13px] font-mono outline-none focus:border-[#444] transition-colors placeholder-[#333] text-[#999]"
-                  />
-                  <div
-                    className="border border-[#1a1a1a] overflow-hidden divide-y divide-[#111] max-h-[500px] overflow-y-auto"
-                    style={{ scrollbarWidth: "none" }}
-                  >
-                    {loading ? (
-                      <div className="py-16 text-center text-[#333] text-[10px] uppercase tracking-[0.3em] animate-pulse">
-                        Fetching repositories…
-                      </div>
-                    ) : filteredRepos.length === 0 ? (
-                      <div className="py-16 text-center text-[#333] text-[10px] uppercase tracking-[0.3em]">
-                        No repositories found
-                      </div>
-                    ) : (
-                      filteredRepos.map((repo) => (
-                        <button
-                          key={repo.id}
-                          onClick={() => handleSelectRepo(repo)}
-                          className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#0a0a0a] transition-colors group text-left cursor-pointer"
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-1.5 h-1.5 rounded-full bg-[#2a2a2a] group-hover:bg-[#666] transition-colors flex-shrink-0" />
-                            <span className="text-[13px] font-mono text-[#666] group-hover:text-[#ccc] transition-colors truncate">
-                              {repo.full_name}
-                            </span>
-                            {repo.private && (
-                              <span className="text-[9px] text-[#444] border border-[#2a2a2a] px-1.5 py-0.5 uppercase tracking-wider flex-shrink-0">
-                                private
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[10px] font-bold uppercase text-[#333] group-hover:text-[#777] flex-shrink-0 ml-4 transition-colors">
-                            select →
-                          </span>
-                        </button>
-                      ))
-                    )}
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-px bg-[#1a1a1a] border border-[#1a1a1a] rounded-[4px] overflow-hidden">
+                    <button
+                      onClick={() => setSourceMode("connected")}
+                      className={`py-3 text-[10px] font-bold uppercase tracking-[0.18em] transition-colors cursor-pointer ${
+                        sourceMode === "connected"
+                          ? "bg-white text-black"
+                          : "bg-black text-[#555] hover:text-[#aaa]"
+                      }`}
+                    >
+                      Connected GitHub
+                    </button>
+                    <button
+                      onClick={() => setSourceMode("url")}
+                      className={`py-3 text-[10px] font-bold uppercase tracking-[0.18em] transition-colors cursor-pointer ${
+                        sourceMode === "url"
+                          ? "bg-white text-black"
+                          : "bg-black text-[#555] hover:text-[#aaa]"
+                      }`}
+                    >
+                      Repository URL
+                    </button>
                   </div>
+
+                  {sourceMode === "connected" ? (
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Search repositories…"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="w-full bg-black border border-[#1e1e1e] px-4 py-3 text-[13px] font-mono outline-none focus:border-[#444] transition-colors placeholder-[#333] text-[#999]"
+                      />
+                      <div
+                        className="border border-[#1a1a1a] overflow-hidden divide-y divide-[#111] max-h-[500px] overflow-y-auto"
+                        style={{ scrollbarWidth: "none" }}
+                      >
+                        {loading ? (
+                          <div className="py-16 text-center text-[#333] text-[10px] uppercase tracking-[0.3em] animate-pulse">
+                            Fetching repositories…
+                          </div>
+                        ) : filteredRepos.length === 0 ? (
+                          <div className="py-16 text-center text-[#333] text-[10px] uppercase tracking-[0.3em]">
+                            No repositories found
+                          </div>
+                        ) : (
+                          filteredRepos.map((repo) => (
+                            <button
+                              key={repo.id}
+                              onClick={() => handleSelectRepo(repo)}
+                              className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#0a0a0a] transition-colors group text-left cursor-pointer"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-1.5 h-1.5 rounded-full bg-[#2a2a2a] group-hover:bg-[#666] transition-colors flex-shrink-0" />
+                                <span className="text-[13px] font-mono text-[#666] group-hover:text-[#ccc] transition-colors truncate">
+                                  {repo.full_name}
+                                </span>
+                                {repo.private && (
+                                  <span className="text-[9px] text-[#444] border border-[#2a2a2a] px-1.5 py-0.5 uppercase tracking-wider flex-shrink-0">
+                                    private
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] font-bold uppercase text-[#333] group-hover:text-[#777] flex-shrink-0 ml-4 transition-colors">
+                                select →
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="border border-[#1a1a1a] bg-black p-5 space-y-4 rounded-[4px]">
+                      <div className="space-y-2.5">
+                        <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#555]">
+                          GitHub Repository URL
+                        </label>
+                        <input
+                          type="url"
+                          placeholder="https://github.com/owner/repo"
+                          value={manualRepoUrl}
+                          onChange={(e) => {
+                            setManualRepoUrl(e.target.value);
+                            setManualRepoError("");
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleManualRepoContinue();
+                          }}
+                          className="w-full bg-black border border-[#1e1e1e] px-4 py-3 text-[13px] font-mono outline-none focus:border-[#444] transition-colors placeholder-[#333] text-[#999]"
+                        />
+                      </div>
+                      <p className="text-[11px] font-mono text-[#444] leading-relaxed">
+                        Public repositories work immediately. Private repositories
+                        work only if your connected GitHub account has access.
+                      </p>
+                      {manualRepoError && (
+                        <p className="text-[11px] font-mono text-[#d05252]">
+                          {manualRepoError}
+                        </p>
+                      )}
+                      <button
+                        onClick={handleManualRepoContinue}
+                        className="w-full bg-white text-black py-3 font-bold uppercase tracking-[0.22em] text-[10px] hover:bg-zinc-200 transition-all cursor-pointer"
+                      >
+                        Use Repository →
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="flex items-center gap-4 px-5 py-4 border border-[#1e1e1e] bg-[#080808]">
+                <div className="flex items-center gap-4 px-5 py-4 border border-[#1e1e1e] bg-[#050505] rounded-[6px]">
                   <div className="w-2 h-2 rounded-full bg-[#666] flex-shrink-0" />
                   <div className="min-w-0">
+                    <p className="text-[9px] uppercase tracking-[0.2em] text-[#333] mb-1">
+                      {repoSourceLabel}
+                    </p>
                     <p className="text-[14px] font-mono text-[#999] truncate">
                       {selectedRepo?.full_name}
                     </p>
@@ -406,13 +514,12 @@ export default function NewProjectClient() {
             </section>
 
             {/* Steps 2–5 */}
-            <div
-              className={`space-y-12 transition-opacity duration-200 ${step === 2 ? "opacity-100" : "opacity-10 pointer-events-none"}`}
-            >
+            {hasSource && (
+            <div className="space-y-0">
               {/* 02 — Identity */}
-              <section className="space-y-6">
+              <section className="space-y-6 py-7 border-b border-[#141414]">
                 <SectionHeader index="02" title="Service Identity" />
-                <div className="grid grid-cols-2 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
                   <FieldInput
                     label="Project Name"
                     value={projectName}
@@ -442,28 +549,17 @@ export default function NewProjectClient() {
                 </div>
               </section>
 
-              {/* 03 — Resources */}
-              <section className="space-y-6">
-                <SectionHeader index="03" title="Resource Allocation" />
-                <div className="grid grid-cols-2 gap-8">
-                  <FieldSelect
-                    label="Compute (vCPU)"
-                    value={cpu}
-                    options={CPU_OPTIONS}
-                    onChange={setCpu}
-                  />
-                  <FieldSelect
-                    label="Memory (RAM)"
-                    value={memory}
-                    options={MEMORY_OPTIONS[cpu] || []}
-                    onChange={setMemory}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-8">
+              {/* 03 — Runtime */}
+              <section className="space-y-6 py-7 border-b border-[#141414]">
+                <SectionHeader index="03" title="Runtime Contract" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
                   <FieldInput
-                    label="Ingress Port"
+                    label="Service Port"
                     value={port}
-                    onChange={(v) => setPort(v.replace(/[^0-9]/g, ""))}
+                    onChange={(v) => {
+                      userEditedPortRef.current = true;
+                      setPort(v.replace(/[^0-9]/g, ""));
+                    }}
                     placeholder="8080"
                   />
                   <FieldInput
@@ -473,19 +569,26 @@ export default function NewProjectClient() {
                     placeholder="/health"
                   />
                 </div>
+                <p className="text-[11px] font-mono text-[#3a3a3a] leading-relaxed">
+                  {detectedPorts.length > 0
+                    ? `Detected from Dockerfile: ${detectedPorts.join(", ")}`
+                    : checkingDocker
+                      ? "Scanning Dockerfile for EXPOSE ports..."
+                      : "Hatch will try to detect this from the Dockerfile. You can override it if your app listens somewhere else."}
+                </p>
               </section>
 
               {/* 04 — Build */}
-              <section className="space-y-6">
+              <section className="space-y-6 py-7 border-b border-[#141414]">
                 <SectionHeader index="04" title="Build Definitions" />
-                <div className="grid grid-cols-2 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
                   <FieldInput
                     label="Root Directory"
                     value={rootPath}
-	                    onChange={(v) => {
-	                      setRootPath(v);
-	                      if (selectedRepo) debouncedCheck(selectedRepo.full_name, v);
-	                    }}
+                    onChange={(v) => {
+                      setRootPath(v);
+                      if (selectedRepo) debouncedCheck(selectedRepo.full_name, v);
+                    }}
                     placeholder="./"
                   />
                   <FieldInput
@@ -498,7 +601,7 @@ export default function NewProjectClient() {
               </section>
 
               {/* 05 — Env vars */}
-              <section className="space-y-5">
+              <section className="space-y-5 py-7">
                 <SectionHeader index="05" title="Environment Variables">
                   <div className="flex gap-5">
                     <button
@@ -526,7 +629,7 @@ export default function NewProjectClient() {
                   <div className="space-y-3">
                     {envVars.map((ev, index) => (
                       <div key={index} className="flex gap-4 items-end">
-                        <div className="flex-1 grid grid-cols-2 gap-4">
+                        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
                           <FieldInput
                             label="Key"
                             value={ev.key}
@@ -564,148 +667,138 @@ export default function NewProjectClient() {
                 )}
               </section>
 
-              {/* Validation checklist */}
-              {step === 2 && validationErrors.length > 0 && (
-                <div className="p-5 border border-[#1e1e1e] bg-[#080808]">
-                  <p className="text-[10px] font-mono text-[#444] uppercase tracking-widest mb-3">
-                    Requirements
-                  </p>
-                  <div className="flex flex-wrap gap-x-6 gap-y-2.5">
-                    {[
-                      { label: "Repo Selected", fail: !selectedRepo },
-                      { label: "Project Name", fail: !projectName },
-                      { label: "Subdomain", fail: !subdomain },
-                      { label: "Port", fail: !port },
-                      { label: "Dockerfile", fail: hasDockerfile !== true },
-                    ].map(({ label, fail }) => (
-                      <div key={label} className="flex items-center gap-2">
-                        <div
-                          className={`w-1.5 h-1.5 rounded-full ${fail ? "bg-[#2a2a2a]" : "bg-[#777]"}`}
-                        />
-                        <span
-                          className={`text-[10px] uppercase tracking-tight font-bold ${fail ? "text-[#333]" : "text-[#777]"}`}
-                        >
-                          {label}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Deploy */}
               <button
                 onClick={handleDeploy}
                 disabled={deploying || validationErrors.length > 0}
-                className="w-full bg-white text-black py-4 font-bold uppercase tracking-[0.25em] text-[11px] hover:bg-zinc-200 transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                className="w-full bg-white text-black py-4 font-bold uppercase tracking-[0.25em] text-[11px] hover:bg-zinc-200 transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer rounded-[3px]"
               >
                 {deploying ? "Initializing…" : "Deploy Service →"}
               </button>
             </div>
+            )}
           </div>
         </div>
 
         {/* ── RIGHT: manifest ── */}
         <div
-          className="w-2/5 bg-[#060606] flex flex-col overflow-y-auto border-l border-[#1a1a1a]"
-          style={{ scrollbarWidth: "none" }}
+          className="w-full xl:w-[38%] min-h-0 bg-[#050505] flex flex-col overflow-y-auto overscroll-contain border-t xl:border-t-0 xl:border-l border-[#1a1a1a]"
+          style={{ scrollbarColor: "#2a2a2a transparent" }}
         >
-          <div className="p-8 flex flex-col h-full">
-            {/* Title */}
-            <div className="mb-8 pb-6 border-b border-[#141414]">
-              <p className="text-[9px] font-mono text-[#333] uppercase tracking-[0.4em] mb-2">
-                Service Manifest
-              </p>
-              <h2 className="text-[24px] font-bold tracking-tight text-[#888] leading-tight truncate">
-                {projectName || "—"}
-              </h2>
-              {selectedRepo && (
-                <p className="text-[11px] font-mono text-[#444] mt-1.5 truncate">
-                  {selectedRepo.full_name}
-                </p>
-              )}
-            </div>
+          <div className="p-5 sm:p-7 flex flex-col gap-5 pb-10">
+            {hasSource ? (
+              <>
+                {/* Title */}
+                <div className="pb-5 border-b border-[#202020]">
+                  <p className="text-[10px] font-mono text-[#666] uppercase tracking-[0.28em] mb-3">
+                    Deployment Preview
+                  </p>
+                  <h2 className="text-[32px] font-bold tracking-tight text-[#e7e7e7] leading-tight truncate">
+                    {projectName || "—"}
+                  </h2>
+                  {selectedRepo && (
+                    <div className="flex items-center gap-2 mt-2 min-w-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#5bcf93]" />
+                      <p className="text-[12px] font-mono text-[#8c8c8c] truncate">
+                        {selectedRepo.full_name}
+                      </p>
+                    </div>
+                  )}
+                </div>
 
-            {/* Manifest table */}
-            <div className="border border-[#1a1a1a] overflow-hidden mb-5">
-              <ManifestRow
-                label="Ingress URL"
-                value={subdomain ? `${subdomain}.hatchcloud.xyz` : "—"}
-              />
-              <ManifestRow label="Port" value={port ? `TCP/${port}` : "—"} />
-              <ManifestRow
-                label="CPU"
-                value={CPU_OPTIONS.find((o) => o.value === cpu)?.label || "—"}
-              />
-              <ManifestRow
-                label="Memory"
-                value={
-                  MEMORY_OPTIONS[cpu]?.find((o) => o.value === memory)?.label ||
-                  "—"
-                }
-              />
-              <ManifestRow label="Branch" value={branch || "—"} />
-              <ManifestRow label="Root" value={rootPath} />
-              <ManifestRow
-                label="Dockerfile"
-                value={buildStatusLabel}
-                bright={hasDockerfile === true}
-                last
-              />
-            </div>
+                {/* Manifest table */}
+                <div className="border border-[#242424] bg-black overflow-hidden rounded-[6px]">
+                  <ManifestRow
+                    label="Ingress URL"
+                    value={subdomain ? `${subdomain}.hatchcloud.xyz` : "—"}
+                  />
+                  <ManifestRow label="Port" value={port ? `TCP/${port}` : "—"} />
+                  <ManifestRow label="Branch" value={branch || "—"} />
+                  <ManifestRow label="Root" value={rootPath} />
+                  <ManifestRow
+                    label="Dockerfile"
+                    value={buildStatusLabel}
+                    bright={hasDockerfile === true}
+                    tone={hasDockerfile === false ? "warning" : undefined}
+                    last
+                  />
+                </div>
 
-            {/* Env count */}
-            {envVars.some((v) => v.key) && (
-              <div className="border border-[#1a1a1a] px-5 py-3.5 mb-5">
-                <p className="text-[11px] font-mono text-[#555]">
-                  {envVars.filter((v) => v.key).length} env var
-                  {envVars.filter((v) => v.key).length !== 1 ? "s" : ""} defined
-                </p>
-              </div>
-            )}
+                <div className="border border-[#242424] bg-black rounded-[6px] overflow-hidden">
+                  <div className="px-5 py-3.5 border-b border-[#171717]">
+                    <p className="text-[10px] font-mono text-[#666] uppercase tracking-[0.26em]">
+                      Preflight
+                    </p>
+                  </div>
+                  <div className="divide-y divide-[#171717]">
+                    {preflight.map((item) => (
+                      <PreflightRow key={item.label} {...item} />
+                    ))}
+                  </div>
+                </div>
 
-            {/* Dockerfile warning */}
-            {hasDockerfile === false && !checkingDocker && selectedRepo && (
-              <div className="border border-[#2a2a2a] px-5 py-4 mb-5">
-                <p className="text-[11px] font-mono text-[#555] leading-relaxed">
-                  Dockerfile not found in "{rootPath}". Deployment blocked.
-                </p>
-              </div>
-            )}
+                {/* Env count */}
+                <div className="border border-[#242424] px-5 py-3.5 rounded-[6px] bg-black">
+                  <p className="text-[12px] font-mono text-[#8c8c8c]">
+                    {envVars.filter((v) => v.key).length} env var
+                    {envVars.filter((v) => v.key).length !== 1 ? "s" : ""} defined
+                  </p>
+                </div>
 
-            {/* Procedure steps */}
-            <div className="mt-auto pt-6 border-t border-[#141414] space-y-3">
-              <p className="text-[9px] font-mono text-[#333] uppercase tracking-[0.35em] mb-4">
-                Procedure
-              </p>
-              {["Select repository", "Configure service", "Deploy"].map(
-                (s, i) => {
-                  const active =
-                    (step === 1 && i === 0) ||
-                    (step === 2 && i === 1) ||
-                    (deploying && i === 2);
-                  const done =
-                    (i === 0 && step === 2) || (i === 1 && deploying);
-                  return (
-                    <div key={s} className="flex items-center gap-3">
-                      <span
-                        className={`text-[10px] font-mono tabular-nums ${done ? "text-[#555]" : active ? "text-[#999]" : "text-[#2a2a2a]"}`}
-                      >
-                        {String(i + 1).padStart(2, "0")}
+                {/* Dockerfile warning */}
+                {hasDockerfile === false && !checkingDocker && selectedRepo && (
+                  <div className="border border-[#3a3020] bg-[#0b0905] px-5 py-4 rounded-[6px]">
+                    <p className="text-[12px] font-mono text-[#b08a54] leading-relaxed">
+                      Dockerfile not found in "{rootPath}". Deployment blocked.
+                    </p>
+                  </div>
+                )}
+
+                <div className="pt-5 border-t border-[#202020]">
+                  <p className="text-[12px] font-mono text-[#747474] leading-relaxed">
+                    Hatch will clone the selected branch, build the Dockerfile,
+                    publish an image, and route traffic once the target is healthy.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div className="flex min-h-full flex-col justify-between gap-8">
+                <div>
+                  <p className="text-[9px] font-mono text-[#333] uppercase tracking-[0.4em] mb-4">
+                    Deployment Preview
+                  </p>
+                  <h2 className="text-[30px] font-bold tracking-tight text-[#aaa] leading-tight">
+                    Pick a source to begin.
+                  </h2>
+                  <p className="text-[12px] text-[#555] leading-relaxed mt-4 max-w-md">
+                    Choose one of your connected repositories or paste a GitHub
+                    URL. Hatch will inspect the Dockerfile before the deploy
+                    controls unlock.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  {[
+                    "Clone selected branch",
+                    "Build Dockerfile",
+                    "Publish image",
+                    "Provision runtime",
+                  ].map((item, index) => (
+                    <div
+                      key={item}
+                      className="flex items-center gap-3 border-b border-[#111] pb-3 last:border-b-0"
+                    >
+                      <span className="text-[10px] text-[#333] font-mono tabular-nums">
+                        {String(index + 1).padStart(2, "0")}
                       </span>
-                      <div
-                        className={`flex-1 h-px ${done ? "bg-[#333]" : active ? "bg-[#2a2a2a]" : "bg-[#141414]"}`}
-                      />
-                      <span
-                        className={`text-[10px] uppercase tracking-widest font-bold ${done ? "text-[#555]" : active ? "text-[#888]" : "text-[#2a2a2a]"}`}
-                      >
-                        {s}
+                      <span className="text-[11px] text-[#555] uppercase tracking-[0.16em] font-bold">
+                        {item}
                       </span>
                     </div>
-                  );
-                },
-              )}
-            </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>
@@ -833,24 +926,61 @@ function ManifestRow({
   label,
   value,
   bright,
+  tone,
   last,
 }: {
   label: string;
   value: string;
   bright?: boolean;
+  tone?: "warning";
   last?: boolean;
 }) {
+  const isEmpty = value === "—";
+  const valueColor =
+    tone === "warning"
+      ? "text-[#b08a54]"
+      : isEmpty
+        ? "text-[#555]"
+        : bright
+          ? "text-[#e4e4e4]"
+          : "text-[#a7a7a7]";
+
   return (
     <div
-      className={`flex justify-between items-center px-5 py-3.5 bg-black ${!last ? "border-b border-[#0d0d0d]" : ""}`}
+      className={`flex justify-between items-center gap-5 px-5 py-3.5 bg-black ${!last ? "border-b border-[#171717]" : ""}`}
     >
-      <span className="text-[10px] font-mono text-[#333] uppercase tracking-[0.12em]">
+      <span className="text-[10px] font-mono text-[#6b6b6b] uppercase tracking-[0.13em] shrink-0">
         {label}
       </span>
       <span
-        className={`text-[11px] font-mono font-bold uppercase ${bright ? "text-[#aaa]" : "text-[#555]"}`}
+        title={value}
+        className={`text-[12px] font-mono font-semibold text-right truncate max-w-[68%] ${valueColor}`}
       >
-        {value}
+        {isEmpty ? "Not set" : value}
+      </span>
+    </div>
+  );
+}
+
+function PreflightRow({ label, ready }: { label: string; ready: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-5 py-3.5">
+      <div className="flex items-center gap-2 min-w-0">
+        <span
+          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+            ready ? "bg-[#5bcf93]" : "bg-[#444]"
+          }`}
+        />
+        <span className="text-[12px] font-mono text-[#9a9a9a] truncate">
+          {label}
+        </span>
+      </div>
+      <span
+        className={`text-[10px] font-bold uppercase tracking-[0.14em] shrink-0 ${
+          ready ? "text-[#5bcf93]" : "text-[#666]"
+        }`}
+      >
+        {ready ? "Ready" : "Needed"}
       </span>
     </div>
   );
@@ -882,37 +1012,33 @@ function FieldInput({
   );
 }
 
-function FieldSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: { label: string; value: string }[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="space-y-2.5">
-      <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#555]">
-        {label}
-      </label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-transparent border-b border-[#222] py-3 text-[13px] font-mono outline-none cursor-pointer appearance-none text-[#999] focus:border-[#555] transition-colors"
-      >
-        {options.map((o) => (
-          <option
-            key={o.value}
-            value={o.value}
-            className="bg-black text-[#999]"
-          >
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
+function parseGitHubRepoUrl(value: string) {
+  const raw = value.trim();
+  if (!raw) return null;
+
+  const normalized = raw
+    .replace(/^git@github\.com:/, "https://github.com/")
+    .replace(/\.git$/, "");
+
+  try {
+    const url = new URL(normalized);
+    if (url.hostname !== "github.com") return null;
+    const [owner, repo] = url.pathname.split("/").filter(Boolean);
+    if (!owner || !repo) return null;
+    return {
+      owner,
+      repo,
+      fullName: `${owner}/${repo}`,
+      url: `https://github.com/${owner}/${repo}`,
+    };
+  } catch {
+    const [owner, repo] = normalized.split("/").filter(Boolean);
+    if (!owner || !repo || normalized.includes("://")) return null;
+    return {
+      owner,
+      repo,
+      fullName: `${owner}/${repo}`,
+      url: `https://github.com/${owner}/${repo}`,
+    };
+  }
 }

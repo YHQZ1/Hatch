@@ -76,10 +76,10 @@ export default function Navbar() {
               Activity
             </NavLink>
             <NavLink
-              href="/infrastructure"
-              active={pathname === "/infrastructure"}
+              href="/insights"
+              active={pathname === "/insights"}
             >
-              Infrastructure
+              Insights
             </NavLink>
           </div>
         </div>

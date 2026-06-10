@@ -13,10 +13,6 @@ import {
   readApiError,
   redirectIfUnauthorized,
 } from "@/app/lib/api";
-import {
-  NoticeToast,
-  type NoticePayload,
-} from "../../../../components/NoticeToast";
 
 interface Project {
   id: string;
@@ -52,6 +48,12 @@ interface LogLine {
   timestamp: string;
 }
 
+interface ProjectNotice {
+  type: "success" | "error" | "info";
+  title: string;
+  message?: string;
+}
+
 const CACHE_KEY_PREFIX = "hatch_project_";
 const CACHE_TTL = 2 * 60 * 1000;
 
@@ -68,9 +70,10 @@ export default function ProjectDetail() {
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [deploying, setDeploying] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState<NoticePayload | null>(null);
+  const [notice, setNotice] = useState<ProjectNotice | null>(null);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -88,7 +91,7 @@ export default function ProjectDetail() {
     setMounted(true);
     const flash = consumeFlashNotice();
     if (flash) {
-      setNotice(flash);
+      setNotice(flash as ProjectNotice);
     }
 
     const cacheKey = `${CACHE_KEY_PREFIX}${projectId}`;
@@ -179,8 +182,22 @@ export default function ProjectDetail() {
         const line = event.data;
         if (line === "READY" || activeIdRef.current !== currentId) return;
         setLogs((prev) => [...prev, parseLogLine(line)]);
-        if (line.includes("Build complete") || line.includes("Live at")) {
-          updateDeploymentStatus(currentId, "live");
+
+        const nextStatus = statusFromLogLine(line);
+        if (nextStatus) {
+          updateDeploymentStatus(currentId, nextStatus);
+        }
+
+        const nextUrl = deploymentUrlFromLogLine(line);
+        if (nextUrl) {
+          updateDeploymentUrl(currentId, nextUrl);
+        }
+
+        if (
+          nextStatus &&
+          ["live", "failed", "canceled"].includes(nextStatus)
+        ) {
+          ws.close();
         }
       };
     } else {
@@ -197,14 +214,16 @@ export default function ProjectDetail() {
   }, [activeDeployment?.id]);
 
   const parseLogLine = (line: string): LogLine => {
+    const lower = line.toLowerCase();
     const isSuccess =
       line.includes("✓") ||
       line.includes("successfully") ||
-      line.includes("Live at");
+      lower.includes("deployment live at") ||
+      lower.includes("target healthy");
     const isError =
       line.includes("✗") ||
-      line.toLowerCase().includes("error") ||
-      line.toLowerCase().includes("failed");
+      lower.includes("error") ||
+      lower.includes("failed");
     const isSystem = line.startsWith("[") || line.includes("STEP");
     return {
       text: line,
@@ -232,6 +251,36 @@ export default function ProjectDetail() {
       setActiveDeployment((prev) => (prev ? { ...prev, status } : null));
   };
 
+  const updateDeploymentUrl = (id: string, url: string) => {
+    setDeployments((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, url } : d)),
+    );
+    if (activeIdRef.current === id) {
+      setActiveDeployment((prev) => (prev ? { ...prev, url } : null));
+    }
+  };
+
+  const clearProjectCaches = () => {
+    localStorage.removeItem(`${CACHE_KEY_PREFIX}${projectId}`);
+    localStorage.removeItem("hatch_projects_cache");
+    localStorage.removeItem("hatch_insights_cache");
+  };
+
+  const handleCopyLogs = async () => {
+    if (logs.length === 0 || copied) return;
+    try {
+      await navigator.clipboard.writeText(logs.map((l) => l.text).join("\n"));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setNotice({
+        type: "error",
+        title: "Copy failed",
+        message: "Your browser blocked clipboard access.",
+      });
+    }
+  };
+
   const handleDeploy = async () => {
     if (!project || deploying) return;
     setDeploying(true);
@@ -242,11 +291,8 @@ export default function ProjectDetail() {
         body: JSON.stringify({
           project_id: project.id,
           branch: activeDeployment?.branch || project.branch || "main",
-          cpu: Number(activeDeployment?.cpu || 256),
-          memory_mb: Number(activeDeployment?.memory_mb || 512),
           port: Number(activeDeployment?.port || project.port || 80),
           health_check: activeDeployment?.health_check || "/",
-          env_vars: {},
         }),
       });
       if (redirectIfUnauthorized(res, router)) return;
@@ -255,7 +301,7 @@ export default function ProjectDetail() {
         setDeployments((prev) => [newDep, ...prev]);
         setActiveDeployment(newDep);
         setLogs([]);
-        localStorage.removeItem("hatch_projects_cache");
+        clearProjectCaches();
         setNotice({
           type: "success",
           title: "Deployment queued",
@@ -309,7 +355,7 @@ export default function ProjectDetail() {
       setActiveDeployment(canceled);
       setLogs((prev) => [...prev, parseLogLine("Deployment canceled by user")]);
       wsRef.current?.close();
-      localStorage.removeItem("hatch_projects_cache");
+      clearProjectCaches();
       setNotice({
         type: "success",
         title: "Deployment canceled",
@@ -322,22 +368,23 @@ export default function ProjectDetail() {
 
   if (!mounted) return <PageLoadingState />;
 
-  const isLive = activeDeployment?.status === "live";
+  const activeStatus = activeDeployment?.status?.toLowerCase() ?? "";
+  const isLive = activeStatus === "live";
   const isBuilding = ["building", "deploying", "queued"].includes(
-    activeDeployment?.status?.toLowerCase() ?? "",
+    activeStatus,
   );
-  const isCancelable = ["building", "queued"].includes(
-    activeDeployment?.status?.toLowerCase() ?? "",
+  const isCancelable = ["building", "deploying", "queued"].includes(
+    activeStatus,
   );
   const liveUrl = isLive ? deploymentUrl(activeDeployment?.url) : null;
 
   return (
     <div className="flex h-[calc(100vh-64px)] bg-black text-zinc-400 overflow-hidden">
-      <NoticeToast notice={notice} onDismiss={() => setNotice(null)} />
+      <ProjectToast notice={notice} onDismiss={() => setNotice(null)} />
       {/* SIDEBAR */}
-      <aside className="w-72 border-r border-[#1a1a1a] flex flex-col bg-[#030303] shrink-0">
+      <aside className="w-[320px] border-r border-[#1a1a1a] flex flex-col bg-[#030303] shrink-0">
         {/* Project header */}
-        <div className="px-5 pt-2 pb-4 border-b border-[#1a1a1a] space-y-3">
+        <div className="px-5 pt-2 pb-5 border-b border-[#1a1a1a] space-y-4">
           <Link
             href="/console"
             className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-zinc-700 hover:text-zinc-400 transition-colors font-bold group"
@@ -348,32 +395,39 @@ export default function ProjectDetail() {
             Back to Console
           </Link>
           <div>
-            <h1 className="text-[14px] font-semibold text-white tracking-tight truncate leading-tight">
-              {loading ? "Loading..." : project?.repo_name}
-            </h1>
-            <p className="text-[10px] font-mono text-zinc-700 mt-0.5 truncate">
-              {project?.repo_url.replace("https://github.com/", "") ?? ""}
-            </p>
+            <div className="min-w-0">
+              <h1 className="text-[16px] font-semibold text-white tracking-tight truncate leading-tight">
+                {loading ? "Loading..." : project?.repo_name}
+              </h1>
+              <p className="text-[10px] font-mono text-zinc-700 mt-1 truncate">
+                {project?.repo_url.replace("https://github.com/", "") ?? ""}
+              </p>
+            </div>
           </div>
         </div>
 
         {/* Live URL + status strip */}
         {activeDeployment && (
-          <div className="px-5 py-4 border-b border-[#1a1a1a] space-y-3">
-            <div className="flex items-center gap-2">
-              <div
-                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isLive ? "bg-[#4ade80]" : isBuilding ? "bg-[#ca8a04] animate-pulse" : "bg-zinc-800"}`}
-              />
-              <span
-                className={`text-[10px] font-bold uppercase tracking-widest ${statusTextColor(activeDeployment.status)}`}
-              >
-                {activeDeployment.status}
+          <div className="px-5 py-5 border-b border-[#1a1a1a] space-y-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[8px] font-bold uppercase tracking-[0.22em] text-zinc-800 mb-2">
+                  Current run
+                </p>
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDotColor(activeDeployment.status)} ${isBuilding ? "animate-pulse" : ""}`}
+                  />
+                  <span
+                    className={`text-[10px] font-bold uppercase tracking-widest ${statusTextColor(activeDeployment.status)}`}
+                  >
+                    {activeDeployment.status}
+                  </span>
+                </div>
+              </div>
+              <span className="font-mono text-[9px] text-zinc-700">
+                {activeDeployment.id.slice(0, 8)}
               </span>
-              {isBuilding && (
-                <span className="text-[9px] font-mono text-[#ca8a04] animate-pulse ml-auto">
-                  live stream
-                </span>
-              )}
             </div>
 
             {liveUrl && (
@@ -381,28 +435,37 @@ export default function ProjectDetail() {
                 href={liveUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="py-2 group hover:border-zinc-700 transition-colors"
+                className="block border border-[#181818] bg-white/[0.015] px-3 py-2.5 group hover:border-zinc-700 transition-colors"
               >
-                <span className="text-[12px] font-mono text-zinc-500 group-hover:text-white transition-colors truncate">
+                <span className="block text-[8px] font-bold uppercase tracking-[0.2em] text-zinc-800 mb-1">
+                  Live URL
+                </span>
+                <span className="block text-[11px] font-mono text-zinc-500 group-hover:text-white transition-colors truncate">
                   {liveUrl.replace(/^https?:\/\//, "")}
                 </span>
               </a>
             )}
 
-            <div className="grid grid-cols-2 gap-3 mt-4">
-              <SidebarStat label="CPU" value={`${activeDeployment.cpu} vCPU`} />
-              <SidebarStat
-                label="Memory"
-                value={`${activeDeployment.memory_mb} MB`}
-              />
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
               <SidebarStat label="Branch" value={activeDeployment.branch} />
               <SidebarStat label="Port" value={String(activeDeployment.port)} />
+              <SidebarStat
+                label="Dockerfile"
+                value={project?.dockerfile_path || "Dockerfile"}
+              />
+              <SidebarStat
+                label="Health"
+                value={activeDeployment.health_check || "/"}
+              />
             </div>
           </div>
         )}
 
         {/* Actions */}
-        <div className="px-5 py-3 border-b border-[#1a1a1a] space-y-2">
+        <div className="px-5 py-4 border-b border-[#1a1a1a] space-y-2.5">
+          <p className="text-[8px] font-bold uppercase tracking-[0.22em] text-zinc-800">
+            Actions
+          </p>
           <button
             onClick={handleDeploy}
             disabled={deploying || canceling}
@@ -414,11 +477,17 @@ export default function ProjectDetail() {
             <button
               onClick={handleCancelDeployment}
               disabled={canceling}
-              className="w-full border border-[#2a1111] text-[#b91c1c] text-[9px] font-bold uppercase tracking-[0.15em] py-2.5 rounded-[2px] hover:border-[#7f1d1d] hover:text-[#ef4444] transition-colors disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+              className="w-full border border-[#2a1515] text-[#c56b6b] text-[9px] font-bold uppercase tracking-[0.15em] py-2.5 rounded-[2px] hover:border-[#5a2525] hover:text-[#d88a8a] transition-colors disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
             >
               {canceling ? "Canceling..." : "Cancel Deployment"}
             </button>
           )}
+          <Link
+            href={`/projects/${projectId}/settings`}
+            className="block w-full border border-[#181818] text-center text-[9px] font-bold uppercase tracking-[0.15em] text-zinc-600 py-2.5 rounded-[2px] hover:border-zinc-700 hover:text-zinc-300 transition-colors cursor-pointer"
+          >
+            Service Settings
+          </Link>
           {project?.auto_deploy && (
             <p className="text-[8px] text-zinc-800 uppercase tracking-widest text-center font-mono">
               auto-deploy enabled
@@ -457,14 +526,11 @@ export default function ProjectDetail() {
             ) : (
               deployments.map((dep, idx) => {
                 const isActive = activeDeployment?.id === dep.id;
-                const depIsLive = dep.status === "live";
                 const depIsBuilding = [
                   "building",
                   "deploying",
                   "queued",
                 ].includes(dep.status.toLowerCase());
-                const depIsFailed =
-                  dep.status === "failed" || dep.status === "error";
 
                 return (
                   <button
@@ -478,7 +544,7 @@ export default function ProjectDetail() {
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-1.5">
                         <div
-                          className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${depIsLive ? "bg-[#4ade80]" : depIsBuilding ? "bg-[#ca8a04] animate-pulse" : depIsFailed ? "bg-[#7f1d1d]" : "bg-zinc-800"}`}
+                          className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDotColor(dep.status)} ${depIsBuilding ? "animate-pulse" : ""}`}
                         />
                         <span
                           className={`text-[9px] font-bold uppercase tracking-widest ${statusTextColor(dep.status)}`}
@@ -513,78 +579,62 @@ export default function ProjectDetail() {
             )}
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="border-t border-[#1a1a1a]">
-          <Link
-            href={`/projects/${projectId}/settings`}
-            className="flex items-center gap-3 px-5 py-3.5 text-[9px] font-bold uppercase tracking-[0.15em] text-zinc-700 hover:text-zinc-300 hover:bg-white/[0.02] transition-all"
-          >
-            <svg
-              width="11"
-              height="11"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-            Settings
-          </Link>
-        </div>
       </aside>
 
       {/* MAIN LOG PANEL */}
       <main className="flex-1 flex flex-col bg-black overflow-hidden">
         {/* Log header */}
-        <div className="px-6 py-3 border-b border-[#1a1a1a] flex items-center justify-between bg-[#030303] shrink-0">
+        <div className="px-7 py-4 border-b border-[#1a1a1a] flex items-center justify-between bg-[#030303] shrink-0">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <h2 className="text-[13px] font-semibold text-zinc-200 tracking-tight">
+                Build log
+              </h2>
+              {activeDeployment && (
+                <span
+                  className={`text-[9px] font-bold uppercase tracking-[0.18em] ${statusTextColor(activeDeployment.status)}`}
+                >
+                  {activeDeployment.status}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 flex items-center gap-4">
+              <span className="text-[9px] font-mono text-zinc-800 uppercase tracking-widest">
+                {activeDeployment
+                  ? `deploy/${activeDeployment.id.slice(0, 8)}`
+                  : "No deployment"}
+              </span>
+              {logs.length > 0 && (
+                <span className="text-[9px] font-mono text-zinc-800">
+                  {logs.length} lines
+                </span>
+              )}
+            </div>
+          </div>
           <div className="flex items-center gap-4">
-            <span className="text-[9px] font-mono text-zinc-800 uppercase tracking-widest">
-              {activeDeployment
-                ? `deploy/${activeDeployment.id.slice(0, 8)}`
-                : "No deployment"}
-            </span>
             {isBuilding && (
               <div className="flex items-center gap-1.5">
                 {[0, 1, 2].map((i) => (
                   <div
                     key={i}
-                    className="w-1 h-1 rounded-full bg-[#ca8a04] animate-pulse"
+                    className="w-1 h-1 rounded-full bg-[#b8872f] animate-pulse"
                     style={{ animationDelay: `${i * 150}ms` }}
                   />
                 ))}
               </div>
             )}
-            {logs.length > 0 && (
-              <span className="text-[9px] font-mono text-zinc-800">
-                {logs.length} lines
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-4">
             <button
-              onClick={() => setLogs([])}
-              className="text-[9px] font-bold text-zinc-700 hover:text-zinc-300 uppercase tracking-[0.15em] transition-colors cursor-pointer"
+              onClick={handleCopyLogs}
+              disabled={logs.length === 0}
+              className="text-[9px] font-bold text-zinc-700 hover:text-zinc-300 uppercase tracking-[0.15em] transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-30"
             >
-              Clear
-            </button>
-            <button
-              onClick={() =>
-                navigator.clipboard.writeText(
-                  logs.map((l) => l.text).join("\n"),
-                )
-              }
-              className="text-[9px] font-bold text-zinc-700 hover:text-zinc-300 uppercase tracking-[0.15em] transition-colors cursor-pointer"
-            >
-              Copy
+              {copied ? "Copied" : "Copy logs"}
             </button>
           </div>
         </div>
 
         {/* Log body */}
-        <div className="flex-1 overflow-y-auto px-8 py-6 font-mono bg-black">
+        <div className="flex-1 overflow-y-auto px-7 py-6 font-mono bg-black">
           {logs.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center gap-3">
               <p className="text-[9px] font-bold uppercase tracking-[0.4em] text-zinc-800">
@@ -597,14 +647,17 @@ export default function ProjectDetail() {
               )}
             </div>
           ) : (
-            <div className="space-y-0.5">
+            <div className="space-y-px">
               {logs.map((log, i) => (
-                <div key={i} className="flex gap-5 py-0.5">
-                  <span className="w-14 shrink-0 text-[9px] text-zinc-800 pt-px select-none tabular-nums">
+                <div
+                  key={i}
+                  className="grid grid-cols-[68px_minmax(0,1fr)] gap-5 rounded-[2px] px-2 py-1 hover:bg-white/[0.02]"
+                >
+                  <span className="text-[9px] text-zinc-800 pt-px select-none tabular-nums">
                     {log.timestamp}
                   </span>
                   <p
-                    className={`text-[11px] leading-relaxed break-all ${getLogTypeColor(log.type)}`}
+                    className={`text-[11px] leading-relaxed break-words ${getLogTypeColor(log.type)}`}
                   >
                     {renderLogText(log.text)}
                   </p>
@@ -630,11 +683,114 @@ function SidebarStat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ProjectToast({
+  notice,
+  onDismiss,
+}: {
+  notice: ProjectNotice | null;
+  onDismiss: () => void;
+}) {
+  if (!notice) return null;
+
+  const color =
+    notice.type === "success"
+      ? "text-[#74c69d]"
+      : notice.type === "error"
+        ? "text-[#c56b6b]"
+        : "text-zinc-300";
+
+  return (
+    <div className="fixed right-5 top-[76px] z-50 w-[320px] border border-[#242424] bg-[#050505] px-4 py-3 shadow-2xl">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p
+            className={`text-[10px] font-bold uppercase tracking-[0.18em] ${color}`}
+          >
+            {notice.title}
+          </p>
+          {notice.message && (
+            <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-500">
+              {notice.message}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-[13px] leading-none text-zinc-700 hover:text-zinc-300 transition-colors cursor-pointer"
+          aria-label="Dismiss notification"
+        >
+          x
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function statusFromLogLine(line: string): string | null {
+  const lower = line.toLowerCase();
+
+  if (
+    lower.includes("deployment live at") ||
+    lower.includes("target healthy") ||
+    lower.includes("build complete")
+  ) {
+    return "live";
+  }
+
+  if (lower.includes("deployment canceled")) {
+    return "canceled";
+  }
+
+  if (lower.includes("deployment failed") || lower.includes("error:")) {
+    return "failed";
+  }
+
+  if (
+    lower.includes("handoff to deployer") ||
+    lower.includes("triggering deployment orchestration") ||
+    lower.includes("registering task definition") ||
+    lower.includes("configuring target group") ||
+    lower.includes("updating routing rules") ||
+    lower.includes("provisioning fargate") ||
+    lower.includes("monitoring service stability") ||
+    lower.includes("task health")
+  ) {
+    return "deploying";
+  }
+
+  if (
+    lower.includes("syncing source") ||
+    lower.includes("starting docker build") ||
+    lower.includes("authenticating with amazon ecr") ||
+    lower.includes("pushing image") ||
+    lower.includes("image successfully pushed")
+  ) {
+    return "building";
+  }
+
+  return null;
+}
+
+function deploymentUrlFromLogLine(line: string): string | null {
+  if (!line.toLowerCase().includes("deployment live at")) return null;
+  return line.match(/https?:\/\/[^\s]+/)?.[0] ?? null;
+}
+
+function statusDotColor(status: string): string {
+  const s = status.toLowerCase();
+  if (s === "live") return "bg-[#74c69d]";
+  if (["building", "deploying", "queued"].includes(s)) return "bg-[#b8872f]";
+  if (s === "failed" || s === "error") return "bg-[#c56b6b]";
+  return "bg-zinc-800";
+}
+
 function statusTextColor(status: string): string {
   const s = status.toLowerCase();
-  if (s === "live") return "text-[#4ade80]";
-  if (["building", "deploying", "queued"].includes(s)) return "text-[#ca8a04]";
-  if (s === "failed" || s === "error") return "text-[#7f1d1d]";
+  if (s === "live") return "text-[#74c69d]";
+  if (["building", "deploying", "queued"].includes(s)) return "text-[#b8872f]";
+  if (s === "failed" || s === "error") return "text-[#c56b6b]";
+  if (s === "canceled") return "text-zinc-500";
   return "text-zinc-700";
 }
 
@@ -661,7 +817,7 @@ function renderLogText(text: string) {
         href={part}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-[#4ade80] underline underline-offset-3 decoration-[#4ade80]/30 hover:decoration-[#4ade80] transition-all"
+        className="text-[#74c69d] underline underline-offset-3 decoration-[#74c69d]/30 hover:decoration-[#74c69d] transition-all"
       >
         {part}
       </a>
@@ -674,9 +830,9 @@ function renderLogText(text: string) {
 function getLogTypeColor(type: string): string {
   switch (type) {
     case "success":
-      return "text-[#4ade80]";
+      return "text-[#74c69d]";
     case "error":
-      return "text-[#7f1d1d]";
+      return "text-[#c56b6b]";
     case "system":
       return "text-zinc-500 font-bold";
     default:

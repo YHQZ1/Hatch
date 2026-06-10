@@ -76,57 +76,72 @@ type DeployInput struct {
 	EnvVars      map[string]string
 }
 
-func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (string, error) {
+type DeployResult struct {
+	PublicURL         string
+	TaskDefinitionARN string
+	TargetGroupARN    string
+	ServiceARN        string
+	ServiceName       string
+}
+
+func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (DeployResult, error) {
 	id := input.DeploymentID
 	slug := input.Subdomain
 
 	if err := d.ensureNotCanceled(ctx, id); err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 
 	d.streamer.Publish(ctx, id, "Registering task definition...")
 	taskArn, err := d.registerTaskDefinition(ctx, input)
 	if err != nil {
-		return "", fmt.Errorf("failed to register task definition: %w", err)
+		return DeployResult{}, fmt.Errorf("failed to register task definition: %w", err)
 	}
 
 	if err := d.ensureNotCanceled(ctx, id); err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 
 	d.streamer.Publish(ctx, id, "Configuring target group...")
 	tgArn, err := d.upsertTargetGroup(ctx, input)
 	if err != nil {
-		return "", fmt.Errorf("failed to configure target group: %w", err)
+		return DeployResult{}, fmt.Errorf("failed to configure target group: %w", err)
 	}
 
 	if err := d.ensureNotCanceled(ctx, id); err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 
 	d.streamer.Publish(ctx, id, "Updating routing rules...")
 	url, err := d.upsertListenerRule(ctx, slug, tgArn)
 	if err != nil {
-		return "", fmt.Errorf("failed to update routing rules: %w", err)
+		return DeployResult{}, fmt.Errorf("failed to update routing rules: %w", err)
 	}
 
 	if err := d.ensureNotCanceled(ctx, id); err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 
 	d.streamer.Publish(ctx, id, "Provisioning Fargate service...")
-	if _, err := d.upsertService(ctx, input, taskArn, tgArn); err != nil {
-		return "", fmt.Errorf("failed to provision service: %w", err)
+	serviceArn, err := d.upsertService(ctx, input, taskArn, tgArn)
+	if err != nil {
+		return DeployResult{}, fmt.Errorf("failed to provision service: %w", err)
 	}
 
 	d.streamer.Publish(ctx, id, "Monitoring service stability...")
 	if err := d.waitForStability(ctx, id, slug, tgArn); err != nil {
-		return "", fmt.Errorf("service stability check failed: %w", err)
+		return DeployResult{}, fmt.Errorf("service stability check failed: %w", err)
 	}
 
 	publicURL := d.publicURL(url)
 	d.streamer.Publish(ctx, id, fmt.Sprintf("Deployment live at: %s", publicURL))
-	return publicURL, nil
+	return DeployResult{
+		PublicURL:         publicURL,
+		TaskDefinitionARN: taskArn,
+		TargetGroupARN:    tgArn,
+		ServiceARN:        serviceArn,
+		ServiceName:       serviceName(slug),
+	}, nil
 }
 
 func (d *Deployer) ensureNotCanceled(ctx context.Context, deploymentID string) error {
@@ -296,7 +311,7 @@ func (d *Deployer) upsertListenerRule(ctx context.Context, subdomain, tgArn stri
 }
 
 func (d *Deployer) upsertService(ctx context.Context, input DeployInput, taskArn, tgArn string) (string, error) {
-	name := fmt.Sprintf("hatch-%s", input.Subdomain)
+	name := serviceName(input.Subdomain)
 
 	svcs, err := d.ecsClient.DescribeServices(ctx, &ecs.DescribeServicesInput{
 		Cluster:  aws.String(d.clusterName),
@@ -377,7 +392,7 @@ func serviceWiringMatches(svc types.Service, expectedPort int32, expectedTargetG
 }
 
 func (d *Deployer) waitForStability(ctx context.Context, deployID, slug, tgArn string) error {
-	name := fmt.Sprintf("hatch-%s", slug)
+	name := serviceName(slug)
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
@@ -466,7 +481,7 @@ func (d *Deployer) targetGroupHealthy(ctx context.Context, tgArn string) (bool, 
 }
 
 func (d *Deployer) Teardown(ctx context.Context, slug string) error {
-	svcName := fmt.Sprintf("hatch-%s", slug)
+	svcName := serviceName(slug)
 	tgName := fmt.Sprintf("h-%s", slug)
 	if len(tgName) > 32 {
 		tgName = tgName[:32]
@@ -519,6 +534,93 @@ func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 	}
 
 	return nil
+}
+
+func (d *Deployer) SetServiceDesiredCount(ctx context.Context, slug string, desiredCount int32) error {
+	name := serviceName(slug)
+	_, err := d.ecsClient.UpdateService(ctx, &ecs.UpdateServiceInput{
+		Cluster:      aws.String(d.clusterName),
+		Service:      aws.String(name),
+		DesiredCount: aws.Int32(desiredCount),
+	})
+	if err != nil && !isNotFound(err) {
+		return fmt.Errorf("failed to update ECS service desired count: %w", err)
+	}
+	if err != nil {
+		return fmt.Errorf("ECS service not found: %s", name)
+	}
+	return d.waitForDesiredCount(ctx, name, desiredCount)
+}
+
+func (d *Deployer) waitForDesiredCount(ctx context.Context, service string, desiredCount int32) error {
+	ticker := time.NewTicker(8 * time.Second)
+	defer ticker.Stop()
+
+	timeout := time.After(7 * time.Minute)
+
+	check := func() (bool, error) {
+		out, err := d.ecsClient.DescribeServices(ctx, &ecs.DescribeServicesInput{
+			Cluster:  aws.String(d.clusterName),
+			Services: []string{service},
+		})
+		if err != nil {
+			return false, fmt.Errorf("failed to describe ECS service: %w", err)
+		}
+		if len(out.Services) == 0 {
+			return false, fmt.Errorf("ECS service not found: %s", service)
+		}
+
+		svc := out.Services[0]
+		if desiredCount == 0 {
+			return svc.RunningCount == 0 && svc.PendingCount == 0, nil
+		}
+
+		targetHealthy := true
+		targetState := "not configured"
+		if len(svc.LoadBalancers) > 0 && svc.LoadBalancers[0].TargetGroupArn != nil {
+			targetHealthy, targetState = d.targetGroupHealthy(ctx, *svc.LoadBalancers[0].TargetGroupArn)
+		}
+
+		if svc.RunningCount >= desiredCount && svc.PendingCount == 0 && targetHealthy {
+			return true, nil
+		}
+		if strings.HasPrefix(targetState, "unhealthy") {
+			return false, nil
+		}
+		return false, nil
+	}
+
+	ok, err := check()
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout:
+			if desiredCount == 0 {
+				return fmt.Errorf("suspend timeout: service still has running or pending tasks")
+			}
+			return fmt.Errorf("resume timeout: service did not become healthy")
+		case <-ticker.C:
+			ok, err := check()
+			if err != nil {
+				return err
+			}
+			if ok {
+				return nil
+			}
+		}
+	}
+}
+
+func serviceName(slug string) string {
+	return fmt.Sprintf("hatch-%s", slug)
 }
 
 func nextAvailablePriority(rules *elbv2.DescribeRulesOutput) (int32, error) {

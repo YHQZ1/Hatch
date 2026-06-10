@@ -137,7 +137,7 @@ func (w *Worker) process(job BuildJobEvent) {
 		return
 	}
 
-	if err := gitpkg.Clone(ctx, job.RepoURL, job.UserToken, buildPath); err != nil {
+	if err := gitpkg.Clone(ctx, job.RepoURL, job.UserToken, job.Branch, buildPath); err != nil {
 		if errors.Is(err, context.Canceled) && w.isCanceled(context.Background(), id) {
 			w.streamer.Publish(context.Background(), id, "Build canceled during source sync")
 			return

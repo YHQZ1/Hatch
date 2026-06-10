@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +26,17 @@ type Repo struct {
 
 type GitHubHandler struct {
 	rdb *redis.Client
+}
+
+type dockerfileCheckResponse struct {
+	Exists bool   `json:"exists"`
+	Ports  []int  `json:"ports,omitempty"`
+	Path   string `json:"path,omitempty"`
+}
+
+type githubContentResponse struct {
+	Content  string `json:"content"`
+	Encoding string `json:"encoding"`
 }
 
 func NewGitHubHandler(rdb *redis.Client) *GitHubHandler {
@@ -100,11 +114,18 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 	path := c.DefaultQuery("path", "Dockerfile")
 	ctx := c.Request.Context()
 
-	cacheKey := fmt.Sprintf("github:dockerfile:%s:%s:%s", owner, repo, path)
+	cacheKey := fmt.Sprintf("github:dockerfile:v2:%s:%s:%s", owner, repo, path)
 	val, err := h.rdb.Get(ctx, cacheKey).Result()
-	if err == nil && val == "true" {
-		c.JSON(http.StatusOK, gin.H{"exists": true})
-		return
+	if err == nil {
+		var cached dockerfileCheckResponse
+		if json.Unmarshal([]byte(val), &cached) == nil {
+			c.JSON(http.StatusOK, cached)
+			return
+		}
+		if val == "true" {
+			c.JSON(http.StatusOK, dockerfileCheckResponse{Exists: true})
+			return
+		}
 	}
 
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", owner, repo, path)
@@ -124,8 +145,18 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
-		h.rdb.Set(ctx, cacheKey, "true", 10*time.Minute)
-		c.JSON(http.StatusOK, gin.H{"exists": true})
+		var payload githubContentResponse
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse dockerfile metadata"})
+			return
+		}
+
+		ports := parseDockerfileExposePorts(payload)
+		response := dockerfileCheckResponse{Exists: true, Ports: ports}
+		if encoded, err := json.Marshal(response); err == nil {
+			h.rdb.Set(ctx, cacheKey, encoded, 10*time.Minute)
+		}
+		c.JSON(http.StatusOK, response)
 		return
 	}
 
@@ -135,4 +166,37 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusBadGateway, gin.H{"exists": false, "error": "github api error"})
+}
+
+func parseDockerfileExposePorts(payload githubContentResponse) []int {
+	if payload.Encoding != "base64" || payload.Content == "" {
+		return nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(payload.Content, "\n", ""))
+	if err != nil {
+		return nil
+	}
+
+	seen := map[int]bool{}
+	var ports []int
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(strings.Split(line, "#")[0])
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 || !strings.EqualFold(fields[0], "EXPOSE") {
+			continue
+		}
+		for _, token := range fields[1:] {
+			portText := strings.Split(token, "/")[0]
+			port, err := strconv.Atoi(portText)
+			if err != nil || port <= 0 || port > 65535 || seen[port] {
+				continue
+			}
+			seen[port] = true
+			ports = append(ports, port)
+		}
+	}
+	return ports
 }

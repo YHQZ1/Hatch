@@ -1,0 +1,37 @@
+project_name = "hatch-control"
+
+aws_region  = "ap-south-1"
+aws_profile = "hatch-new"
+
+api_hostname  = "api.hatchcloud.xyz"
+web_hostnames = ["app.hatchcloud.xyz"]
+
+acm_certificate_arn = "arn:aws:acm:ap-south-1:679777943956:certificate/REPLACE_ME"
+
+postgres_password = "replace-with-a-long-random-password"
+rabbitmq_password = "replace-with-a-long-random-password"
+
+github_client_id     = "replace-me"
+github_client_secret = "replace-me"
+jwt_secret           = "replace-with-at-least-32-random-chars"
+
+# Leave SSH disabled by default and use AWS Systems Manager Session Manager.
+control_host_key_name        = null
+control_host_ssh_cidr_blocks = []
+
+# Values from infra/envs/user-apps outputs.
+user_app_base_domain             = "hatchcloud.xyz"
+user_app_deployment_url_scheme   = "https"
+user_app_ecr_registry            = "679777943956.dkr.ecr.ap-south-1.amazonaws.com"
+user_app_ecr_repository_name     = "hatch-user-app-builds"
+user_app_ecr_repository_arn      = "arn:aws:ecr:ap-south-1:679777943956:repository/hatch-user-app-builds"
+user_app_ecs_cluster_name        = "hatch-user-apps-cluster"
+user_app_http_listener_arn       = "arn:aws:elasticloadbalancing:ap-south-1:679777943956:listener/app/hatch-user-apps-apps-alb/REPLACE/REPLACE"
+user_app_https_listener_arn      = "arn:aws:elasticloadbalancing:ap-south-1:679777943956:listener/app/hatch-user-apps-apps-alb/REPLACE/REPLACE"
+user_app_vpc_id                  = "vpc-REPLACE"
+user_app_subnet_a                = "subnet-REPLACE"
+user_app_subnet_b                = "subnet-REPLACE"
+user_app_ecs_security_group_id   = "sg-REPLACE"
+user_app_task_execution_role_arn = "arn:aws:iam::679777943956:role/hatch-user-apps-ecs-task-execution"
+
+user_app_resource_arn_patterns = ["*"]
