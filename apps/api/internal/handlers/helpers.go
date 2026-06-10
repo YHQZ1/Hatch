@@ -2,10 +2,14 @@ package handlers
 
 import (
 	"errors"
+	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+var outboundHTTPClient = &http.Client{Timeout: 12 * time.Second}
 
 func getUserID(c *gin.Context) (uuid.UUID, error) {
 	val, exists := c.Get("user_id")

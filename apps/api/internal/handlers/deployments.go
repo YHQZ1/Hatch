@@ -435,7 +435,7 @@ func fetchGitHubBranchHead(ctx context.Context, repoURL, branch, token string) (
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
 		return "", ""
 	}

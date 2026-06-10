@@ -77,7 +77,7 @@ func (h *GitHubHandler) ListRepos(c *gin.Context) {
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "github unreachable"})
 		return
@@ -137,7 +137,7 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "github unreachable"})
 		return
