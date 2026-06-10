@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -34,8 +35,10 @@ type ServiceControlJobEvent struct {
 }
 
 type Publisher struct {
-	conn *amqp.Connection
-	ch   *amqp.Channel
+	conn     *amqp.Connection
+	ch       *amqp.Channel
+	confirms <-chan amqp.Confirmation
+	mu       sync.Mutex
 }
 
 func NewPublisher(url string) *Publisher {
@@ -48,6 +51,10 @@ func NewPublisher(url string) *Publisher {
 	if err != nil {
 		log.Fatalf("Failed to open RabbitMQ channel: %v", err)
 	}
+	if err := ch.Confirm(false); err != nil {
+		log.Fatalf("Failed to enable RabbitMQ publisher confirms: %v", err)
+	}
+	confirms := ch.NotifyPublish(make(chan amqp.Confirmation, 1))
 
 	_, err = ch.QueueDeclare("hatch.build.jobs", true, false, false, false, nil)
 	if err != nil {
@@ -64,7 +71,7 @@ func NewPublisher(url string) *Publisher {
 		log.Fatalf("Failed to declare service queue: %v", err)
 	}
 
-	return &Publisher{conn: conn, ch: ch}
+	return &Publisher{conn: conn, ch: ch, confirms: confirms}
 }
 
 func (p *Publisher) PublishBuildJob(ctx context.Context, job BuildJobEvent) error {
@@ -73,17 +80,7 @@ func (p *Publisher) PublishBuildJob(ctx context.Context, job BuildJobEvent) erro
 		return fmt.Errorf("failed to marshal build job: %w", err)
 	}
 
-	return p.ch.PublishWithContext(ctx,
-		"",
-		"hatch.build.jobs",
-		false,
-		false,
-		amqp.Publishing{
-			ContentType:  "application/json",
-			DeliveryMode: amqp.Persistent,
-			Body:         body,
-		},
-	)
+	return p.publish(ctx, "hatch.build.jobs", body)
 }
 
 func (p *Publisher) PublishCleanupJob(ctx context.Context, job CleanupJobEvent) error {
@@ -92,17 +89,7 @@ func (p *Publisher) PublishCleanupJob(ctx context.Context, job CleanupJobEvent) 
 		return fmt.Errorf("failed to marshal cleanup job: %w", err)
 	}
 
-	return p.ch.PublishWithContext(ctx,
-		"",
-		"hatch.cleanup.jobs",
-		false,
-		false,
-		amqp.Publishing{
-			ContentType:  "application/json",
-			DeliveryMode: amqp.Persistent,
-			Body:         body,
-		},
-	)
+	return p.publish(ctx, "hatch.cleanup.jobs", body)
 }
 
 func (p *Publisher) PublishServiceControlJob(ctx context.Context, job ServiceControlJobEvent) error {
@@ -111,17 +98,39 @@ func (p *Publisher) PublishServiceControlJob(ctx context.Context, job ServiceCon
 		return fmt.Errorf("failed to marshal service control job: %w", err)
 	}
 
-	return p.ch.PublishWithContext(ctx,
+	return p.publish(ctx, "hatch.service.jobs", body)
+}
+
+func (p *Publisher) publish(ctx context.Context, queue string, body []byte) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if err := p.ch.PublishWithContext(ctx,
 		"",
-		"hatch.service.jobs",
-		false,
+		queue,
+		true,
 		false,
 		amqp.Publishing{
 			ContentType:  "application/json",
 			DeliveryMode: amqp.Persistent,
 			Body:         body,
 		},
-	)
+	); err != nil {
+		return err
+	}
+
+	select {
+	case confirm, ok := <-p.confirms:
+		if !ok {
+			return fmt.Errorf("rabbitmq confirmation channel closed")
+		}
+		if !confirm.Ack {
+			return fmt.Errorf("rabbitmq rejected publish to %s", queue)
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (p *Publisher) Close() {
