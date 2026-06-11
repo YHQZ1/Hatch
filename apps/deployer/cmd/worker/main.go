@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -49,17 +50,28 @@ func main() {
 
 	log.Printf("Hatch Deployer started (Region: %s, Cluster: %s)", cfg.AWSRegion, cfg.ECSClusterName)
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	defer worker.Close()
 
+	errCh := make(chan error, 1)
 	go func() {
-		if err := worker.Start(); err != nil {
-			log.Printf("Worker error: %v", err)
-		}
+		errCh <- worker.Start()
 	}()
 
-	<-sigChan
-	log.Println("Shutting down deployer...")
+	select {
+	case <-ctx.Done():
+		log.Println("Shutting down deployer...")
+		worker.Stop()
+		if err := <-errCh; err != nil {
+			log.Printf("Worker stopped with error: %v", err)
+		}
+	case err := <-errCh:
+		if err != nil {
+			log.Printf("Worker error: %v", err)
+		}
+	}
+
 	log.Println("Deployer exited")
 }
 

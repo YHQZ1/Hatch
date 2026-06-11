@@ -46,16 +46,18 @@ type DeployJobEvent struct {
 }
 
 type Worker struct {
-	url      string
-	streamer *logs.Streamer
-	builder  *docker.Builder
-	db       *sql.DB
-	ch       *amqp.Channel
-	conn     *amqp.Connection
-	confirms <-chan amqp.Confirmation
-	secrets  *secrets.Codec
-	stages   sync.Map
-	timeout  time.Duration
+	url         string
+	streamer    *logs.Streamer
+	builder     *docker.Builder
+	db          *sql.DB
+	ch          *amqp.Channel
+	conn        *amqp.Connection
+	confirms    <-chan amqp.Confirmation
+	secrets     *secrets.Codec
+	stages      sync.Map
+	timeout     time.Duration
+	consumerTag string
+	mu          sync.Mutex
 }
 
 func NewWorker(url, redis, registry, repo, region, databaseURL, encryptionKey string, buildTimeout time.Duration) *Worker {
@@ -114,7 +116,11 @@ func (w *Worker) Start() error {
 		return fmt.Errorf("failed to declare deploy queue: %w", err)
 	}
 
-	msgs, err := w.ch.Consume("hatch.build.jobs", "", false, false, false, false, nil)
+	w.mu.Lock()
+	w.consumerTag = "hatch-builder"
+	w.mu.Unlock()
+
+	msgs, err := w.ch.Consume("hatch.build.jobs", w.consumerTag, false, false, false, false, nil)
 	if err != nil {
 		return fmt.Errorf("failed to start consumer: %w", err)
 	}
@@ -133,6 +139,20 @@ func (w *Worker) Start() error {
 	}
 
 	return nil
+}
+
+func (w *Worker) Stop() {
+	w.mu.Lock()
+	ch := w.ch
+	tag := w.consumerTag
+	w.mu.Unlock()
+
+	if ch == nil || tag == "" {
+		return
+	}
+	if err := ch.Cancel(tag, false); err != nil && !errors.Is(err, amqp.ErrClosed) {
+		log.Printf("Failed to cancel builder consumer: %v", err)
+	}
 }
 
 func (w *Worker) process(job BuildJobEvent) {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
 	ecsdeploy "github.com/YHQZ1/hatch/apps/deployer/internal/ecs"
 	"github.com/YHQZ1/hatch/apps/deployer/internal/logs"
@@ -60,14 +61,21 @@ type ServiceControlJobEvent struct {
 }
 
 type Worker struct {
-	cfg      Config
-	streamer *logs.Streamer
-	deployer *ecsdeploy.Deployer
-	db       *sql.DB
-	conn     *amqp.Connection
-	channels []*amqp.Channel
-	secrets  *secrets.Codec
-	ecr      *ecr.Client
+	cfg       Config
+	streamer  *logs.Streamer
+	deployer  *ecsdeploy.Deployer
+	db        *sql.DB
+	conn      *amqp.Connection
+	consumers []queueConsumer
+	secrets   *secrets.Codec
+	ecr       *ecr.Client
+	mu        sync.Mutex
+}
+
+type queueConsumer struct {
+	name string
+	tag  string
+	ch   *amqp.Channel
 }
 
 func NewWorker(cfg Config) *Worker {
@@ -129,8 +137,16 @@ func (w *Worker) Start() error {
 		return err
 	}
 
-	go w.handleCleanupJobs(cleanupMsgs)
-	go w.handleServiceControlJobs(serviceMsgs)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		w.handleCleanupJobs(cleanupMsgs)
+	}()
+	go func() {
+		defer wg.Done()
+		w.handleServiceControlJobs(serviceMsgs)
+	}()
 
 	log.Println("Deployer worker started")
 
@@ -145,6 +161,7 @@ func (w *Worker) Start() error {
 		msg.Ack(false)
 	}
 
+	wg.Wait()
 	return nil
 }
 
@@ -153,7 +170,10 @@ func (w *Worker) consumeQueue(queueName string) (<-chan amqp.Delivery, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open RabbitMQ channel for %s: %w", queueName, err)
 	}
-	w.channels = append(w.channels, ch)
+	consumerTag := "hatch-deployer-" + strings.ReplaceAll(queueName, ".", "-")
+	w.mu.Lock()
+	w.consumers = append(w.consumers, queueConsumer{name: queueName, tag: consumerTag, ch: ch})
+	w.mu.Unlock()
 
 	_, err = ch.QueueDeclare(queueName, true, false, false, false, nil)
 	if err != nil {
@@ -163,11 +183,26 @@ func (w *Worker) consumeQueue(queueName string) (<-chan amqp.Delivery, error) {
 		return nil, fmt.Errorf("failed to set qos for %s: %w", queueName, err)
 	}
 
-	msgs, err := ch.Consume(queueName, "", false, false, false, false, nil)
+	msgs, err := ch.Consume(queueName, consumerTag, false, false, false, false, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to consume %s: %w", queueName, err)
 	}
 	return msgs, nil
+}
+
+func (w *Worker) Stop() {
+	w.mu.Lock()
+	consumers := append([]queueConsumer(nil), w.consumers...)
+	w.mu.Unlock()
+
+	for _, consumer := range consumers {
+		if consumer.ch == nil || consumer.tag == "" {
+			continue
+		}
+		if err := consumer.ch.Cancel(consumer.tag, false); err != nil && !errors.Is(err, amqp.ErrClosed) {
+			log.Printf("Failed to cancel deployer consumer %s: %v", consumer.name, err)
+		}
+	}
 }
 
 func (w *Worker) handleServiceControlJobs(msgs <-chan amqp.Delivery) {
@@ -499,9 +534,12 @@ func (w *Worker) Close() {
 	if w.db != nil {
 		w.db.Close()
 	}
-	for _, ch := range w.channels {
-		if ch != nil {
-			ch.Close()
+	w.mu.Lock()
+	consumers := append([]queueConsumer(nil), w.consumers...)
+	w.mu.Unlock()
+	for _, consumer := range consumers {
+		if consumer.ch != nil {
+			consumer.ch.Close()
 		}
 	}
 	if w.conn != nil {
