@@ -247,6 +247,10 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 
 	envSnapshot, err := buildDeploymentEnvSnapshot(c.Request.Context(), qtx, projectID, body.EnvVars)
 	if err != nil {
+		if isValidationError(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load environment variables"})
 		return
 	}
@@ -487,7 +491,11 @@ func buildDeploymentEnvSnapshot(ctx context.Context, q *dbpkg.Queries, projectID
 	for _, envVar := range projectEnvVars {
 		envSnapshot[envVar.Key] = envVar.Value
 	}
-	for key, value := range normalizeEnvVars(overrides) {
+	normalizedOverrides, err := normalizeEnvVars(overrides)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range normalizedOverrides {
 		envSnapshot[key] = value
 	}
 	return envSnapshot, nil

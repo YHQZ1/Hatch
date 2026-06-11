@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -169,6 +170,10 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 	}
 
 	if err := replaceProjectEnvVars(c.Request.Context(), qtx, project.ID, body.EnvVars); err != nil {
+		if isValidationError(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save environment variables"})
 		return
 	}
@@ -447,6 +452,10 @@ func (h *ProjectHandler) UpdateProjectEnvVars(c *gin.Context) {
 
 	qtx := h.queries.WithTx(tx)
 	if err := replaceProjectEnvVars(c.Request.Context(), qtx, projectID, body.EnvVars); err != nil {
+		if isValidationError(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save environment variables"})
 		return
 	}
@@ -900,6 +909,26 @@ func normalizeGitHubRepoURL(raw string) (string, error) {
 }
 
 var subdomainPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+var envVarKeyPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+
+const (
+	maxEnvVars        = 100
+	maxEnvKeyLength   = 128
+	maxEnvValueLength = 32 * 1024
+)
+
+type validationError struct {
+	message string
+}
+
+func (e validationError) Error() string {
+	return e.message
+}
+
+func isValidationError(err error) bool {
+	var target validationError
+	return errors.As(err, &target)
+}
 
 var reservedSubdomains = map[string]struct{}{
 	"admin":   {},
@@ -960,10 +989,14 @@ func normalizeDockerfilePath(raw string) (string, error) {
 }
 
 func replaceProjectEnvVars(ctx context.Context, q *dbpkg.Queries, projectID uuid.UUID, envVars map[string]string) error {
+	normalizedEnvVars, err := normalizeEnvVars(envVars)
+	if err != nil {
+		return err
+	}
 	if err := q.DeleteProjectEnvVarsByProject(ctx, projectID); err != nil {
 		return err
 	}
-	for key, value := range normalizeEnvVars(envVars) {
+	for key, value := range normalizedEnvVars {
 		if _, err := q.CreateProjectEnvVar(ctx, dbpkg.CreateProjectEnvVarParams{
 			ProjectID: projectID,
 			Key:       key,
@@ -976,17 +1009,29 @@ func replaceProjectEnvVars(ctx context.Context, q *dbpkg.Queries, projectID uuid
 	return nil
 }
 
-func normalizeEnvVars(envVars map[string]string) map[string]string {
+func normalizeEnvVars(envVars map[string]string) (map[string]string, error) {
+	if len(envVars) > maxEnvVars {
+		return nil, validationError{message: fmt.Sprintf("environment variables cannot exceed %d entries", maxEnvVars)}
+	}
+
 	normalized := make(map[string]string)
 	for key, value := range envVars {
 		cleanKey := strings.ToUpper(strings.TrimSpace(key))
-		cleanKey = strings.ReplaceAll(cleanKey, " ", "_")
 		if cleanKey == "" {
 			continue
 		}
+		if len(cleanKey) > maxEnvKeyLength {
+			return nil, validationError{message: fmt.Sprintf("environment variable %q is too long", cleanKey)}
+		}
+		if !envVarKeyPattern.MatchString(cleanKey) {
+			return nil, validationError{message: fmt.Sprintf("environment variable %q must start with a letter or underscore and contain only letters, numbers, and underscores", cleanKey)}
+		}
+		if len(value) > maxEnvValueLength {
+			return nil, validationError{message: fmt.Sprintf("environment variable %q exceeds the %d byte value limit", cleanKey, maxEnvValueLength)}
+		}
 		normalized[cleanKey] = value
 	}
-	return normalized
+	return normalized, nil
 }
 
 func projectEnvVarsResponse(envVars []dbpkg.ProjectEnvVar) []gin.H {
