@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,7 +25,8 @@ type BuildJobEvent struct {
 	RepoURL        string `json:"repo_url"`
 	Branch         string `json:"branch"`
 	DockerfilePath string `json:"dockerfile_path"`
-	UserToken      string `json:"user_token"`
+	UserID         string `json:"user_id"`
+	UserToken      string `json:"user_token,omitempty"`
 	Port           int    `json:"port"`
 	Subdomain      string `json:"subdomain"`
 	CPU            int32  `json:"cpu"`
@@ -151,7 +153,14 @@ func (w *Worker) process(job BuildJobEvent) {
 		return
 	}
 
-	if err := gitpkg.Clone(ctx, job.RepoURL, job.UserToken, job.Branch, buildPath); err != nil {
+	userToken, err := w.githubAccessToken(ctx, job)
+	if err != nil {
+		w.streamer.Publish(ctx, id, fmt.Sprintf("Auth failed: %v", err))
+		w.markDeploymentFailed(context.Background(), id, "auth", err)
+		return
+	}
+
+	if err := gitpkg.Clone(ctx, job.RepoURL, userToken, job.Branch, buildPath); err != nil {
 		if errors.Is(err, context.Canceled) && w.isCanceled(context.Background(), id) {
 			w.streamer.Publish(context.Background(), id, "Build canceled during source sync")
 			return
@@ -246,6 +255,37 @@ func (w *Worker) waitForPublishConfirm(ctx context.Context, queueName string) er
 	case <-timeout.C:
 		return fmt.Errorf("timed out waiting for rabbitmq publish confirmation")
 	}
+}
+
+func (w *Worker) githubAccessToken(ctx context.Context, job BuildJobEvent) (string, error) {
+	if strings.TrimSpace(job.UserToken) != "" {
+		return strings.TrimSpace(job.UserToken), nil
+	}
+
+	var token string
+	err := w.db.QueryRowContext(
+		ctx,
+		`
+			SELECT users.access_token
+			FROM deployments
+			JOIN projects ON projects.id = deployments.project_id
+			JOIN users ON users.id = projects.user_id
+			WHERE deployments.id = $1
+			  AND ($2 = '' OR users.id::text = $2)
+		`,
+		job.DeploymentID,
+		strings.TrimSpace(job.UserID),
+	).Scan(&token)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("github access token not found")
+		}
+		return "", fmt.Errorf("failed to load github access token: %w", err)
+	}
+	if strings.TrimSpace(token) == "" {
+		return "", fmt.Errorf("github access token is empty")
+	}
+	return strings.TrimSpace(token), nil
 }
 
 func (w *Worker) watchCancellation(ctx context.Context, deploymentID string, cancel context.CancelFunc) func() {

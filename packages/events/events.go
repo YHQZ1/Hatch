@@ -5,7 +5,7 @@ type BuildJobEvent struct {
 	RepoURL        string `json:"repo_url"`
 	Branch         string `json:"branch"`
 	DockerfilePath string `json:"dockerfile_path"`
-	UserToken      string `json:"user_token"`
+	UserID         string `json:"user_id"`
 	Port           int    `json:"port"`
 	CPU            int32  `json:"cpu"`
 	MemoryMB       int32  `json:"memory_mb"`

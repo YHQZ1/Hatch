@@ -281,7 +281,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		RepoURL:        project.RepoUrl,
 		Branch:         branch,
 		DockerfilePath: project.DockerfilePath,
-		UserToken:      userToken,
+		UserID:         userID.String(),
 		Port:           int(body.Port),
 		Subdomain:      effectiveSubdomain,
 		CPU:            cpu,

@@ -168,7 +168,7 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		RepoURL:        project.RepoUrl,
 		Branch:         project.Branch,
 		DockerfilePath: project.DockerfilePath,
-		UserToken:      user.AccessToken,
+		UserID:         user.ID.String(),
 		Port:           int(project.Port),
 		Subdomain:      resourceName,
 		CPU:            defaultDeploymentCPU,
