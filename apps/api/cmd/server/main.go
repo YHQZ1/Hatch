@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/YHQZ1/hatch/apps/api/internal/auth"
 	dbconn "github.com/YHQZ1/hatch/apps/api/internal/db"
@@ -40,7 +44,9 @@ func main() {
 	}
 
 	rdb := redis.NewClient(opt)
+	defer rdb.Close()
 	hub := wsHub.NewHub(cfg.RedisURL, cfg.JWTSecret, cfg.CORSAllowedOrigins, db)
+	defer hub.Close()
 
 	r := gin.Default()
 
@@ -121,8 +127,30 @@ func main() {
 		api.GET("/github/repos/:owner/:repo/dockerfile", githubHandler.CheckDockerfile)
 	}
 
-	log.Printf("Hatch API starting on :%s", cfg.Port)
-	if err := r.Run(":" + cfg.Port); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	server := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		log.Printf("Hatch API starting on :%s", cfg.Port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	stop()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	log.Println("Shutting down API...")
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("API shutdown failed: %v", err)
+	}
+	log.Println("API exited")
 }

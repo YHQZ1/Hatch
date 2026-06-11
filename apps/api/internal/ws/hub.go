@@ -50,6 +50,10 @@ func NewHub(url, jwtSecret string, allowedOrigins []string, db *sql.DB) *Hub {
 	}
 }
 
+func (h *Hub) Close() error {
+	return h.redis.Close()
+}
+
 func (h *Hub) HandleDeploymentLogs(c *gin.Context) {
 	id := c.Param("id")
 	upgrader := websocket.Upgrader{
