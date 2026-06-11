@@ -7,10 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	ecsdeploy "github.com/YHQZ1/hatch/apps/deployer/internal/ecs"
 	"github.com/YHQZ1/hatch/apps/deployer/internal/logs"
 	"github.com/YHQZ1/hatch/packages/secrets"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
 	_ "github.com/lib/pq"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -62,6 +67,7 @@ type Worker struct {
 	conn     *amqp.Connection
 	ch       *amqp.Channel
 	secrets  *secrets.Codec
+	ecr      *ecr.Client
 }
 
 func NewWorker(cfg Config) *Worker {
@@ -78,6 +84,10 @@ func NewWorker(cfg Config) *Worker {
 	if err := db.Ping(); err != nil {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
+	awsCfg, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(cfg.AWSRegion))
+	if err != nil {
+		log.Fatalf("Failed to load AWS config: %v", err)
+	}
 
 	streamer := logs.NewStreamer(cfg.RedisURL)
 	deployer := ecsdeploy.NewDeployer(
@@ -92,6 +102,7 @@ func NewWorker(cfg Config) *Worker {
 		deployer: deployer,
 		db:       db,
 		secrets:  secretCodec,
+		ecr:      ecr.NewFromConfig(awsCfg),
 	}
 	deployer.SetCancelChecker(worker.isDeploymentCanceled)
 
@@ -208,6 +219,12 @@ func (w *Worker) handleCleanupJobs(msgs <-chan amqp.Delivery) {
 		ctx := context.Background()
 		if err := w.deployer.Teardown(ctx, job.Slug); err != nil {
 			log.Printf("Failed to teardown %s: %v", job.Slug, err)
+			w.markProjectDeleteFailed(ctx, job.ProjectID, err)
+			msg.Ack(false)
+			continue
+		}
+		if err := w.deleteProjectImages(ctx, job.ProjectID); err != nil {
+			log.Printf("Failed to delete ECR images for project %s: %v", job.ProjectID, err)
 			w.markProjectDeleteFailed(ctx, job.ProjectID, err)
 			msg.Ack(false)
 			continue
@@ -378,6 +395,73 @@ func (w *Worker) deleteProjectRecord(ctx context.Context, projectID string) {
 	if err != nil {
 		log.Printf("Failed to delete project record %s after cleanup: %v", projectID, err)
 	}
+}
+
+func (w *Worker) deleteProjectImages(ctx context.Context, projectID string) error {
+	rows, err := w.db.QueryContext(
+		ctx,
+		`SELECT DISTINCT image_uri FROM deployments WHERE project_id = $1 AND image_uri IS NOT NULL AND image_uri <> ''`,
+		projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to list project images: %w", err)
+	}
+	defer rows.Close()
+
+	imagesByRepository := map[string][]ecrtypes.ImageIdentifier{}
+	for rows.Next() {
+		var imageURI string
+		if err := rows.Scan(&imageURI); err != nil {
+			return fmt.Errorf("failed to scan project image: %w", err)
+		}
+		ref, ok := parseECRImageURI(imageURI)
+		if !ok {
+			continue
+		}
+		imagesByRepository[ref.repository] = append(imagesByRepository[ref.repository], ecrtypes.ImageIdentifier{
+			ImageTag: aws.String(ref.tag),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for repository, images := range imagesByRepository {
+		if len(images) == 0 {
+			continue
+		}
+		_, err := w.ecr.BatchDeleteImage(ctx, &ecr.BatchDeleteImageInput{
+			RepositoryName: aws.String(repository),
+			ImageIds:       images,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to delete ECR images from %s: %w", repository, err)
+		}
+	}
+
+	return nil
+}
+
+func parseECRImageURI(imageURI string) (struct {
+	repository string
+	tag        string
+}, bool) {
+	var ref struct {
+		repository string
+		tag        string
+	}
+	parts := strings.SplitN(strings.TrimSpace(imageURI), "/", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		return ref, false
+	}
+	repositoryAndTag := parts[1]
+	tagIndex := strings.LastIndex(repositoryAndTag, ":")
+	if tagIndex <= 0 || tagIndex == len(repositoryAndTag)-1 {
+		return ref, false
+	}
+	ref.repository = repositoryAndTag[:tagIndex]
+	ref.tag = repositoryAndTag[tagIndex+1:]
+	return ref, true
 }
 
 func (w *Worker) finalizeDeployment(ctx context.Context, id, image string, result ecsdeploy.DeployResult) {
