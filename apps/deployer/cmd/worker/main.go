@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/YHQZ1/hatch/apps/deployer/internal/queue"
@@ -45,6 +46,7 @@ func main() {
 		BaseDomain:           mustGetEnv("BASE_DOMAIN"),
 		DataEncryptionKey:    getEnv("DATA_ENCRYPTION_KEY", ""),
 	}
+	validateProductionSecret(getEnv("ENVIRONMENT", "development"), "DATA_ENCRYPTION_KEY", cfg.DataEncryptionKey)
 
 	worker := queue.NewWorker(cfg)
 
@@ -89,4 +91,13 @@ func getEnv(key, fallback string) string {
 		return fallback
 	}
 	return val
+}
+
+func validateProductionSecret(environment, key, value string) {
+	if environment != "production" {
+		return
+	}
+	if len(strings.TrimSpace(value)) < 32 {
+		log.Fatalf("%s must be at least 32 characters in production", key)
+	}
 }

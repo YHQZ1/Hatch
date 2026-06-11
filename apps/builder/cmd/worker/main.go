@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ func main() {
 		AWSRegion         string
 		DatabaseURL       string
 		DataEncryptionKey string
+		Environment       string
 		BuildTimeout      time.Duration
 	}{
 		RabbitMQ:          getEnv("RABBITMQ_URL"),
@@ -32,8 +34,10 @@ func main() {
 		AWSRegion:         getEnv("AWS_REGION"),
 		DatabaseURL:       getEnv("DATABASE_URL"),
 		DataEncryptionKey: getOptionalEnv("DATA_ENCRYPTION_KEY"),
+		Environment:       getEnvWithDefault("ENVIRONMENT", "development"),
 		BuildTimeout:      getDurationEnv("BUILD_TIMEOUT", 30*time.Minute),
 	}
+	validateProductionSecret(cfg.Environment, "DATA_ENCRYPTION_KEY", cfg.DataEncryptionKey)
 
 	worker := queue.NewWorker(
 		cfg.RabbitMQ,
@@ -83,6 +87,22 @@ func getEnv(key string) string {
 
 func getOptionalEnv(key string) string {
 	return os.Getenv(key)
+}
+
+func getEnvWithDefault(key, fallback string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return fallback
+}
+
+func validateProductionSecret(environment, key, value string) {
+	if environment != "production" {
+		return
+	}
+	if len(strings.TrimSpace(value)) < 32 {
+		log.Fatalf("%s must be at least 32 characters in production", key)
+	}
 }
 
 func getDurationEnv(key string, fallback time.Duration) time.Duration {
