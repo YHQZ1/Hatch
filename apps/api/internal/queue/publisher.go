@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -106,6 +107,23 @@ func (p *Publisher) publish(ctx context.Context, queue string, body []byte) erro
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if err := p.publishOnce(ctx, queue, body); err != nil {
+			if isAmbiguousPublishError(err) || ctx.Err() != nil {
+				return err
+			}
+			lastErr = err
+			time.Sleep(time.Duration(attempt) * 150 * time.Millisecond)
+			continue
+		}
+		return nil
+	}
+
+	return lastErr
+}
+
+func (p *Publisher) publishOnce(ctx context.Context, queue string, body []byte) error {
 	if err := p.ch.PublishWithContext(ctx,
 		"",
 		queue,
@@ -137,6 +155,13 @@ func (p *Publisher) publish(ctx context.Context, queue string, body []byte) erro
 	case <-timeout.C:
 		return fmt.Errorf("timed out waiting for rabbitmq publish confirmation")
 	}
+}
+
+func isAmbiguousPublishError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "timed out waiting for rabbitmq publish confirmation")
 }
 
 func (p *Publisher) Close() {

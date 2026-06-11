@@ -253,21 +253,42 @@ func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) err
 		return fmt.Errorf("Failed to marshal deploy job: %v", err)
 	}
 
-	err = w.ch.PublishWithContext(ctx, "", "hatch.deploy.jobs", true, false, amqp.Publishing{
-		ContentType:  "application/json",
-		DeliveryMode: amqp.Persistent,
-		Body:         body,
-	})
-
-	if err != nil {
-		return fmt.Errorf("Orchestration handoff failed: %v", err)
-	}
-	if err := w.waitForPublishConfirm(ctx, "hatch.deploy.jobs"); err != nil {
+	if err := w.publishDeployJob(ctx, body); err != nil {
 		return fmt.Errorf("Orchestration handoff failed: %v", err)
 	}
 
 	w.streamer.Publish(ctx, job.DeploymentID, "Pipeline stage complete: Build and Push")
 	return nil
+}
+
+func (w *Worker) publishDeployJob(ctx context.Context, body []byte) error {
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		err := w.ch.PublishWithContext(ctx, "", "hatch.deploy.jobs", true, false, amqp.Publishing{
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Body:         body,
+		})
+		if err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			lastErr = err
+			time.Sleep(time.Duration(attempt) * 150 * time.Millisecond)
+			continue
+		}
+		if err := w.waitForPublishConfirm(ctx, "hatch.deploy.jobs"); err != nil {
+			if isAmbiguousPublishError(err) || ctx.Err() != nil {
+				return err
+			}
+			lastErr = err
+			time.Sleep(time.Duration(attempt) * 150 * time.Millisecond)
+			continue
+		}
+		return nil
+	}
+
+	return lastErr
 }
 
 func (w *Worker) waitForPublishConfirm(ctx context.Context, queueName string) error {
@@ -288,6 +309,10 @@ func (w *Worker) waitForPublishConfirm(ctx context.Context, queueName string) er
 	case <-timeout.C:
 		return fmt.Errorf("timed out waiting for rabbitmq publish confirmation")
 	}
+}
+
+func isAmbiguousPublishError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "timed out waiting for rabbitmq publish confirmation")
 }
 
 func (w *Worker) githubAccessToken(ctx context.Context, job BuildJobEvent) (string, error) {
