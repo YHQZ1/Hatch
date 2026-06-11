@@ -3,6 +3,7 @@ module github.com/YHQZ1/hatch/apps/builder
 go 1.25.10
 
 require (
+	github.com/YHQZ1/hatch/packages/secrets v0.0.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.14
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.56.2
 	github.com/joho/godotenv v1.5.1
@@ -10,6 +11,8 @@ require (
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/redis/go-redis/v9 v9.18.0
 )
+
+replace github.com/YHQZ1/hatch/packages/secrets => ../../packages/secrets
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.5 // indirect

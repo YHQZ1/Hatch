@@ -20,6 +20,7 @@ import (
 
 	"github.com/YHQZ1/hatch/apps/api/internal/queue"
 	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
+	"github.com/YHQZ1/hatch/packages/secrets"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -29,6 +30,7 @@ type ProjectHandler struct {
 	db             *sql.DB
 	publisher      *queue.Publisher
 	webhookBaseURL string
+	secrets        *secrets.Codec
 }
 
 type ProjectResponse struct {
@@ -47,12 +49,13 @@ type ProjectResponse struct {
 	CreatedAt         string  `json:"created_at"`
 }
 
-func NewProjectHandler(db *sql.DB, publisher *queue.Publisher, webhookBaseURL string) *ProjectHandler {
+func NewProjectHandler(db *sql.DB, publisher *queue.Publisher, webhookBaseURL string, secretCodec *secrets.Codec) *ProjectHandler {
 	return &ProjectHandler{
 		queries:        dbpkg.New(db),
 		db:             db,
 		publisher:      publisher,
 		webhookBaseURL: webhookBaseURL,
+		secrets:        secretCodec,
 	}
 }
 
@@ -169,7 +172,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		return
 	}
 
-	if err := replaceProjectEnvVars(c.Request.Context(), qtx, project.ID, body.EnvVars); err != nil {
+	if err := h.replaceProjectEnvVars(c.Request.Context(), qtx, project.ID, body.EnvVars); err != nil {
 		if isValidationError(err) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -411,7 +414,12 @@ func (h *ProjectHandler) GetProjectEnvVars(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, projectEnvVarsResponse(envVars))
+	response, err := h.projectEnvVarsResponse(envVars)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decrypt environment variables"})
+		return
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *ProjectHandler) UpdateProjectEnvVars(c *gin.Context) {
@@ -451,7 +459,7 @@ func (h *ProjectHandler) UpdateProjectEnvVars(c *gin.Context) {
 	defer tx.Rollback()
 
 	qtx := h.queries.WithTx(tx)
-	if err := replaceProjectEnvVars(c.Request.Context(), qtx, projectID, body.EnvVars); err != nil {
+	if err := h.replaceProjectEnvVars(c.Request.Context(), qtx, projectID, body.EnvVars); err != nil {
 		if isValidationError(err) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -470,7 +478,12 @@ func (h *ProjectHandler) UpdateProjectEnvVars(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, projectEnvVarsResponse(envVars))
+	response, err := h.projectEnvVarsResponse(envVars)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decrypt environment variables"})
+		return
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *ProjectHandler) DeleteProject(c *gin.Context) {
@@ -988,7 +1001,7 @@ func normalizeDockerfilePath(raw string) (string, error) {
 	return normalized + "/Dockerfile", nil
 }
 
-func replaceProjectEnvVars(ctx context.Context, q *dbpkg.Queries, projectID uuid.UUID, envVars map[string]string) error {
+func (h *ProjectHandler) replaceProjectEnvVars(ctx context.Context, q *dbpkg.Queries, projectID uuid.UUID, envVars map[string]string) error {
 	normalizedEnvVars, err := normalizeEnvVars(envVars)
 	if err != nil {
 		return err
@@ -997,10 +1010,14 @@ func replaceProjectEnvVars(ctx context.Context, q *dbpkg.Queries, projectID uuid
 		return err
 	}
 	for key, value := range normalizedEnvVars {
+		storedValue, err := h.secrets.Encrypt(value)
+		if err != nil {
+			return err
+		}
 		if _, err := q.CreateProjectEnvVar(ctx, dbpkg.CreateProjectEnvVarParams{
 			ProjectID: projectID,
 			Key:       key,
-			Value:     value,
+			Value:     storedValue,
 			SecretArn: sql.NullString{},
 		}); err != nil {
 			return err
@@ -1034,19 +1051,23 @@ func normalizeEnvVars(envVars map[string]string) (map[string]string, error) {
 	return normalized, nil
 }
 
-func projectEnvVarsResponse(envVars []dbpkg.ProjectEnvVar) []gin.H {
+func (h *ProjectHandler) projectEnvVarsResponse(envVars []dbpkg.ProjectEnvVar) ([]gin.H, error) {
 	response := make([]gin.H, len(envVars))
 	for i, envVar := range envVars {
+		value, err := h.secrets.Decrypt(envVar.Value)
+		if err != nil {
+			return nil, err
+		}
 		response[i] = gin.H{
 			"id":         envVar.ID.String(),
 			"project_id": envVar.ProjectID.String(),
 			"key":        envVar.Key,
-			"value":      envVar.Value,
+			"value":      value,
 			"created_at": envVar.CreatedAt,
 			"updated_at": envVar.UpdatedAt,
 		}
 	}
-	return response
+	return response, nil
 }
 
 func generateSecret() (string, error) {

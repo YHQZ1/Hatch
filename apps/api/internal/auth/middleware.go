@@ -6,12 +6,13 @@ import (
 	"strings"
 
 	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
+	"github.com/YHQZ1/hatch/packages/secrets"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
-func Middleware(jwtSecret string, db *sql.DB) gin.HandlerFunc {
+func Middleware(jwtSecret string, db *sql.DB, secretCodec *secrets.Codec) gin.HandlerFunc {
 	queries := dbpkg.New(db)
 
 	return func(c *gin.Context) {
@@ -55,11 +56,16 @@ func Middleware(jwtSecret string, db *sql.DB) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "session user not found"})
 			return
 		}
+		accessToken, err := secretCodec.Decrypt(user.AccessToken)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "session secret unavailable"})
+			return
+		}
 
 		c.Set("user_id", user.ID.String())
 		c.Set("github_id", user.GithubID)
 		c.Set("username", user.GithubUsername)
-		c.Set("access_token", user.AccessToken)
+		c.Set("access_token", accessToken)
 
 		if !usesBearerAuth(c) {
 			EnsureCSRFCookie(c)

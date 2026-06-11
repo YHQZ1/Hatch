@@ -11,6 +11,7 @@ import (
 	"github.com/YHQZ1/hatch/apps/api/internal/queue"
 	wsHub "github.com/YHQZ1/hatch/apps/api/internal/ws"
 	"github.com/YHQZ1/hatch/packages/config"
+	"github.com/YHQZ1/hatch/packages/secrets"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -24,6 +25,11 @@ func main() {
 
 	db := dbconn.Connect(cfg.DatabaseURL)
 	defer db.Close()
+
+	secretCodec, err := secrets.NewCodec(cfg.DataEncryptionKey)
+	if err != nil {
+		log.Fatalf("Failed to initialize secret codec: %v", err)
+	}
 
 	publisher := queue.NewPublisher(cfg.RabbitMQURL)
 	defer publisher.Close()
@@ -55,14 +61,15 @@ func main() {
 		cfg.GitHubRedirectURI,
 		cfg.JWTSecret,
 		db,
+		secretCodec,
 	)
 
-	projectHandler := handlers.NewProjectHandler(db, publisher, cfg.WebhookBaseURL)
-	deploymentHandler := handlers.NewDeploymentHandler(db, publisher, rdb)
+	projectHandler := handlers.NewProjectHandler(db, publisher, cfg.WebhookBaseURL, secretCodec)
+	deploymentHandler := handlers.NewDeploymentHandler(db, publisher, rdb, secretCodec)
 	metricsHandler := handlers.NewMetricsHandler(db, cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN, cfg.ALBArn)
 	githubHandler := handlers.NewGitHubHandler(rdb)
-	webhookHandler := handlers.NewWebhookHandler(db, publisher)
-	authMiddleware := auth.Middleware(cfg.JWTSecret, db)
+	webhookHandler := handlers.NewWebhookHandler(db, publisher, secretCodec)
+	authMiddleware := auth.Middleware(cfg.JWTSecret, db, secretCodec)
 	csrfMiddleware := auth.CSRFMiddleware()
 
 	r.GET("/health", func(c *gin.Context) {

@@ -10,6 +10,7 @@ import (
 
 	ecsdeploy "github.com/YHQZ1/hatch/apps/deployer/internal/ecs"
 	"github.com/YHQZ1/hatch/apps/deployer/internal/logs"
+	"github.com/YHQZ1/hatch/packages/secrets"
 	_ "github.com/lib/pq"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -29,6 +30,7 @@ type Config struct {
 	ECRRegistry          string
 	DatabaseURL          string
 	BaseDomain           string
+	DataEncryptionKey    string
 }
 
 type DeployJobEvent struct {
@@ -59,9 +61,15 @@ type Worker struct {
 	db       *sql.DB
 	conn     *amqp.Connection
 	ch       *amqp.Channel
+	secrets  *secrets.Codec
 }
 
 func NewWorker(cfg Config) *Worker {
+	secretCodec, err := secrets.NewCodec(cfg.DataEncryptionKey)
+	if err != nil {
+		log.Fatalf("Failed to initialize secret codec: %v", err)
+	}
+
 	db, err := sql.Open("postgres", cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
@@ -83,6 +91,7 @@ func NewWorker(cfg Config) *Worker {
 		streamer: streamer,
 		deployer: deployer,
 		db:       db,
+		secrets:  secretCodec,
 	}
 	deployer.SetCancelChecker(worker.isDeploymentCanceled)
 
@@ -217,7 +226,12 @@ func (w *Worker) processJob(job DeployJobEvent) {
 
 	w.updateDeploymentStatus(ctx, job.DeploymentID, "deploying")
 
-	envMap := w.fetchEnvVars(ctx, job.DeploymentID)
+	envMap, err := w.fetchEnvVars(ctx, job.DeploymentID)
+	if err != nil {
+		w.streamer.Publish(ctx, job.DeploymentID, fmt.Sprintf("Environment load failed: %v", err))
+		w.markDeploymentFailed(ctx, job.DeploymentID, "env", err)
+		return
+	}
 
 	result, err := w.deployer.Deploy(ctx, ecsdeploy.DeployInput{
 		DeploymentID: job.DeploymentID,
@@ -264,23 +278,33 @@ func (w *Worker) isDeploymentCanceled(ctx context.Context, deploymentID string) 
 	return status == "canceled", nil
 }
 
-func (w *Worker) fetchEnvVars(ctx context.Context, deploymentID string) map[string]string {
+func (w *Worker) fetchEnvVars(ctx context.Context, deploymentID string) (map[string]string, error) {
 	envMap := make(map[string]string)
 
 	rows, err := w.db.QueryContext(ctx, "SELECT key, value FROM env_vars WHERE deployment_id = $1", deploymentID)
 	if err != nil {
-		return envMap
+		return envMap, err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 		var k, v string
 		if err := rows.Scan(&k, &v); err == nil {
-			envMap[k] = v
+			value, err := w.secrets.Decrypt(v)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decrypt env var %s: %w", k, err)
+			}
+			envMap[k] = value
+		} else {
+			return nil, err
 		}
 	}
 
-	return envMap
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return envMap, nil
 }
 
 func (w *Worker) updateDeploymentStatus(ctx context.Context, id, status string) {

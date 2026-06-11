@@ -19,6 +19,7 @@ type Config struct {
 	RabbitMQURL        string
 	WebhookBaseURL     string
 	Environment        string
+	DataEncryptionKey  string
 	AWSRegion          string
 	ECSClusterName     string
 	ALBListenerARN     string
@@ -40,6 +41,7 @@ func Load() *Config {
 		RabbitMQURL:        mustGetEnv("RABBITMQ_URL"),
 		WebhookBaseURL:     mustGetEnv("WEBHOOK_BASE_URL"),
 		Environment:        getEnv("ENVIRONMENT", "development"),
+		DataEncryptionKey:  getEnv("DATA_ENCRYPTION_KEY", ""),
 		AWSRegion:          getEnv("AWS_REGION", "ap-south-1"),
 		ECSClusterName:     getEnv("ECS_CLUSTER_NAME", ""),
 		ALBListenerARN:     firstNonEmpty(getEnv("ALB_HTTPS_LISTENER_ARN", ""), getEnv("ALB_LISTENER_ARN", "")),

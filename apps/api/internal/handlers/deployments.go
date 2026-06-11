@@ -11,6 +11,7 @@ import (
 
 	"github.com/YHQZ1/hatch/apps/api/internal/queue"
 	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
+	"github.com/YHQZ1/hatch/packages/secrets"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -98,6 +99,7 @@ type DeploymentHandler struct {
 	publisher *queue.Publisher
 	db        *sql.DB
 	rdb       *redis.Client
+	secrets   *secrets.Codec
 }
 
 const (
@@ -105,12 +107,13 @@ const (
 	defaultDeploymentMemoryMB int32 = 1024
 )
 
-func NewDeploymentHandler(db *sql.DB, publisher *queue.Publisher, rdb *redis.Client) *DeploymentHandler {
+func NewDeploymentHandler(db *sql.DB, publisher *queue.Publisher, rdb *redis.Client, secretCodec *secrets.Codec) *DeploymentHandler {
 	return &DeploymentHandler{
 		queries:   dbpkg.New(db),
 		publisher: publisher,
 		db:        db,
 		rdb:       rdb,
+		secrets:   secretCodec,
 	}
 }
 
@@ -245,7 +248,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		return
 	}
 
-	envSnapshot, err := buildDeploymentEnvSnapshot(c.Request.Context(), qtx, projectID, body.EnvVars)
+	envSnapshot, err := h.buildDeploymentEnvSnapshot(c.Request.Context(), qtx, projectID, body.EnvVars)
 	if err != nil {
 		if isValidationError(err) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -257,10 +260,15 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 
 	for key, value := range envSnapshot {
 		if key != "" {
+			storedValue, err := h.secrets.Encrypt(value)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to secure environment variables"})
+				return
+			}
 			_, err = qtx.CreateEnvVar(c.Request.Context(), dbpkg.CreateEnvVarParams{
 				DeploymentID: deployment.ID,
 				Key:          key,
-				Value:        value,
+				Value:        storedValue,
 				SecretArn:    sql.NullString{},
 			})
 			if err != nil {
@@ -481,7 +489,7 @@ func normalizeHealthCheckPath(raw string) (string, error) {
 	return healthCheck, nil
 }
 
-func buildDeploymentEnvSnapshot(ctx context.Context, q *dbpkg.Queries, projectID uuid.UUID, overrides map[string]string) (map[string]string, error) {
+func (h *DeploymentHandler) buildDeploymentEnvSnapshot(ctx context.Context, q *dbpkg.Queries, projectID uuid.UUID, overrides map[string]string) (map[string]string, error) {
 	projectEnvVars, err := q.GetProjectEnvVarsByProject(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -489,7 +497,11 @@ func buildDeploymentEnvSnapshot(ctx context.Context, q *dbpkg.Queries, projectID
 
 	envSnapshot := make(map[string]string)
 	for _, envVar := range projectEnvVars {
-		envSnapshot[envVar.Key] = envVar.Value
+		value, err := h.secrets.Decrypt(envVar.Value)
+		if err != nil {
+			return nil, err
+		}
+		envSnapshot[envVar.Key] = value
 	}
 	normalizedOverrides, err := normalizeEnvVars(overrides)
 	if err != nil {

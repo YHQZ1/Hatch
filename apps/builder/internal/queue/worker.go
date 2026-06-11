@@ -16,6 +16,7 @@ import (
 	"github.com/YHQZ1/hatch/apps/builder/internal/docker"
 	gitpkg "github.com/YHQZ1/hatch/apps/builder/internal/git"
 	"github.com/YHQZ1/hatch/apps/builder/internal/logs"
+	"github.com/YHQZ1/hatch/packages/secrets"
 	_ "github.com/lib/pq"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -52,11 +53,16 @@ type Worker struct {
 	ch       *amqp.Channel
 	conn     *amqp.Connection
 	confirms <-chan amqp.Confirmation
+	secrets  *secrets.Codec
 	stages   sync.Map
 }
 
-func NewWorker(url, redis, registry, repo, region, databaseURL string) *Worker {
+func NewWorker(url, redis, registry, repo, region, databaseURL, encryptionKey string) *Worker {
 	streamer := logs.NewStreamer(redis)
+	secretCodec, err := secrets.NewCodec(encryptionKey)
+	if err != nil {
+		log.Fatalf("Failed to initialize secret codec: %v", err)
+	}
 	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
@@ -69,6 +75,7 @@ func NewWorker(url, redis, registry, repo, region, databaseURL string) *Worker {
 		url:      url,
 		streamer: streamer,
 		db:       db,
+		secrets:  secretCodec,
 	}
 
 	worker.builder = docker.NewBuilder(registry, repo, region, streamer, worker.setStage)
@@ -259,7 +266,11 @@ func (w *Worker) waitForPublishConfirm(ctx context.Context, queueName string) er
 
 func (w *Worker) githubAccessToken(ctx context.Context, job BuildJobEvent) (string, error) {
 	if strings.TrimSpace(job.UserToken) != "" {
-		return strings.TrimSpace(job.UserToken), nil
+		token, err := w.secrets.Decrypt(strings.TrimSpace(job.UserToken))
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(token), nil
 	}
 
 	var token string
@@ -281,6 +292,10 @@ func (w *Worker) githubAccessToken(ctx context.Context, job BuildJobEvent) (stri
 			return "", fmt.Errorf("github access token not found")
 		}
 		return "", fmt.Errorf("failed to load github access token: %w", err)
+	}
+	token, err = w.secrets.Decrypt(token)
+	if err != nil {
+		return "", err
 	}
 	if strings.TrimSpace(token) == "" {
 		return "", fmt.Errorf("github access token is empty")

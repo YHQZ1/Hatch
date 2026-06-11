@@ -42,6 +42,7 @@ func main() {
 		ECRRegistry:          mustGetEnv("ECR_REGISTRY"),
 		DatabaseURL:          mustGetEnv("DATABASE_URL"),
 		BaseDomain:           mustGetEnv("BASE_DOMAIN"),
+		DataEncryptionKey:    getEnv("DATA_ENCRYPTION_KEY", ""),
 	}
 
 	worker := queue.NewWorker(cfg)

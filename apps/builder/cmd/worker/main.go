@@ -14,19 +14,21 @@ func main() {
 	_ = godotenv.Load()
 
 	cfg := struct {
-		RabbitMQ    string
-		Redis       string
-		ECRRegistry string
-		ECRRepo     string
-		AWSRegion   string
-		DatabaseURL string
+		RabbitMQ          string
+		Redis             string
+		ECRRegistry       string
+		ECRRepo           string
+		AWSRegion         string
+		DatabaseURL       string
+		DataEncryptionKey string
 	}{
-		RabbitMQ:    getEnv("RABBITMQ_URL"),
-		Redis:       getEnv("REDIS_URL"),
-		ECRRegistry: getEnv("ECR_REGISTRY"),
-		ECRRepo:     getEnv("ECR_REPOSITORY"),
-		AWSRegion:   getEnv("AWS_REGION"),
-		DatabaseURL: getEnv("DATABASE_URL"),
+		RabbitMQ:          getEnv("RABBITMQ_URL"),
+		Redis:             getEnv("REDIS_URL"),
+		ECRRegistry:       getEnv("ECR_REGISTRY"),
+		ECRRepo:           getEnv("ECR_REPOSITORY"),
+		AWSRegion:         getEnv("AWS_REGION"),
+		DatabaseURL:       getEnv("DATABASE_URL"),
+		DataEncryptionKey: getOptionalEnv("DATA_ENCRYPTION_KEY"),
 	}
 
 	worker := queue.NewWorker(
@@ -36,6 +38,7 @@ func main() {
 		cfg.ECRRepo,
 		cfg.AWSRegion,
 		cfg.DatabaseURL,
+		cfg.DataEncryptionKey,
 	)
 
 	log.Printf("Hatch Builder started (Region: %s)", cfg.AWSRegion)
@@ -60,4 +63,8 @@ func getEnv(key string) string {
 		log.Fatalf("Missing required environment variable: %s", key)
 	}
 	return val
+}
+
+func getOptionalEnv(key string) string {
+	return os.Getenv(key)
 }

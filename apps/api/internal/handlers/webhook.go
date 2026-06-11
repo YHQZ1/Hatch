@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
@@ -14,21 +15,49 @@ import (
 
 	"github.com/YHQZ1/hatch/apps/api/internal/queue"
 	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
+	"github.com/YHQZ1/hatch/packages/secrets"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type WebhookHandler struct {
 	queries   *dbpkg.Queries
 	db        *sql.DB
 	publisher *queue.Publisher
+	secrets   *secrets.Codec
 }
 
-func NewWebhookHandler(db *sql.DB, publisher *queue.Publisher) *WebhookHandler {
+func NewWebhookHandler(db *sql.DB, publisher *queue.Publisher, secretCodec *secrets.Codec) *WebhookHandler {
 	return &WebhookHandler{
 		queries:   dbpkg.New(db),
 		db:        db,
 		publisher: publisher,
+		secrets:   secretCodec,
 	}
+}
+
+func (h *WebhookHandler) buildDeploymentEnvSnapshot(ctx context.Context, q *dbpkg.Queries, projectID uuid.UUID, overrides map[string]string) (map[string]string, error) {
+	projectEnvVars, err := q.GetProjectEnvVarsByProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	envSnapshot := make(map[string]string)
+	for _, envVar := range projectEnvVars {
+		value, err := h.secrets.Decrypt(envVar.Value)
+		if err != nil {
+			return nil, err
+		}
+		envSnapshot[envVar.Key] = value
+	}
+	normalizedOverrides, err := normalizeEnvVars(overrides)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range normalizedOverrides {
+		envSnapshot[key] = value
+	}
+	return envSnapshot, nil
 }
 
 type githubPushEvent struct {
@@ -141,16 +170,21 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		return
 	}
 
-	envSnapshot, err := buildDeploymentEnvSnapshot(c.Request.Context(), qtx, project.ID, nil)
+	envSnapshot, err := h.buildDeploymentEnvSnapshot(c.Request.Context(), qtx, project.ID, nil)
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
 	for key, value := range envSnapshot {
+		storedValue, err := h.secrets.Encrypt(value)
+		if err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
 		if _, err := qtx.CreateEnvVar(c.Request.Context(), dbpkg.CreateEnvVarParams{
 			DeploymentID: deployment.ID,
 			Key:          key,
-			Value:        value,
+			Value:        storedValue,
 			SecretArn:    sql.NullString{},
 		}); err != nil {
 			c.Status(http.StatusInternalServerError)

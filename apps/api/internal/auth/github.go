@@ -13,6 +13,7 @@ import (
 	"time"
 
 	dbpkg "github.com/YHQZ1/hatch/packages/db/gen"
+	"github.com/YHQZ1/hatch/packages/secrets"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -29,6 +30,7 @@ type Handler struct {
 	redirectURI  string
 	jwtSecret    string
 	queries      *dbpkg.Queries
+	secrets      *secrets.Codec
 }
 
 const SessionCookieName = "hatch_session"
@@ -36,13 +38,14 @@ const OAuthStateCookieName = "hatch_oauth_state"
 
 var githubHTTPClient = &http.Client{Timeout: 12 * time.Second}
 
-func NewHandler(clientID, clientSecret, redirectURI, jwtSecret string, db *sql.DB) *Handler {
+func NewHandler(clientID, clientSecret, redirectURI, jwtSecret string, db *sql.DB, secretCodec *secrets.Codec) *Handler {
 	return &Handler{
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		redirectURI:  redirectURI,
 		jwtSecret:    jwtSecret,
 		queries:      dbpkg.New(db),
+		secrets:      secretCodec,
 	}
 }
 
@@ -89,10 +92,16 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 		return
 	}
 
+	storedToken, err := h.secrets.Encrypt(token)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to secure github token"})
+		return
+	}
+
 	dbUser, err := h.queries.CreateUser(c.Request.Context(), dbpkg.CreateUserParams{
 		GithubID:       ghUser.ID,
 		GithubUsername: ghUser.Login,
-		AccessToken:    token,
+		AccessToken:    storedToken,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "database sync failed"})
