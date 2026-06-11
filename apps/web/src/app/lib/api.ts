@@ -131,3 +131,11 @@ export function deploymentUrl(host?: string | null) {
   const scheme = process.env.NEXT_PUBLIC_DEPLOYMENT_URL_SCHEME || "https";
   return `${scheme}://${host.replace(/^https?:\/\//, "")}`;
 }
+
+export function websocketUrl(path: string) {
+  const wsBaseUrl = process.env.NEXT_PUBLIC_WS_URL;
+  if (wsBaseUrl) {
+    return `${wsBaseUrl}${path}`;
+  }
+  return apiUrl(path).replace(/^http/, "ws");
+}

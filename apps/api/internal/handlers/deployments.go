@@ -127,9 +127,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 	var body struct {
 		ProjectID   string            `json:"project_id" binding:"required"`
 		Branch      string            `json:"branch"`
-		CPU         int32             `json:"cpu"`
-		MemoryMB    int32             `json:"memory_mb"`
-		Port        int32             `json:"port" binding:"required"`
+		Port        int32             `json:"port"`
 		HealthCheck string            `json:"health_check"`
 		EnvVars     map[string]string `json:"env_vars"`
 	}
@@ -157,7 +155,11 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "project is not active"})
 		return
 	}
-	if body.Port < 1 || body.Port > 65535 {
+	port := body.Port
+	if port == 0 {
+		port = project.Port
+	}
+	if port < 1 || port > 65535 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "port must be between 1 and 65535"})
 		return
 	}
@@ -191,14 +193,8 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	cpu := body.CPU
-	if cpu <= 0 {
-		cpu = defaultDeploymentCPU
-	}
-	memoryMB := body.MemoryMB
-	if memoryMB <= 0 {
-		memoryMB = defaultDeploymentMemoryMB
-	}
+	cpu := defaultDeploymentCPU
+	memoryMB := defaultDeploymentMemoryMB
 
 	effectiveSubdomain := projectID.String()[:8]
 	if project.Subdomain.Valid && project.Subdomain.String != "" {
@@ -225,7 +221,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		Branch:        branch,
 		Cpu:           cpu,
 		MemoryMb:      memoryMB,
-		Port:          body.Port,
+		Port:          port,
 		HealthCheck:   healthCheck,
 		Subdomain:     sql.NullString{String: effectiveSubdomain, Valid: true},
 		CommitSha:     nullString(commitSHA),
@@ -290,7 +286,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		Branch:         branch,
 		DockerfilePath: project.DockerfilePath,
 		UserID:         userID.String(),
-		Port:           int(body.Port),
+		Port:           int(port),
 		Subdomain:      effectiveSubdomain,
 		CPU:            cpu,
 		MemoryMB:       memoryMB,

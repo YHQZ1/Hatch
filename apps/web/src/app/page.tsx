@@ -80,7 +80,7 @@ function HowItWorks() {
         <StepCard
           step="02"
           title="Configure Environment"
-          desc="Set your CPU/Memory requirements, expose your port, and securely add environment variables."
+          desc="Confirm the branch and Dockerfile path, then add the environment variables your app needs at runtime."
         />
         <StepCard
           step="03"

@@ -143,6 +143,11 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate webhook secret"})
 		return
 	}
+	storedSecret, err := h.secureWebhookSecret(secret)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to secure webhook secret"})
+		return
+	}
 
 	tx, err := h.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
@@ -160,7 +165,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		DockerfilePath: dockerfilePath,
 		Port:           body.Port,
 		Subdomain:      sql.NullString{String: subdomain, Valid: true},
-		WebhookSecret:  sql.NullString{String: secret, Valid: true},
+		WebhookSecret:  sql.NullString{String: storedSecret, Valid: true},
 	})
 
 	if err != nil {
@@ -194,7 +199,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 			log.Printf("failed to register GitHub webhook for project %s: %v", project.ID, err)
 			_ = h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
 				ID:              project.ID,
-				WebhookSecret:   sql.NullString{String: secret, Valid: true},
+				WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
 				GithubWebhookID: sql.NullInt64{},
 				AutoDeploy:      false,
 			})
@@ -202,7 +207,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		} else {
 			_ = h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
 				ID:              project.ID,
-				WebhookSecret:   sql.NullString{String: secret, Valid: true},
+				WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
 				GithubWebhookID: sql.NullInt64{Int64: hookID, Valid: true},
 				AutoDeploy:      true,
 			})
@@ -333,16 +338,29 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 	}
 
 	if autoDeploy && !current.AutoDeploy {
-		secret := current.WebhookSecret.String
-		if !current.WebhookSecret.Valid || strings.TrimSpace(secret) == "" {
+		secret := ""
+		if current.WebhookSecret.Valid {
+			secret, err = h.secrets.Decrypt(current.WebhookSecret.String)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load webhook secret"})
+				return
+			}
+			secret = strings.TrimSpace(secret)
+		}
+		if secret == "" {
 			secret, err = generateSecret()
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate webhook secret"})
 				return
 			}
+			storedSecret, err := h.secureWebhookSecret(secret)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to secure webhook secret"})
+				return
+			}
 			if err := h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
 				ID:              projectID,
-				WebhookSecret:   sql.NullString{String: secret, Valid: true},
+				WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
 				GithubWebhookID: current.GithubWebhookID,
 				AutoDeploy:      current.AutoDeploy,
 			}); err != nil {
@@ -358,9 +376,14 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 			})
 			return
 		}
+		storedSecret, err := h.secureWebhookSecret(secret)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to secure webhook secret"})
+			return
+		}
 		if err := h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
 			ID:              projectID,
-			WebhookSecret:   sql.NullString{String: secret, Valid: true},
+			WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
 			GithubWebhookID: sql.NullInt64{Int64: hookID, Valid: true},
 			AutoDeploy:      true,
 		}); err != nil {
@@ -1024,6 +1047,10 @@ func (h *ProjectHandler) replaceProjectEnvVars(ctx context.Context, q *dbpkg.Que
 		}
 	}
 	return nil
+}
+
+func (h *ProjectHandler) secureWebhookSecret(secret string) (string, error) {
+	return h.secrets.Encrypt(strings.TrimSpace(secret))
 }
 
 func normalizeEnvVars(envVars map[string]string) (map[string]string, error) {

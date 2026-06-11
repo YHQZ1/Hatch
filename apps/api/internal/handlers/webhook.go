@@ -105,7 +105,7 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 	}
 
 	signature := c.GetHeader("X-Hub-Signature-256")
-	project, ok := matchWebhookProject(projects, body, signature)
+	project, ok := h.matchWebhookProject(projects, body, signature)
 	if !ok {
 		log.Printf("[SECURITY] No matching webhook signature for repo: %s", repoURL)
 		c.Status(http.StatusUnauthorized)
@@ -224,23 +224,18 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 	})
 }
 
-func matchWebhookProject(projects []dbpkg.Project, body []byte, signature string) (dbpkg.Project, bool) {
+func (h *WebhookHandler) matchWebhookProject(projects []dbpkg.Project, body []byte, signature string) (dbpkg.Project, bool) {
 	for _, project := range projects {
 		if project.WebhookSecret.Valid && project.WebhookSecret.String != "" {
-			if verifySignature(body, project.WebhookSecret.String, signature) {
+			secret, err := h.secrets.Decrypt(project.WebhookSecret.String)
+			if err != nil {
+				log.Printf("[SECURITY] failed to decrypt webhook secret for project %s: %v", project.ID, err)
+				continue
+			}
+			if verifySignature(body, secret, signature) {
 				return project, true
 			}
 			continue
-		}
-	}
-
-	if signature != "" {
-		return dbpkg.Project{}, false
-	}
-
-	for _, project := range projects {
-		if !project.WebhookSecret.Valid || project.WebhookSecret.String == "" {
-			return project, true
 		}
 	}
 

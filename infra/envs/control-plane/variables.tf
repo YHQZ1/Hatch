@@ -178,21 +178,34 @@ variable "rabbitmq_engine_version" {
 variable "github_client_id" {
   description = "GitHub OAuth app client ID used by the API env output."
   type        = string
-  default     = "set-me"
 }
 
 variable "github_client_secret" {
   description = "GitHub OAuth app client secret used by the API env output."
   type        = string
   sensitive   = true
-  default     = "set-me"
 }
 
 variable "jwt_secret" {
   description = "JWT session signing secret used by the API env output."
   type        = string
   sensitive   = true
-  default     = "set-me"
+
+  validation {
+    condition     = length(var.jwt_secret) >= 32
+    error_message = "jwt_secret must be at least 32 characters."
+  }
+}
+
+variable "data_encryption_key" {
+  description = "Shared secret used by API, builder, and deployer to encrypt stored tokens and environment variables."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = length(var.data_encryption_key) >= 32
+    error_message = "data_encryption_key must be at least 32 characters."
+  }
 }
 
 variable "user_app_base_domain" {
@@ -222,6 +235,12 @@ variable "user_app_ecr_repository_arn" {
   type        = string
 }
 
+variable "builder_build_timeout" {
+  description = "Maximum duration for one user app build before the builder marks it failed."
+  type        = string
+  default     = "30m"
+}
+
 variable "user_app_ecs_cluster_name" {
   description = "ECS cluster used by deployed user apps."
   type        = string
@@ -235,6 +254,12 @@ variable "user_app_http_listener_arn" {
 variable "user_app_https_listener_arn" {
   description = "HTTPS listener ARN for user app routing."
   type        = string
+}
+
+variable "user_app_alb_arn" {
+  description = "ALB ARN for user app metrics."
+  type        = string
+  default     = ""
 }
 
 variable "user_app_vpc_id" {

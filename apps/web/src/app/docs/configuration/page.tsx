@@ -125,13 +125,13 @@ export default function ConfigurationReference() {
           <div className="border-t border-[#111] mt-8">
             <ConfigRow
               label="port"
-              desc="The container port your application listens on. Hatch detects this from Dockerfile EXPOSE when possible, then lets you override it."
+              desc="The container port your application listens on. Hatch detects this from Dockerfile EXPOSE when possible."
               type="int"
               defaultValue="detected"
             />
             <ConfigRow
               label="subdomain"
-              desc="The unique identifier for your project's URL. Once set, this maps to <subdomain>.hatch.dev."
+              desc="The unique identifier for your project's generated Hatch URL."
               type="string"
             />
           </div>

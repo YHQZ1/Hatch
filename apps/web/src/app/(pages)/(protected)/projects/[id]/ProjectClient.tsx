@@ -7,11 +7,11 @@ import { useParams, useRouter } from "next/navigation";
 import { PageLoadingState } from "../../../../components/LoadingState";
 import {
   apiFetch,
-  apiUrl,
   consumeFlashNotice,
   deploymentUrl,
   readApiError,
   redirectIfUnauthorized,
+  websocketUrl,
 } from "@/app/lib/api";
 
 interface Project {
@@ -169,10 +169,7 @@ export default function ProjectDetail() {
     const isActive = ["building", "deploying", "queued"].includes(s);
 
     if (isActive) {
-      const wsUrl = apiUrl(`/ws/deployments/${currentId}`).replace(
-        /^http/,
-        "ws",
-      );
+      const wsUrl = websocketUrl(`/ws/deployments/${currentId}`);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.onopen = () => {

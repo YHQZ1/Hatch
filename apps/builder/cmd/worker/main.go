@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/YHQZ1/hatch/apps/builder/internal/queue"
 	"github.com/joho/godotenv"
@@ -21,6 +22,7 @@ func main() {
 		AWSRegion         string
 		DatabaseURL       string
 		DataEncryptionKey string
+		BuildTimeout      time.Duration
 	}{
 		RabbitMQ:          getEnv("RABBITMQ_URL"),
 		Redis:             getEnv("REDIS_URL"),
@@ -29,6 +31,7 @@ func main() {
 		AWSRegion:         getEnv("AWS_REGION"),
 		DatabaseURL:       getEnv("DATABASE_URL"),
 		DataEncryptionKey: getOptionalEnv("DATA_ENCRYPTION_KEY"),
+		BuildTimeout:      getDurationEnv("BUILD_TIMEOUT", 30*time.Minute),
 	}
 
 	worker := queue.NewWorker(
@@ -39,6 +42,7 @@ func main() {
 		cfg.AWSRegion,
 		cfg.DatabaseURL,
 		cfg.DataEncryptionKey,
+		cfg.BuildTimeout,
 	)
 
 	log.Printf("Hatch Builder started (Region: %s)", cfg.AWSRegion)
@@ -67,4 +71,16 @@ func getEnv(key string) string {
 
 func getOptionalEnv(key string) string {
 	return os.Getenv(key)
+}
+
+func getDurationEnv(key string, fallback time.Duration) time.Duration {
+	val := os.Getenv(key)
+	if val == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(val)
+	if err != nil {
+		log.Fatalf("Invalid duration for %s: %v", key, err)
+	}
+	return parsed
 }

@@ -55,9 +55,10 @@ type Worker struct {
 	confirms <-chan amqp.Confirmation
 	secrets  *secrets.Codec
 	stages   sync.Map
+	timeout  time.Duration
 }
 
-func NewWorker(url, redis, registry, repo, region, databaseURL, encryptionKey string) *Worker {
+func NewWorker(url, redis, registry, repo, region, databaseURL, encryptionKey string, buildTimeout time.Duration) *Worker {
 	streamer := logs.NewStreamer(redis)
 	secretCodec, err := secrets.NewCodec(encryptionKey)
 	if err != nil {
@@ -76,6 +77,7 @@ func NewWorker(url, redis, registry, repo, region, databaseURL, encryptionKey st
 		streamer: streamer,
 		db:       db,
 		secrets:  secretCodec,
+		timeout:  buildTimeout,
 	}
 
 	worker.builder = docker.NewBuilder(registry, repo, region, streamer, worker.setStage)
@@ -96,6 +98,9 @@ func (w *Worker) Start() error {
 	}
 	if err := w.ch.Confirm(false); err != nil {
 		return fmt.Errorf("failed to enable RabbitMQ publisher confirms: %w", err)
+	}
+	if err := w.ch.Qos(1, 0, false); err != nil {
+		return fmt.Errorf("failed to configure build queue qos: %w", err)
 	}
 	w.confirms = w.ch.NotifyPublish(make(chan amqp.Confirmation, 1))
 
@@ -131,7 +136,9 @@ func (w *Worker) Start() error {
 }
 
 func (w *Worker) process(job BuildJobEvent) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancelTimeout := context.WithTimeout(context.Background(), w.timeout)
+	defer cancelTimeout()
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	id := job.DeploymentID
@@ -168,6 +175,9 @@ func (w *Worker) process(job BuildJobEvent) {
 	}
 
 	if err := gitpkg.Clone(ctx, job.RepoURL, userToken, job.Branch, buildPath); err != nil {
+		if w.markTimedOut(ctx, id) {
+			return
+		}
 		if errors.Is(err, context.Canceled) && w.isCanceled(context.Background(), id) {
 			w.streamer.Publish(context.Background(), id, "Build canceled during source sync")
 			return
@@ -184,6 +194,9 @@ func (w *Worker) process(job BuildJobEvent) {
 
 	imageURI, err := w.builder.BuildAndPush(ctx, id, buildPath, job.DockerfilePath)
 	if err != nil {
+		if w.markTimedOut(ctx, id) {
+			return
+		}
 		if errors.Is(err, docker.ErrCanceled) || (errors.Is(err, context.Canceled) && w.isCanceled(context.Background(), id)) {
 			w.publishCancellation(context.Background(), id, err)
 			return
@@ -199,9 +212,22 @@ func (w *Worker) process(job BuildJobEvent) {
 	}
 
 	if err := w.handoff(ctx, job, imageURI); err != nil {
+		if w.markTimedOut(ctx, id) {
+			return
+		}
 		w.streamer.Publish(ctx, id, err.Error())
 		w.markDeploymentFailed(context.Background(), id, "handoff", err)
 	}
+}
+
+func (w *Worker) markTimedOut(ctx context.Context, deploymentID string) bool {
+	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return false
+	}
+	err := fmt.Errorf("build exceeded timeout of %s", w.timeout)
+	w.streamer.Publish(context.Background(), deploymentID, "Build timed out")
+	w.markDeploymentFailed(context.Background(), deploymentID, "timeout", err)
+	return true
 }
 
 func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) error {

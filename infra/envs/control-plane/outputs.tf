@@ -44,17 +44,22 @@ output "api_env" {
   description = "Environment values consumed by apps/api."
   sensitive   = true
   value = {
-    PORT                 = "8080"
-    ENVIRONMENT          = "production"
-    FRONTEND_URL         = "https://${var.web_hostnames[0]}"
-    GITHUB_CLIENT_ID     = var.github_client_id
-    GITHUB_CLIENT_SECRET = var.github_client_secret
-    GITHUB_REDIRECT_URI  = "https://${var.api_hostname}/auth/callback"
-    JWT_SECRET           = var.jwt_secret
-    DATABASE_URL         = module.postgres.database_url
-    REDIS_URL            = module.redis.redis_url
-    RABBITMQ_URL         = module.rabbitmq.rabbitmq_url
-    WEBHOOK_BASE_URL     = "https://${var.api_hostname}"
+    PORT                   = "8080"
+    ENVIRONMENT            = "production"
+    FRONTEND_URL           = "https://${var.web_hostnames[0]}"
+    GITHUB_CLIENT_ID       = var.github_client_id
+    GITHUB_CLIENT_SECRET   = var.github_client_secret
+    GITHUB_REDIRECT_URI    = "https://${var.api_hostname}/auth/callback"
+    JWT_SECRET             = var.jwt_secret
+    DATA_ENCRYPTION_KEY    = var.data_encryption_key
+    DATABASE_URL           = module.postgres.database_url
+    REDIS_URL              = module.redis.redis_url
+    RABBITMQ_URL           = module.rabbitmq.rabbitmq_url
+    WEBHOOK_BASE_URL       = "https://${var.api_hostname}"
+    AWS_REGION             = var.aws_region
+    ECS_CLUSTER_NAME       = var.user_app_ecs_cluster_name
+    ALB_ARN                = var.user_app_alb_arn
+    ALB_HTTPS_LISTENER_ARN = var.user_app_https_listener_arn
   }
 }
 
@@ -62,7 +67,9 @@ output "web_env" {
   description = "Environment values consumed by apps/web."
   value = {
     NEXT_PUBLIC_API_URL               = "https://${var.api_hostname}"
+    NEXT_PUBLIC_WS_URL                = "wss://${var.api_hostname}"
     NEXT_PUBLIC_DEPLOYMENT_URL_SCHEME = var.user_app_deployment_url_scheme
+    NEXT_PUBLIC_USER_APP_BASE_DOMAIN  = var.user_app_base_domain
   }
 }
 
@@ -70,12 +77,14 @@ output "builder_env" {
   description = "Environment values consumed by apps/builder."
   sensitive   = true
   value = {
-    RABBITMQ_URL   = module.rabbitmq.rabbitmq_url
-    REDIS_URL      = module.redis.redis_url
-    AWS_REGION     = var.aws_region
-    ECR_REGISTRY   = var.user_app_ecr_registry
-    ECR_REPOSITORY = var.user_app_ecr_repository_name
-    DATABASE_URL   = module.postgres.database_url
+    RABBITMQ_URL        = module.rabbitmq.rabbitmq_url
+    REDIS_URL           = module.redis.redis_url
+    AWS_REGION          = var.aws_region
+    ECR_REGISTRY        = var.user_app_ecr_registry
+    ECR_REPOSITORY      = var.user_app_ecr_repository_name
+    DATABASE_URL        = module.postgres.database_url
+    DATA_ENCRYPTION_KEY = var.data_encryption_key
+    BUILD_TIMEOUT       = var.builder_build_timeout
   }
 }
 
@@ -98,5 +107,6 @@ output "deployer_env" {
     TASK_EXECUTION_ROLE_ARN = var.user_app_task_execution_role_arn
     ECR_REGISTRY            = var.user_app_ecr_registry
     DATABASE_URL            = module.postgres.database_url
+    DATA_ENCRYPTION_KEY     = var.data_encryption_key
   }
 }

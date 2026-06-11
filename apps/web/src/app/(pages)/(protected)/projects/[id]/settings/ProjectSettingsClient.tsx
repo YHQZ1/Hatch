@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -135,6 +135,12 @@ export default function ProjectSettingsClient() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
+  const clearProjectCaches = useCallback(function clearProjectCaches() {
+    localStorage.removeItem(`hatch_project_${id}`);
+    localStorage.removeItem("hatch_projects_cache");
+    localStorage.removeItem("hatch_insights_cache");
+  }, [id]);
+
   useEffect(() => {
     if (!project || !isProjectTransitioning(project.status)) return;
 
@@ -152,7 +158,7 @@ export default function ProjectSettingsClient() {
     }, 3500);
 
     return () => window.clearInterval(interval);
-  }, [id, project, router]);
+  }, [clearProjectCaches, id, project, router]);
 
   const productionUrl = useMemo(() => {
     const subdomain = subdomainValue(project?.subdomain);
@@ -180,12 +186,6 @@ export default function ProjectSettingsClient() {
     setDockerfilePath(rootFromDockerfilePath(nextProject.dockerfile_path));
     setPort(String(nextProject.port ?? 80));
     setAutoDeploy(Boolean(nextProject.auto_deploy));
-  }
-
-  function clearProjectCaches() {
-    localStorage.removeItem(`hatch_project_${id}`);
-    localStorage.removeItem("hatch_projects_cache");
-    localStorage.removeItem("hatch_insights_cache");
   }
 
   async function saveProjectSettings() {
