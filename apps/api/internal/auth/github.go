@@ -1,10 +1,13 @@
 package auth
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -29,6 +32,7 @@ type Handler struct {
 }
 
 const SessionCookieName = "hatch_session"
+const OAuthStateCookieName = "hatch_oauth_state"
 
 var githubHTTPClient = &http.Client{Timeout: 12 * time.Second}
 
@@ -43,15 +47,30 @@ func NewHandler(clientID, clientSecret, redirectURI, jwtSecret string, db *sql.D
 }
 
 func (h *Handler) RedirectToGitHub(c *gin.Context) {
-	url := fmt.Sprintf(
-		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&scope=repo,user",
-		h.clientID,
-		h.redirectURI,
-	)
-	c.Redirect(http.StatusTemporaryRedirect, url)
+	state, err := generateOAuthState()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start oauth flow"})
+		return
+	}
+	setOAuthStateCookie(c, state)
+
+	params := url.Values{}
+	params.Set("client_id", h.clientID)
+	params.Set("redirect_uri", h.redirectURI)
+	params.Set("scope", "repo,user")
+	params.Set("state", state)
+
+	c.Redirect(http.StatusTemporaryRedirect, "https://github.com/login/oauth/authorize?"+params.Encode())
 }
 
 func (h *Handler) HandleCallback(c *gin.Context) {
+	if !validOAuthState(c) {
+		clearOAuthStateCookie(c)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid oauth state"})
+		return
+	}
+	clearOAuthStateCookie(c)
+
 	code := c.Query("code")
 	if code == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing code"})
@@ -190,6 +209,47 @@ func clearSessionCookie(c *gin.Context) {
 		Secure:   isSecureRequest(c.Request),
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+func setOAuthStateCookie(c *gin.Context, state string) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     OAuthStateCookieName,
+		Value:    state,
+		Path:     "/auth/callback",
+		MaxAge:   int((10 * time.Minute).Seconds()),
+		HttpOnly: true,
+		Secure:   isSecureRequest(c.Request),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func clearOAuthStateCookie(c *gin.Context) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     OAuthStateCookieName,
+		Value:    "",
+		Path:     "/auth/callback",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   isSecureRequest(c.Request),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func validOAuthState(c *gin.Context) bool {
+	cookie, err := c.Cookie(OAuthStateCookieName)
+	if err != nil {
+		return false
+	}
+	state := c.Query("state")
+	return state != "" && cookie == state
+}
+
+func generateOAuthState() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
 }
 
 func isSecureRequest(r *http.Request) bool {
