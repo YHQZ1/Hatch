@@ -511,6 +511,10 @@ func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 		}
 	}
 
+	if err := d.deregisterTaskDefinitions(ctx, slug); err != nil {
+		return err
+	}
+
 	targetGroups, err := d.targetGroupsForService(ctx, slug)
 	if err != nil {
 		return err
@@ -522,6 +526,38 @@ func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 		if err != nil && !isNotFound(err) {
 			return fmt.Errorf("failed to delete target group: %w", err)
 		}
+	}
+
+	return nil
+}
+
+func (d *Deployer) deregisterTaskDefinitions(ctx context.Context, slug string) error {
+	var nextToken *string
+	family := fmt.Sprintf("hatch-%s", slug)
+
+	for {
+		out, err := d.ecsClient.ListTaskDefinitions(ctx, &ecs.ListTaskDefinitionsInput{
+			FamilyPrefix: aws.String(family),
+			Status:       types.TaskDefinitionStatusActive,
+			NextToken:    nextToken,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list task definitions: %w", err)
+		}
+
+		for _, taskDefinitionArn := range out.TaskDefinitionArns {
+			_, err := d.ecsClient.DeregisterTaskDefinition(ctx, &ecs.DeregisterTaskDefinitionInput{
+				TaskDefinition: aws.String(taskDefinitionArn),
+			})
+			if err != nil && !isNotFound(err) {
+				return fmt.Errorf("failed to deregister task definition: %w", err)
+			}
+		}
+
+		if out.NextToken == nil || *out.NextToken == "" {
+			break
+		}
+		nextToken = out.NextToken
 	}
 
 	return nil
