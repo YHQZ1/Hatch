@@ -68,6 +68,9 @@ module "redis" {
   allowed_security_group_ids = [module.control_host.security_group_id]
   node_type                  = var.redis_node_type
   engine_version             = var.redis_engine_version
+  num_cache_clusters         = var.redis_num_cache_clusters
+  automatic_failover_enabled = var.redis_automatic_failover_enabled
+  transit_encryption_enabled = var.redis_transit_encryption_enabled
 }
 
 module "rabbitmq" {
@@ -80,6 +83,7 @@ module "rabbitmq" {
   password                   = var.rabbitmq_password
   host_instance_type         = var.rabbitmq_host_instance_type
   engine_version             = var.rabbitmq_engine_version
+  deployment_mode            = var.rabbitmq_deployment_mode
 }
 
 module "control_alb" {

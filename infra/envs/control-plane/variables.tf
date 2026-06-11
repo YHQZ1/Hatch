@@ -151,6 +151,24 @@ variable "redis_engine_version" {
   default     = "7.1"
 }
 
+variable "redis_num_cache_clusters" {
+  description = "Control-plane Redis node count."
+  type        = number
+  default     = 2
+}
+
+variable "redis_automatic_failover_enabled" {
+  description = "Enable Redis automatic failover."
+  type        = bool
+  default     = true
+}
+
+variable "redis_transit_encryption_enabled" {
+  description = "Enable TLS for Redis connections."
+  type        = bool
+  default     = true
+}
+
 variable "rabbitmq_username" {
   description = "Control-plane RabbitMQ username."
   type        = string
@@ -173,6 +191,12 @@ variable "rabbitmq_engine_version" {
   description = "Control-plane RabbitMQ engine version."
   type        = string
   default     = "3.13"
+}
+
+variable "rabbitmq_deployment_mode" {
+  description = "Control-plane RabbitMQ deployment mode."
+  type        = string
+  default     = "SINGLE_INSTANCE"
 }
 
 variable "github_client_id" {

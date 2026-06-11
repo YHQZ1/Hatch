@@ -11,6 +11,11 @@ acm_certificate_arn = "arn:aws:acm:ap-south-1:679777943956:certificate/REPLACE_M
 postgres_password = "replace-with-a-long-random-password"
 rabbitmq_password = "replace-with-a-long-random-password"
 
+redis_num_cache_clusters          = 2
+redis_automatic_failover_enabled  = true
+redis_transit_encryption_enabled  = true
+rabbitmq_deployment_mode          = "SINGLE_INSTANCE"
+
 github_client_id     = "replace-me"
 github_client_secret = "replace-me"
 jwt_secret           = "replace-with-at-least-32-random-chars"

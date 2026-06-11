@@ -42,6 +42,17 @@ variable "engine_version" {
   default     = "3.13"
 }
 
+variable "deployment_mode" {
+  description = "Amazon MQ RabbitMQ deployment mode. Use CLUSTER_MULTI_AZ for production HA when using a supported instance type and subnets."
+  type        = string
+  default     = "SINGLE_INSTANCE"
+
+  validation {
+    condition     = contains(["SINGLE_INSTANCE", "CLUSTER_MULTI_AZ"], var.deployment_mode)
+    error_message = "deployment_mode must be SINGLE_INSTANCE or CLUSTER_MULTI_AZ."
+  }
+}
+
 resource "aws_security_group" "main" {
   name        = "${var.project_name}-rabbitmq-sg"
   description = "Hatch control-plane RabbitMQ"
@@ -81,10 +92,17 @@ resource "aws_mq_broker" "main" {
   engine_type         = "RabbitMQ"
   engine_version      = var.engine_version
   host_instance_type  = var.host_instance_type
-  deployment_mode     = "SINGLE_INSTANCE"
+  deployment_mode     = var.deployment_mode
   publicly_accessible = false
-  subnet_ids          = [var.subnet_ids[0]]
+  subnet_ids          = var.deployment_mode == "CLUSTER_MULTI_AZ" ? var.subnet_ids : [var.subnet_ids[0]]
   security_groups     = [aws_security_group.main.id]
+
+  lifecycle {
+    precondition {
+      condition     = var.deployment_mode != "CLUSTER_MULTI_AZ" || length(var.subnet_ids) >= 3
+      error_message = "CLUSTER_MULTI_AZ RabbitMQ requires at least three subnets."
+    }
+  }
 
   user {
     username = var.username

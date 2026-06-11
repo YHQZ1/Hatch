@@ -36,6 +36,23 @@ terraform output -json deployer_env
 Point DNS records such as `api.hatchcloud.xyz` and `app.hatchcloud.xyz` at
 `control_alb_dns_name`.
 
+## Production HA Knobs
+
+The control-plane stack defaults Redis to TLS, two cache nodes, and automatic
+failover. RabbitMQ remains `SINGLE_INSTANCE` by default because Amazon MQ
+RabbitMQ clustering requires a supported instance size and at least three
+subnets. To move RabbitMQ to HA, expand `availability_zones` and
+`public_subnet_cidrs` to three entries, use a supported broker instance type,
+then set:
+
+```hcl
+rabbitmq_deployment_mode = "CLUSTER_MULTI_AZ"
+```
+
+Changing Redis encryption/failover or RabbitMQ deployment mode on an existing
+stack may replace managed resources. Plan carefully before applying to a live
+control plane.
+
 Do not destroy the old/manual control-plane resources until DNS has been cut
 over and API, web, builder, deployer, GitHub OAuth, and a fresh deployment have
 all been verified.
