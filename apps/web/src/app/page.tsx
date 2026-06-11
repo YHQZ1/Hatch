@@ -364,10 +364,18 @@ function TerminalSimulator() {
     [],
   );
   const [isDone, setIsDone] = useState(false);
+  const [timestamp, setTimestamp] = useState("00:00:00");
 
   useEffect(() => {
+    const updateTimestamp = () => {
+      setTimestamp(new Date().toISOString().split("T")[1].slice(0, 8));
+    };
+    updateTimestamp();
+    const timestampTimer = window.setInterval(updateTimestamp, 1000);
+
     let currentStep = 0;
     let isCancelled = false;
+    let stepTimer: number | undefined;
 
     const processStep = () => {
       if (isCancelled || currentStep >= TERMINAL_STEPS.length) {
@@ -375,7 +383,7 @@ function TerminalSimulator() {
         return;
       }
       const step = TERMINAL_STEPS[currentStep];
-      setTimeout(() => {
+      stepTimer = window.setTimeout(() => {
         if (!isCancelled) {
           setLines((prev) => [
             ...prev,
@@ -390,6 +398,8 @@ function TerminalSimulator() {
     processStep();
     return () => {
       isCancelled = true;
+      window.clearInterval(timestampTimer);
+      if (stepTimer) window.clearTimeout(stepTimer);
     };
   }, []);
 
@@ -417,7 +427,7 @@ function TerminalSimulator() {
             className={`flex items-start gap-3 ${line.highlight ? "text-white mt-4 font-bold" : "text-[#888]"}`}
           >
             <span className="text-[#333] shrink-0 select-none">
-              {`[${new Date().toISOString().split("T")[1].slice(0, 8)}]`}
+              {`[${timestamp}]`}
             </span>
             <span>
               {line.highlight && <span className="text-[#10b981] mr-2">✓</span>}
@@ -429,7 +439,7 @@ function TerminalSimulator() {
         {!isDone && (
           <div className="flex items-center gap-2 text-[#888] mt-2">
             <span className="text-[#333] shrink-0 select-none">
-              {`[${new Date().toISOString().split("T")[1].slice(0, 8)}]`}
+              {`[${timestamp}]`}
             </span>
             <span className="w-2 h-4 bg-[#888] animate-blink inline-block" />
           </div>
