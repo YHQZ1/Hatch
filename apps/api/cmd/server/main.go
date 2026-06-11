@@ -40,14 +40,14 @@ func main() {
 	}
 
 	rdb := redis.NewClient(opt)
-	hub := wsHub.NewHub(cfg.RedisURL, cfg.JWTSecret, cfg.FrontendURL, db)
+	hub := wsHub.NewHub(cfg.RedisURL, cfg.JWTSecret, cfg.CORSAllowedOrigins, db)
 
 	r := gin.Default()
 
 	r.Use(middleware.StatTracker())
 
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{cfg.FrontendURL},
+		AllowOrigins:     cfg.CORSAllowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", auth.CSRFHeaderName},
 		ExposeHeaders:    []string{"Content-Length", "X-Hatch-Trace-Duration"},

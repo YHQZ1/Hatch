@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -10,6 +11,7 @@ import (
 type Config struct {
 	Port               string
 	FrontendURL        string
+	CORSAllowedOrigins []string
 	GitHubClientID     string
 	GitHubClientSecret string
 	GitHubRedirectURI  string
@@ -32,6 +34,7 @@ func Load() *Config {
 	return &Config{
 		Port:               getEnv("PORT", "8080"),
 		FrontendURL:        getEnv("FRONTEND_URL", "http://localhost:3000"),
+		CORSAllowedOrigins: parseCSV(getEnv("CORS_ALLOWED_ORIGINS", getEnv("FRONTEND_URL", "http://localhost:3000"))),
 		GitHubClientID:     mustGetEnv("GITHUB_CLIENT_ID"),
 		GitHubClientSecret: mustGetEnv("GITHUB_CLIENT_SECRET"),
 		GitHubRedirectURI:  mustGetEnv("GITHUB_REDIRECT_URI"),
@@ -47,6 +50,24 @@ func Load() *Config {
 		ALBListenerARN:     firstNonEmpty(getEnv("ALB_HTTPS_LISTENER_ARN", ""), getEnv("ALB_LISTENER_ARN", "")),
 		ALBArn:             getEnv("ALB_ARN", ""),
 	}
+}
+
+func parseCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	values := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if _, ok := seen[part]; ok {
+			continue
+		}
+		values = append(values, part)
+		seen[part] = struct{}{}
+	}
+	return values
 }
 
 func firstNonEmpty(values ...string) string {
