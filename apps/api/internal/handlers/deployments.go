@@ -353,7 +353,10 @@ func (h *DeploymentHandler) CancelDeployment(c *gin.Context) {
 
 	key := fmt.Sprintf("logs:%s", id.String())
 	msg := "Deployment canceled by user"
-	h.rdb.RPush(c.Request.Context(), key, msg)
+	pipe := h.rdb.Pipeline()
+	pipe.RPush(c.Request.Context(), key, msg)
+	pipe.Expire(c.Request.Context(), key, 7*24*time.Hour)
+	_, _ = pipe.Exec(c.Request.Context())
 	h.rdb.Publish(c.Request.Context(), fmt.Sprintf("deployment:%s", id.String()), msg)
 
 	c.JSON(http.StatusOK, h.toDeploymentResponse(deployment))

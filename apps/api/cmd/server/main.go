@@ -93,7 +93,12 @@ func main() {
 			})
 		})
 		api.GET("/csrf", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{"csrf_token": auth.EnsureCSRFCookie(c)})
+			token, err := auth.EnsureCSRFCookieWithError(c)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create csrf token"})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"csrf_token": token})
 		})
 
 		api.GET("/projects", projectHandler.ListProjects)

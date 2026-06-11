@@ -38,12 +38,15 @@ func CSRFMiddleware() gin.HandlerFunc {
 	}
 }
 
-func EnsureCSRFCookie(c *gin.Context) string {
+func EnsureCSRFCookieWithError(c *gin.Context) (string, error) {
 	if existing, err := c.Cookie(CSRFCookieName); err == nil && existing != "" {
-		return existing
+		return existing, nil
 	}
 
-	token := mustGenerateCSRFToken()
+	token, err := generateCSRFToken()
+	if err != nil {
+		return "", err
+	}
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     CSRFCookieName,
 		Value:    token,
@@ -53,7 +56,7 @@ func EnsureCSRFCookie(c *gin.Context) string {
 		Secure:   isSecureRequest(c.Request),
 		SameSite: http.SameSiteLaxMode,
 	})
-	return token
+	return token, nil
 }
 
 func ClearCSRFCookie(c *gin.Context) {
@@ -81,10 +84,10 @@ func usesBearerAuth(c *gin.Context) bool {
 	return strings.HasPrefix(c.GetHeader("Authorization"), "Bearer ")
 }
 
-func mustGenerateCSRFToken() string {
+func generateCSRFToken() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
-		panic(err)
+		return "", err
 	}
-	return hex.EncodeToString(buf)
+	return hex.EncodeToString(buf), nil
 }

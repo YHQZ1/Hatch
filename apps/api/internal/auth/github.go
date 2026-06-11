@@ -115,7 +115,10 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 	}
 
 	setSessionCookie(c, jwtToken)
-	EnsureCSRFCookie(c)
+	if _, err := EnsureCSRFCookieWithError(c); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create csrf token"})
+		return
+	}
 
 	successURL := fmt.Sprintf("%s/auth/success", os.Getenv("FRONTEND_URL"))
 	c.Redirect(http.StatusTemporaryRedirect, successURL)

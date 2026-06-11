@@ -68,7 +68,10 @@ func Middleware(jwtSecret string, db *sql.DB, secretCodec *secrets.Codec) gin.Ha
 		c.Set("access_token", accessToken)
 
 		if !usesBearerAuth(c) {
-			EnsureCSRFCookie(c)
+			if _, err := EnsureCSRFCookieWithError(c); err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to create csrf token"})
+				return
+			}
 		}
 
 		c.Next()
