@@ -65,7 +65,7 @@ type Worker struct {
 	deployer *ecsdeploy.Deployer
 	db       *sql.DB
 	conn     *amqp.Connection
-	ch       *amqp.Channel
+	channels []*amqp.Channel
 	secrets  *secrets.Codec
 	ecr      *ecr.Client
 }
@@ -116,39 +116,17 @@ func (w *Worker) Start() error {
 		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
 
-	w.ch, err = w.conn.Channel()
+	deployMsgs, err := w.consumeQueue("hatch.deploy.jobs")
 	if err != nil {
-		return fmt.Errorf("failed to open channel: %w", err)
+		return err
 	}
-
-	_, err = w.ch.QueueDeclare("hatch.deploy.jobs", true, false, false, false, nil)
+	cleanupMsgs, err := w.consumeQueue("hatch.cleanup.jobs")
 	if err != nil {
-		return fmt.Errorf("failed to declare deploy queue: %w", err)
+		return err
 	}
-
-	_, err = w.ch.QueueDeclare("hatch.cleanup.jobs", true, false, false, false, nil)
+	serviceMsgs, err := w.consumeQueue("hatch.service.jobs")
 	if err != nil {
-		return fmt.Errorf("failed to declare cleanup queue: %w", err)
-	}
-
-	_, err = w.ch.QueueDeclare("hatch.service.jobs", true, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to declare service queue: %w", err)
-	}
-
-	deployMsgs, err := w.ch.Consume("hatch.deploy.jobs", "", false, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to consume deploy queue: %w", err)
-	}
-
-	cleanupMsgs, err := w.ch.Consume("hatch.cleanup.jobs", "", false, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to consume cleanup queue: %w", err)
-	}
-
-	serviceMsgs, err := w.ch.Consume("hatch.service.jobs", "", false, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to consume service queue: %w", err)
+		return err
 	}
 
 	go w.handleCleanupJobs(cleanupMsgs)
@@ -168,6 +146,28 @@ func (w *Worker) Start() error {
 	}
 
 	return nil
+}
+
+func (w *Worker) consumeQueue(queueName string) (<-chan amqp.Delivery, error) {
+	ch, err := w.conn.Channel()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open RabbitMQ channel for %s: %w", queueName, err)
+	}
+	w.channels = append(w.channels, ch)
+
+	_, err = ch.QueueDeclare(queueName, true, false, false, false, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to declare %s: %w", queueName, err)
+	}
+	if err := ch.Qos(1, 0, false); err != nil {
+		return nil, fmt.Errorf("failed to set qos for %s: %w", queueName, err)
+	}
+
+	msgs, err := ch.Consume(queueName, "", false, false, false, false, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to consume %s: %w", queueName, err)
+	}
+	return msgs, nil
 }
 
 func (w *Worker) handleServiceControlJobs(msgs <-chan amqp.Delivery) {
@@ -499,8 +499,10 @@ func (w *Worker) Close() {
 	if w.db != nil {
 		w.db.Close()
 	}
-	if w.ch != nil {
-		w.ch.Close()
+	for _, ch := range w.channels {
+		if ch != nil {
+			ch.Close()
+		}
 	}
 	if w.conn != nil {
 		w.conn.Close()
