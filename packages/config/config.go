@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -31,7 +32,7 @@ type Config struct {
 func Load() *Config {
 	_ = godotenv.Load()
 
-	return &Config{
+	cfg := &Config{
 		Port:               getEnv("PORT", "8080"),
 		FrontendURL:        getEnv("FRONTEND_URL", "http://localhost:3000"),
 		CORSAllowedOrigins: parseCSV(getEnv("CORS_ALLOWED_ORIGINS", getEnv("FRONTEND_URL", "http://localhost:3000"))),
@@ -50,6 +51,32 @@ func Load() *Config {
 		ALBListenerARN:     firstNonEmpty(getEnv("ALB_HTTPS_LISTENER_ARN", ""), getEnv("ALB_LISTENER_ARN", "")),
 		ALBArn:             getEnv("ALB_ARN", ""),
 	}
+	if err := cfg.Validate(); err != nil {
+		log.Fatal(err)
+	}
+	return cfg
+}
+
+func (c *Config) Validate() error {
+	if len(c.CORSAllowedOrigins) == 0 {
+		return fmt.Errorf("CORS_ALLOWED_ORIGINS must include at least one origin")
+	}
+	if c.Environment != "production" {
+		return nil
+	}
+	if len(strings.TrimSpace(c.JWTSecret)) < 32 {
+		return fmt.Errorf("JWT_SECRET must be at least 32 characters in production")
+	}
+	if len(strings.TrimSpace(c.DataEncryptionKey)) < 32 {
+		return fmt.Errorf("DATA_ENCRYPTION_KEY must be at least 32 characters in production")
+	}
+	if strings.Contains(c.FrontendURL, "localhost") {
+		return fmt.Errorf("FRONTEND_URL must not point at localhost in production")
+	}
+	if strings.Contains(c.WebhookBaseURL, "localhost") {
+		return fmt.Errorf("WEBHOOK_BASE_URL must not point at localhost in production")
+	}
+	return nil
 }
 
 func parseCSV(value string) []string {
