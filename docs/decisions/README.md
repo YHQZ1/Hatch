@@ -13,6 +13,7 @@ reversed; do not rewrite history in old records, mark them superseded instead.
 | [0005](0005-codebuild-for-aws-builds.md) | AWS builds run in CodeBuild in the user's account | Accepted |
 | [0006](0006-secrets-manager-for-app-secrets.md) | App secrets live in AWS Secrets Manager | Accepted |
 | [0007](0007-cost-guardrails-are-core-scope.md) | Cost guardrails are core product scope | Accepted |
+| [0008](0008-repository-structure.md) | Repository structure: one Go module, `cmd/` + `internal/`, `web/` | Accepted |
 
 Template:
 

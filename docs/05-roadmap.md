@@ -11,8 +11,8 @@ _Update this section at the end of every working session._
 | --- | --- |
 | Current phase | 0, Foundation |
 | Branch | `stabilize/in-flight-hardening` (not merged, not pushed) |
-| Last done | Committed in-flight hardening work in 9 commits; wrote these docs |
-| Next | Discuss flow and tech stack in detail; settle [open questions](06-open-questions.md) needed for Phase 1; add CI |
+| Last done | Decided the repository structure (ADR 0008) |
+| Next | Phase 0 repository hygiene and CI; discuss flow and tech stack; settle [open questions](06-open-questions.md) needed for Phase 1 |
 | Blockers | None. No AWS access (by design until Phase 6) |
 
 ## Phase 0: Foundation
@@ -22,6 +22,13 @@ Goal: a clean, documented, checked starting point.
 - [x] Commit the in-flight hardening work in logical commits.
 - [x] Write vision, current state, architecture, guardrails, roadmap, and
   decision records.
+- [x] Decide the repository structure
+  ([ADR 0008](decisions/0008-repository-structure.md)).
+- [ ] Repository hygiene: fix `.dockerignore` so nested `.env` files stay out
+  of build contexts; add `LICENSE`; remove false claims from `README.md`,
+  `CONTRIBUTING.md`, and `SECURITY.md`; delete the unused `packages/events`;
+  align Go versions across modules and Dockerfiles; add `.golangci.yml`,
+  `.editorconfig`, and Dependabot.
 - [ ] Settle the open questions marked "needed for Phase 1."
 - [ ] Merge the stabilization branch into `main`.
 - [ ] Add GitHub Actions CI: `go vet`, `go test -race`, web lint and build, on
@@ -33,9 +40,16 @@ Done when: CI is green on `main` and the docs are reviewed.
 
 Goal: the full flow works on a laptop with only Postgres running.
 
+- [ ] Move to the layout in
+  [ADR 0008](decisions/0008-repository-structure.md): one root Go module,
+  `cmd/hatch` + `internal/`, `apps/web` → `web/`. File moves and import
+  rewrites go in their own commits, separate from behaviour changes.
 - [ ] Merge the API, builder, and deployer into one Go program
-  (`hatch serve`, `hatch worker`, `hatch migrate`) with the package layout in
-  [architecture](03-architecture.md#hatch-program).
+  (`hatch serve`, `hatch worker`, `hatch migrate`).
+- [ ] After the move: remove `infra/` (hosted-model Terraform) and the in-app
+  docs pages under `web/src/app/docs` along with the landing-page links to
+  them; move `components/` and `lib/` out of `src/app/` and drop the `(pages)`
+  route group.
 - [ ] Replace RabbitMQ with a Postgres job queue; jobs are idempotent and
   resumable.
 - [ ] Replace Redis log fan-out with `deployment_logs` + `LISTEN/NOTIFY`;

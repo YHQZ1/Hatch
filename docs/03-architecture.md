@@ -62,7 +62,7 @@ Hatch splits into two planes:
 
 ### `hatch` program
 
-One Go binary with subcommands _(exact layout open)_:
+One Go binary with subcommands:
 
 - `hatch serve`: HTTP API, WebSocket log streaming, and the job runner in one
   process (the default for small installs).
@@ -70,21 +70,24 @@ One Go binary with subcommands _(exact layout open)_:
 - `hatch migrate`: apply database migrations.
 
 Internal modules keep the old service boundaries as packages, so any one of
-them could become a separate service later if there is a real reason:
+them could become a separate service later if there is a real reason. The
+full repository layout, and how today's files map onto it, is in
+[ADR 0008](decisions/0008-repository-structure.md):
 
 ```
 cmd/hatch/            entry point and subcommands
 internal/api/         HTTP handlers, auth, sessions, CSRF
 internal/stream/      deployment log streaming (Postgres LISTEN/NOTIFY → WebSocket)
 internal/jobs/        job definitions, runner, retries, scheduling
-internal/build/       Builder interface; codebuild/ and docker/ implementations
-internal/runtime/     Runtime interface; ecs/ and docker/ implementations
-internal/cloud/aws/   STS assume-role, connection verification, CloudFormation template
+internal/build/       Builder interface; codebuild/, docker/, fake/ implementations
+internal/runtime/     Runtime interface; ecs/, docker/, fake/ implementations
+internal/cloud/aws/   STS assume-role, connection verification
 internal/cost/        cost estimation and spend tracking
 internal/inventory/   resource inventory and teardown
 internal/github/      OAuth or GitHub App, repos, webhooks
 internal/secrets/     encryption at rest (existing codec)
-internal/store/       sqlc queries and migrations
+internal/config/      environment configuration
+internal/store/       sqlc queries and embedded migrations
 web/                  Next.js app
 deploy/cloudformation/hatch-connect.yaml
 ```
