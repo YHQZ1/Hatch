@@ -31,8 +31,8 @@ Goal: a clean, documented, checked starting point.
   `.editorconfig`, and Dependabot.
 - [ ] Settle the open questions marked "needed for Phase 1."
 - [ ] Merge the stabilization branch into `main`.
-- [ ] Add GitHub Actions CI: `go vet`, `go test -race`, web lint and build, on
-  every push and pull request.
+- [x] Add GitHub Actions CI: golangci-lint, `go test -race`, web lint and
+  build, on pushes to `main` and on every pull request.
 
 Done when: CI is green on `main` and the docs are reviewed.
 
