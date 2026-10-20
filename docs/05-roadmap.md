@@ -11,8 +11,8 @@ _Update this section at the end of every working session._
 | --- | --- |
 | Current phase | 0, Foundation |
 | Branch | `stabilize/in-flight-hardening` (not merged, not pushed) |
-| Last done | Decided the repository structure (ADR 0008) |
-| Next | Phase 0 repository hygiene and CI; discuss flow and tech stack; settle [open questions](06-open-questions.md) needed for Phase 1 |
+| Last done | Repository structure decided (ADR 0008); Phase 0 hygiene done: `.dockerignore`, LICENSE, Go 1.26.4 everywhere, Node 24, golangci-lint, CI, Dependabot, README/CONTRIBUTING/SECURITY rewritten |
+| Next | Push and merge the branch into `main` so CI runs; discuss flow and tech stack; settle [open questions](06-open-questions.md) needed for Phase 1 |
 | Blockers | None. No AWS access (by design until Phase 6) |
 
 ## Phase 0: Foundation
@@ -24,7 +24,7 @@ Goal: a clean, documented, checked starting point.
   decision records.
 - [x] Decide the repository structure
   ([ADR 0008](decisions/0008-repository-structure.md)).
-- [ ] Repository hygiene: fix `.dockerignore` so nested `.env` files stay out
+- [x] Repository hygiene: fix `.dockerignore` so nested `.env` files stay out
   of build contexts; add `LICENSE`; remove false claims from `README.md`,
   `CONTRIBUTING.md`, and `SECURITY.md`; delete the unused `packages/events`;
   align Go versions across modules and Dockerfiles; add `.golangci.yml`,

@@ -50,13 +50,8 @@ make infra                      # Postgres, Redis, RabbitMQ via Docker Compose
 make dev                        # infra + api, builder, deployer, web
 make migrate                    # apply migrations (needs golang-migrate)
 
-# Go checks, per module
-for m in apps/api apps/builder apps/deployer packages/config packages/secrets; do
-  (cd $m && go vet ./... && go test ./...)
-done
-
-# Web checks
-cd apps/web && npm run lint && npm run build
+make check                      # golangci-lint, ESLint, go test -race (all modules)
+cd apps/web && npm run build    # web production build
 ```
 
 After building the web app, restore `apps/web/next-env.d.ts` if it changed
