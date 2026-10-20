@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 
@@ -34,7 +35,7 @@ func Load() *Config {
 
 	cfg := &Config{
 		Port:               getEnv("PORT", "8080"),
-		FrontendURL:        getEnv("FRONTEND_URL", "http://localhost:3000"),
+		FrontendURL:        strings.TrimRight(getEnv("FRONTEND_URL", "http://localhost:3000"), "/"),
 		CORSAllowedOrigins: parseCSV(getEnv("CORS_ALLOWED_ORIGINS", getEnv("FRONTEND_URL", "http://localhost:3000"))),
 		GitHubClientID:     mustGetEnv("GITHUB_CLIENT_ID"),
 		GitHubClientSecret: mustGetEnv("GITHUB_CLIENT_SECRET"),
@@ -43,7 +44,7 @@ func Load() *Config {
 		DatabaseURL:        mustGetEnv("DATABASE_URL"),
 		RedisURL:           mustGetEnv("REDIS_URL"),
 		RabbitMQURL:        mustGetEnv("RABBITMQ_URL"),
-		WebhookBaseURL:     mustGetEnv("WEBHOOK_BASE_URL"),
+		WebhookBaseURL:     strings.TrimRight(mustGetEnv("WEBHOOK_BASE_URL"), "/"),
 		Environment:        getEnv("ENVIRONMENT", "development"),
 		DataEncryptionKey:  getEnv("DATA_ENCRYPTION_KEY", ""),
 		AWSRegion:          getEnv("AWS_REGION", "ap-south-1"),
@@ -61,6 +62,18 @@ func (c *Config) Validate() error {
 	if len(c.CORSAllowedOrigins) == 0 {
 		return fmt.Errorf("CORS_ALLOWED_ORIGINS must include at least one origin")
 	}
+	for _, origin := range c.CORSAllowedOrigins {
+		parsed, err := url.Parse(origin)
+		if err != nil ||
+			(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+			parsed.Host == "" ||
+			(parsed.Path != "" && parsed.Path != "/") ||
+			parsed.RawQuery != "" ||
+			parsed.Fragment != "" ||
+			parsed.User != nil {
+			return fmt.Errorf("CORS_ALLOWED_ORIGINS contains an invalid origin: %s", origin)
+		}
+	}
 	if c.Environment != "production" {
 		return nil
 	}
@@ -70,11 +83,20 @@ func (c *Config) Validate() error {
 	if len(strings.TrimSpace(c.DataEncryptionKey)) < 32 {
 		return fmt.Errorf("DATA_ENCRYPTION_KEY must be at least 32 characters in production")
 	}
-	if strings.Contains(c.FrontendURL, "localhost") {
-		return fmt.Errorf("FRONTEND_URL must not point at localhost in production")
+	for name, value := range map[string]string{
+		"FRONTEND_URL":        c.FrontendURL,
+		"GITHUB_REDIRECT_URI": c.GitHubRedirectURI,
+		"WEBHOOK_BASE_URL":    c.WebhookBaseURL,
+	} {
+		parsed, err := url.Parse(value)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+			return fmt.Errorf("%s must be an absolute HTTPS URL in production", name)
+		}
 	}
-	if strings.Contains(c.WebhookBaseURL, "localhost") {
-		return fmt.Errorf("WEBHOOK_BASE_URL must not point at localhost in production")
+	for _, origin := range c.CORSAllowedOrigins {
+		if !strings.HasPrefix(origin, "https://") {
+			return fmt.Errorf("CORS_ALLOWED_ORIGINS must use HTTPS in production")
+		}
 	}
 	return nil
 }

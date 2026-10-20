@@ -49,10 +49,20 @@ func TestValidateRejectsLocalhostProductionURLs(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsCORSOriginWithPath(t *testing.T) {
+	cfg := validProductionConfig()
+	cfg.CORSAllowedOrigins = []string{"https://app.hatchcloud.xyz/path"}
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected CORS origin with a path to be rejected")
+	}
+}
+
 func validProductionConfig() Config {
 	return Config{
 		Environment:        "production",
 		FrontendURL:        "https://app.hatchcloud.xyz",
+		GitHubRedirectURI:  "https://api.hatchcloud.xyz/auth/callback",
 		WebhookBaseURL:     "https://api.hatchcloud.xyz",
 		CORSAllowedOrigins: []string{"https://app.hatchcloud.xyz"},
 		JWTSecret:          strings.Repeat("j", 32),
