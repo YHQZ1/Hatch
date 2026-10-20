@@ -53,7 +53,7 @@ hatch/
 ├── Dockerfile                  the hatch binary (web/ keeps its own)
 ├── docker-compose.yaml
 ├── Makefile  .golangci.yml  .editorconfig
-└── README.md  LICENSE  CONTRIBUTING.md  SECURITY.md  CLAUDE.md
+└── README.md  LICENSE  SECURITY.md  CLAUDE.md
 ```
 
 Mapping from the current layout:

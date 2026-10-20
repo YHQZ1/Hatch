@@ -142,10 +142,9 @@ This layout changes in the rebuild; see
 | [Roadmap](docs/05-roadmap.md) | Phases, checklists, and current status |
 | [Open questions](docs/06-open-questions.md) | Decisions still to make |
 
-## Contributing and security
+## Security
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, and how changes are
-made. Please report security issues privately as described in
+Please report security issues privately as described in
 [SECURITY.md](SECURITY.md), not in public issues.
 
 ## License

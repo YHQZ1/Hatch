@@ -42,6 +42,13 @@ Read, in order:
   API responses.
 - Go: `gofmt`, `go vet`, table-driven tests. Web: ESLint clean, no new
   1,000-line components.
+- Dependencies: add them in the module that imports them and run
+  `go mod tidy` there (each app and package is its own module until Phase 1).
+- Database: add a new migration in `packages/db/migrations/` named
+  `NNNNNN_short_description.up.sql`, continuing the numbering; never edit a
+  merged migration. After changing migrations or `packages/db/queries/`, run
+  `cd packages/db && sqlc generate` and commit the generated code.
+- Never commit `.env` files or credentials.
 
 ## Commands (current layout, before Phase 1 consolidation)
 
