@@ -12,6 +12,12 @@
 
 </div>
 
+> [!NOTE]
+> **Hatch is being rebuilt.** The next version deploys apps into *your own* AWS
+> account, with cost guardrails built in, instead of running them on Hatch's
+> infrastructure. This README describes the current prototype. The plan, target
+> architecture, and roadmap are in [`docs/`](docs/README.md).
+
 ---
 
 <!-- SCREENSHOT: full dashboard overview — replace with actual image -->
