@@ -9,10 +9,10 @@ _Update this section at the end of every working session._
 
 | Field | Value |
 | --- | --- |
-| Current phase | 0, Foundation |
-| Branch | `stabilize/in-flight-hardening` (not merged, not pushed) |
-| Last done | Phase 0 hygiene (CI, linting, versions, docs); CONTRIBUTING removed; tech stack decided (ADRs 0009–0013: React + Vite UI in the Go binary, GitHub App, River + pgx, SSE logs, server-side sessions) |
-| Next | Push and merge the branch into `main` so CI runs; start Phase 1 with the repository move |
+| Current phase | 1, Simplify the core and build the local target |
+| Branch | `phase1/restructure` (pull request to `main`) |
+| Last done | Phase 0 merged and `main` protected. Repository moved to one Go module (`cmd/hatch` with `api`, `builder`, `deployer` subcommands; `internal/`), `apps/web` → `web/`, one root `.env`; `infra/` and in-app docs pages removed; Go 1.26.10 |
+| Next | Move the web UI to React + Vite served by the Go binary (ADR 0009) |
 | Blockers | None. No AWS access (by design until Phase 6) |
 
 ## Phase 0: Foundation
@@ -30,7 +30,8 @@ Goal: a clean, documented, checked starting point.
   align Go versions across modules and Dockerfiles; add `.golangci.yml`,
   `.editorconfig`, and Dependabot.
 - [x] Settle the open questions needed for Phase 1 (ADRs 0009–0013).
-- [ ] Merge the stabilization branch into `main`.
+- [x] Merge the stabilization branch into `main` (PR #14); protect `main`
+  with required CI checks.
 - [x] Add GitHub Actions CI: golangci-lint, `go test -race`, web lint and
   build, on pushes to `main` and on every pull request.
 
@@ -43,11 +44,11 @@ Goal: the full flow works on a laptop with only Postgres running, from one
 
 Order matters: move files first, then the frontend, then backend changes.
 
-- [ ] Move to the layout in
+- [x] Move to the layout in
   [ADR 0008](decisions/0008-repository-structure.md): one root Go module,
   `cmd/hatch` + `internal/`, `apps/web` → `web/`. File moves and import
   rewrites go in their own commits, separate from behaviour changes.
-- [ ] Remove `infra/` (hosted-model Terraform) and the in-app docs pages under
+- [x] Remove `infra/` (hosted-model Terraform) and the in-app docs pages under
   `web/src/app/docs`, along with the landing-page links to them.
 - [ ] Move the web UI to a React + Vite single-page app with React Router and
   TanStack Query, embedded in and served by the Go binary, with the Vite dev
