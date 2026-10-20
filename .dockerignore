@@ -21,5 +21,6 @@
 **/.next
 **/.terraform
 docs
-infra
 web
+# Local Terraform state from the removed hosted-model infra/ may remain here.
+infra

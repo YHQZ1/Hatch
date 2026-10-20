@@ -125,7 +125,6 @@ internal/store     database access (sqlc) and migrations
 internal/config    configuration loading
 internal/secrets   encryption at rest
 web/               Next.js dashboard
-infra/             Terraform for the old hosted model (to be removed)
 docs/              vision, architecture, roadmap, and decision records
 ```
 
