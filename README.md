@@ -140,7 +140,7 @@ This layout changes in the rebuild; see
 | [Architecture](docs/03-architecture.md) | The target design |
 | [Cost guardrails](docs/04-cost-guardrails.md) | How Hatch keeps cloud spend under control |
 | [Roadmap](docs/05-roadmap.md) | Phases, checklists, and current status |
-| [Open questions](docs/06-open-questions.md) | Decisions still to make |
+| [Open questions](docs/06-open-questions.md) | Decisions still to make, and decided ones |
 
 ## Security
 

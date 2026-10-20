@@ -1,6 +1,6 @@
 # 0003. Postgres for jobs and log streaming
 
-- Status: Accepted (library choice open, see Q6 in open questions)
+- Status: Accepted (job library chosen in 0011; log transport changed to SSE in 0012)
 - Date: 2026-10-20
 
 ## Context

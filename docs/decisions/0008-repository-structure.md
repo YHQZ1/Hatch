@@ -1,6 +1,6 @@
 # 0008. Repository structure: one Go module, `cmd/` + `internal/`, `web/`
 
-- Status: Accepted
+- Status: Accepted (tree updated for decisions 0009–0012)
 - Date: 2026-10-21
 
 ## Context
@@ -33,24 +33,25 @@ hatch/
 ├── cmd/hatch/                  main.go: serve | worker | migrate
 ├── internal/
 │   ├── api/                    HTTP handlers, middleware, auth, sessions
-│   ├── stream/                 deployment log streaming to WebSocket clients
+│   ├── stream/                 deployment log streaming (server-sent events)
 │   ├── jobs/                   job types, queue, runner, retries
 │   ├── build/                  Builder interface; docker/, codebuild/, fake/
 │   ├── runtime/                Runtime interface; docker/, ecs/, fake/
 │   ├── cloud/aws/              STS assume-role, connection checks
 │   ├── cost/                   estimates and spend tracking
 │   ├── inventory/              resource inventory and teardown
-│   ├── github/                 OAuth or GitHub App, repos, webhooks
+│   ├── github/                 GitHub App: sign-in, repos, webhooks
 │   ├── secrets/                encryption at rest
 │   ├── config/                 environment configuration
 │   └── store/                  sqlc code, queries, embedded migrations
-├── web/                        Next.js app
-│   └── src/{app,components,lib}
+├── web/                        React + Vite app
+│   ├── src/{routes,components,lib}
+│   └── embed.go                embeds dist/ into the hatch binary
 ├── deploy/cloudformation/      hatch-connect.yaml (added in Phase 2)
 ├── docs/
 ├── .github/workflows/          CI
 ├── go.mod  go.sum              one module; no go.work
-├── Dockerfile                  the hatch binary (web/ keeps its own)
+├── Dockerfile                  one image: builds web/, then the hatch binary
 ├── docker-compose.yaml
 ├── Makefile  .golangci.yml  .editorconfig
 └── README.md  LICENSE  SECURITY.md  CLAUDE.md
@@ -72,7 +73,7 @@ Mapping from the current layout:
 | `packages/db/{gen,queries,migrations}` | `internal/store` (migrations embedded so `hatch migrate` needs no extra tool) |
 | `apps/web` | `web/` |
 | `apps/web/src/app/{components,lib}` | `web/src/{components,lib}` |
-| `apps/web/src/app/(pages)/…` | `web/src/app/…` (group removed) |
+| `apps/web/src/app/(pages)/…` | `web/src/routes/…` (React Router, see 0009) |
 | `apps/web/src/app/docs/*` | removed; product docs live in `docs/` until the product is stable |
 | `infra/` | removed (kept in git history) |
 | `go.work`, `go.work.sum`, 7 × `go.mod` | one root `go.mod` |

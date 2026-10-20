@@ -5,7 +5,7 @@ deploys apps **into the user's own AWS account**, with cost guardrails built in.
 These documents are the source of truth for that rebuild. Read them before
 changing code.
 
-Last updated: 2026-10-20
+Last updated: 2026-10-21
 
 ## Read in this order
 
@@ -16,7 +16,7 @@ Last updated: 2026-10-20
 | 3 | [Target architecture](03-architecture.md) | How the rebuilt system fits together |
 | 4 | [Cost guardrails](04-cost-guardrails.md) | How Hatch prevents surprise cloud bills |
 | 5 | [Roadmap](05-roadmap.md) | Phases, acceptance criteria, and current status |
-| 6 | [Open questions](06-open-questions.md) | Decisions still to be made |
+| 6 | [Open questions](06-open-questions.md) | Decisions still to be made, and a list of decided ones |
 | — | [Decision records](decisions/) | Why each major choice was made |
 
 ## Status at a glance

@@ -11,8 +11,8 @@ _Update this section at the end of every working session._
 | --- | --- |
 | Current phase | 0, Foundation |
 | Branch | `stabilize/in-flight-hardening` (not merged, not pushed) |
-| Last done | Repository structure decided (ADR 0008); Phase 0 hygiene done: `.dockerignore`, LICENSE, Go 1.26.4 everywhere, Node 24, golangci-lint, CI, Dependabot, README/CONTRIBUTING/SECURITY rewritten |
-| Next | Push and merge the branch into `main` so CI runs; discuss flow and tech stack; settle [open questions](06-open-questions.md) needed for Phase 1 |
+| Last done | Phase 0 hygiene (CI, linting, versions, docs); CONTRIBUTING removed; tech stack decided (ADRs 0009–0013: React + Vite UI in the Go binary, GitHub App, River + pgx, SSE logs, server-side sessions) |
+| Next | Push and merge the branch into `main` so CI runs; start Phase 1 with the repository move |
 | Blockers | None. No AWS access (by design until Phase 6) |
 
 ## Phase 0: Foundation
@@ -29,7 +29,7 @@ Goal: a clean, documented, checked starting point.
   `CONTRIBUTING.md`, and `SECURITY.md`; delete the unused `packages/events`;
   align Go versions across modules and Dockerfiles; add `.golangci.yml`,
   `.editorconfig`, and Dependabot.
-- [ ] Settle the open questions marked "needed for Phase 1."
+- [x] Settle the open questions needed for Phase 1 (ADRs 0009–0013).
 - [ ] Merge the stabilization branch into `main`.
 - [x] Add GitHub Actions CI: golangci-lint, `go test -race`, web lint and
   build, on pushes to `main` and on every pull request.
@@ -38,34 +38,49 @@ Done when: CI is green on `main` and the docs are reviewed.
 
 ## Phase 1: Simplify the core and build the local target
 
-Goal: the full flow works on a laptop with only Postgres running.
+Goal: the full flow works on a laptop with only Postgres running, from one
+`hatch` binary that also serves the UI.
+
+Order matters: move files first, then the frontend, then backend changes.
 
 - [ ] Move to the layout in
   [ADR 0008](decisions/0008-repository-structure.md): one root Go module,
   `cmd/hatch` + `internal/`, `apps/web` → `web/`. File moves and import
   rewrites go in their own commits, separate from behaviour changes.
+- [ ] Remove `infra/` (hosted-model Terraform) and the in-app docs pages under
+  `web/src/app/docs`, along with the landing-page links to them.
+- [ ] Move the web UI to a React + Vite single-page app with React Router and
+  TanStack Query, embedded in and served by the Go binary, with the Vite dev
+  server proxying `/api` in development
+  ([ADR 0009](decisions/0009-react-spa-served-by-go.md)).
 - [ ] Merge the API, builder, and deployer into one Go program
-  (`hatch serve`, `hatch worker`, `hatch migrate`).
-- [ ] After the move: remove `infra/` (hosted-model Terraform) and the in-app
-  docs pages under `web/src/app/docs` along with the landing-page links to
-  them; move `components/` and `lib/` out of `src/app/` and drop the `(pages)`
-  route group.
-- [ ] Replace RabbitMQ with a Postgres job queue; jobs are idempotent and
-  resumable.
-- [ ] Replace Redis log fan-out with `deployment_logs` + `LISTEN/NOTIFY`;
-  replace the GitHub cache with a Postgres table or in-process cache.
+  (`hatch serve`, `hatch worker`, `hatch migrate`) with `log/slog`
+  structured logging.
+- [ ] Switch to pgx and regenerate sqlc; replace RabbitMQ with River jobs that
+  are idempotent and enqueued in the same transaction as their cause
+  ([ADR 0011](decisions/0011-river-and-pgx.md)).
+- [ ] Replace Redis and the WebSocket hub with `deployment_logs`,
+  `LISTEN/NOTIFY`, and server-sent events
+  ([ADR 0012](decisions/0012-server-sent-events-for-logs.md)); replace the
+  GitHub cache with a Postgres table or in-process cache.
+- [ ] Replace JWT sessions with server-side sessions
+  ([ADR 0013](decisions/0013-server-side-sessions.md)).
+- [ ] Replace the OAuth App with a GitHub App for sign-in, repository access,
+  and webhooks ([ADR 0010](decisions/0010-github-app.md)).
 - [ ] Define `Builder`, `Runtime`, and `CostEstimator` interfaces with a fake
   implementation for tests.
 - [ ] Implement the local Docker provider (build, run, route `<app>.localhost`
-  through a reverse proxy, scale, destroy, runtime logs).
+  through Caddy, scale, destroy, runtime logs).
 - [ ] Move the existing ECS/ALB code behind the `Runtime` interface without
   changing its behaviour yet.
-- [ ] Remove RabbitMQ and Redis from `docker-compose.yaml` and the config.
+- [ ] Remove RabbitMQ and Redis from `docker-compose.yaml` and the config; run
+  database tests against Postgres in CI.
 
 Done when: on a clean machine, `make dev` starts Postgres and Hatch; a user can
-log in, deploy a sample repo locally, watch logs, cancel, redeploy, pause,
-resume, and delete; restarting Hatch mid-build resumes or fails the job
-cleanly; tests cover the job runner and providers with fakes.
+sign in through the GitHub App, deploy a sample repo locally, watch logs
+(including after a reconnect), cancel, redeploy, pause, resume, and delete;
+restarting Hatch mid-build resumes or fails the job cleanly; tests cover the
+job runner and providers with fakes and run against real Postgres.
 
 ## Phase 2: Connect an AWS account
 

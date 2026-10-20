@@ -1,10 +1,10 @@
 # Open Questions
 
 Decisions still to be made. Each has a recommendation, but none is final until
-it is discussed and recorded in [decisions/](decisions/). Answer the ones
-marked **Phase 1** first.
+it is discussed and recorded. Decided questions are listed at the end with
+where the decision is recorded.
 
-## Product and flow
+## Open
 
 ### Q1. Where does the control plane run? (Phase 6, but shapes Phase 2)
 
@@ -14,79 +14,10 @@ marked **Phase 1** first.
 Recommendation: design for (a) and keep (b) working; the code is the same. The
 control plane is small enough to host cheaply.
 
-### Q2. What does a user do first: connect AWS or try locally? (Phase 1)
-
-A hosted instance cannot run apps for users without an AWS connection. Options:
-require AWS before the first deploy, or offer a guided "connect AWS" with a
-sample app as the first step. On self-hosted installs the local target is also
-available.
-
-Recommendation: hosted users connect AWS first, with a sample app and a short
-expiry as the default first deploy. The local target is for self-hosted and
-development use.
-
-### Q3. Is v1 single-user? (Phase 1)
-
-Recommendation: yes. Teams and roles come after v1, but table design should
-not block them (for example, connections owned by a user now and by an
-organization later).
-
 ### Q4. Custom domains in v1 or after? (Phase 5)
 
 Recommendation: after v1, unless time allows. The default `<app>.<alb-host>` or
 a user-provided wildcard domain covers v1.
-
-## Technical
-
-### Q5. GitHub OAuth App or GitHub App? (Phase 1)
-
-Today Hatch uses an OAuth App with the `repo` scope, which grants access to all
-of the user's repositories. A GitHub App is installed per repository, issues
-short-lived installation tokens (useful for CodeBuild source access), and
-delivers webhooks without per-repo hook registration.
-
-Recommendation: move to a GitHub App. It is more work up front but fixes
-access scope, token lifetime, and webhook management together.
-
-### Q6. Job queue: library or hand-rolled? (Phase 1)
-
-- **River** (Go, Postgres-native): retries, scheduling, unique jobs, and a UI
-  already built.
-- **Hand-rolled** `SKIP LOCKED` table: fewer dependencies, more code to own.
-
-Recommendation: River, unless a review of its license, maturity, or schema
-says otherwise.
-
-### Q7. Single Go module or keep the workspace? (Phase 1)
-
-Recommendation: one module (`github.com/YHQZ1/hatch`) with internal packages.
-The workspace made sense for separate services; with one program it only adds
-friction.
-
-### Q8. Keep Gin or move to standard library routing? (Phase 1)
-
-Recommendation: keep Gin for now to avoid churn; revisit only if it gets in
-the way.
-
-### Q9. Sessions: JWT cookie or server-side sessions? (Phase 1)
-
-Recommendation: server-side sessions in Postgres (random session ID in an
-HttpOnly cookie). They can be revoked, and the database lookup already happens
-on every request.
-
-### Q10. Local reverse proxy: Caddy or Traefik? (Phase 1)
-
-Recommendation: Caddy, configured through its admin API, for simple dynamic
-routes. Traefik's Docker-label discovery is the alternative.
-
-### Q11. How does CodeBuild get the source? (Phase 3)
-
-- Short-lived token passed to the build (best with a GitHub App installation
-  token).
-- Hatch uploads a source archive to S3 in the user's account.
-
-Recommendation: installation token if Q5 picks a GitHub App; otherwise an S3
-archive.
 
 ### Q12. Does the control plane keep copies of secret env vars? (Phase 3)
 
@@ -116,12 +47,21 @@ and delegate DNS).
 Recommendation: allow HTTP-only with a warning for v1, plus optional "bring a
 wildcard domain" at connect time.
 
-### Q15. Frontend restructuring scope? (Phase 5)
+## Decided
 
-Recommendation: keep Next.js; split the large client components into smaller
-ones as each page is touched, rather than a separate rewrite.
-
-### Q16. License and openness?
-
-Recommendation: keep MIT and the repository public, which suits a portfolio
-project and self-hosting.
+| # | Question | Decision | Recorded in |
+| --- | --- | --- | --- |
+| Q2 | What does a user do first? | Hosted: connect AWS first, then deploy a sample app with a short expiry. Self-hosted and development: the local Docker target. | [Vision](01-vision.md#the-user-journey) |
+| Q3 | Is v1 single-user? | Yes; table design leaves room for organizations later. | [Architecture](03-architecture.md#data-model-changes) |
+| Q5 | GitHub OAuth App or GitHub App? | GitHub App. | [0010](decisions/0010-github-app.md) |
+| Q6 | Job queue: library or hand-rolled? | River, with pgx as the driver. | [0011](decisions/0011-river-and-pgx.md) |
+| Q7 | Single Go module or workspace? | One module. | [0008](decisions/0008-repository-structure.md) |
+| Q8 | Keep Gin or move to stdlib routing? | Keep Gin. | [Architecture](03-architecture.md#technology-stack) |
+| Q9 | Sessions: JWT or server-side? | Server-side sessions in Postgres. | [0013](decisions/0013-server-side-sessions.md) |
+| Q10 | Local reverse proxy? | Caddy, through its admin API. | [Architecture](03-architecture.md#technology-stack) |
+| Q11 | How does CodeBuild get the source? | A GitHub App installation token scoped to the repository. | [0010](decisions/0010-github-app.md) |
+| Q15 | Frontend restructuring scope? | Move to a React + Vite single-page app served by the Go binary, in Phase 1; split large components as pages are touched. | [0009](decisions/0009-react-spa-served-by-go.md) |
+| Q16 | License and openness? | MIT, public repository; no outside contributions for now. | [LICENSE](../LICENSE) |
+| — | Live log transport | Server-sent events instead of WebSocket. | [0012](decisions/0012-server-sent-events-for-logs.md) |
+| — | Logging | `log/slog`, JSON in production. | [Architecture](03-architecture.md#technology-stack) |
+| — | Database tests | Real Postgres locally and in CI; fakes only for cloud providers. | [Architecture](03-architecture.md#technology-stack) |

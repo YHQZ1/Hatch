@@ -14,6 +14,11 @@ reversed; do not rewrite history in old records, mark them superseded instead.
 | [0006](0006-secrets-manager-for-app-secrets.md) | App secrets live in AWS Secrets Manager | Accepted |
 | [0007](0007-cost-guardrails-are-core-scope.md) | Cost guardrails are core product scope | Accepted |
 | [0008](0008-repository-structure.md) | Repository structure: one Go module, `cmd/` + `internal/`, `web/` | Accepted |
+| [0009](0009-react-spa-served-by-go.md) | Web UI: a React single-page app served by the Go binary | Accepted |
+| [0010](0010-github-app.md) | A GitHub App for sign-in, repository access, and webhooks | Accepted |
+| [0011](0011-river-and-pgx.md) | River for jobs, pgx as the Postgres driver | Accepted |
+| [0012](0012-server-sent-events-for-logs.md) | Server-sent events for live deployment logs | Accepted |
+| [0013](0013-server-side-sessions.md) | Server-side sessions in Postgres | Accepted |
 
 Template:
 

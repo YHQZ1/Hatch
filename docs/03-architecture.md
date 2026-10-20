@@ -8,8 +8,8 @@ that needs them.
 
 Hatch splits into two planes:
 
-- **Control plane:** a small Hatch installation (one Go program, Postgres, and
-  the web UI). It stores users, projects, and connections, and orchestrates
+- **Control plane:** a small Hatch installation: one Go program (which also
+  serves the web UI) and Postgres. It stores users, projects, and connections, and orchestrates
   work. It never runs user code.
 - **Data plane:** where builds and apps actually run. Either the **user's AWS
   account** (the product) or the **local Docker** host (development and small
@@ -18,9 +18,9 @@ Hatch splits into two planes:
 ```
                  Hatch control plane
    ┌──────────────────────────────────────────────────┐
-   │  Web UI (Next.js)                                │
    │  hatch (one Go program)                          │
-   │    ├─ HTTP API + WebSocket log stream            │
+   │    ├─ Web UI (React, embedded) + HTTP API        │
+   │    ├─ Live logs (server-sent events)             │
    │    ├─ Job runner (build, deploy, cleanup, sweep) │
    │    └─ Providers: build + runtime + cost          │
    │  PostgreSQL (data, jobs, logs)                   │
@@ -64,8 +64,8 @@ Hatch splits into two planes:
 
 One Go binary with subcommands:
 
-- `hatch serve`: HTTP API, WebSocket log streaming, and the job runner in one
-  process (the default for small installs).
+- `hatch serve`: the web UI, HTTP API, live log streaming, and the job runner
+  in one process (the default for small installs).
 - `hatch worker`: job runner only, for running workers separately later.
 - `hatch migrate`: apply database migrations.
 
@@ -77,18 +77,18 @@ full repository layout, and how today's files map onto it, is in
 ```
 cmd/hatch/            entry point and subcommands
 internal/api/         HTTP handlers, auth, sessions, CSRF
-internal/stream/      deployment log streaming (Postgres LISTEN/NOTIFY → WebSocket)
-internal/jobs/        job definitions, runner, retries, scheduling
+internal/stream/      deployment log streaming (Postgres LISTEN/NOTIFY → server-sent events)
+internal/jobs/        job definitions and workers (River)
 internal/build/       Builder interface; codebuild/, docker/, fake/ implementations
 internal/runtime/     Runtime interface; ecs/, docker/, fake/ implementations
 internal/cloud/aws/   STS assume-role, connection verification
 internal/cost/        cost estimation and spend tracking
 internal/inventory/   resource inventory and teardown
-internal/github/      OAuth or GitHub App, repos, webhooks
+internal/github/      GitHub App: sign-in, installation tokens, webhooks
 internal/secrets/     encryption at rest (existing codec)
 internal/config/      environment configuration
-internal/store/       sqlc queries and embedded migrations
-web/                  Next.js app
+internal/store/       sqlc queries (pgx) and embedded migrations
+web/                  React + Vite app; embed.go embeds the build into the binary
 deploy/cloudformation/hatch-connect.yaml
 ```
 
@@ -118,15 +118,17 @@ type CostEstimator interface {
 
 | Provider | Builder | Runtime | Routing |
 |----------|---------|---------|---------|
-| `local` | `docker build` on the host | Docker containers | Reverse proxy, `<app>.localhost` _(proxy choice open)_ |
+| `local` | `docker build` on the host | Docker containers | Caddy, `<app>.localhost` |
 | `aws` | CodeBuild in the user's account → ECR | ECS Fargate | Shared ALB in the user's account, HTTPS via ACM |
 | `fake` | In-memory, scripted outcomes | In-memory | — (used in tests) |
 
 ### Job system
 
-Replaces RabbitMQ. Jobs live in Postgres and are claimed with
-`SELECT … FOR UPDATE SKIP LOCKED` _(library vs hand-rolled is open; River is
-the main candidate)_.
+Replaces RabbitMQ. Jobs live in Postgres and run on
+[River](https://riverqueue.com) ([ADR 0011](decisions/0011-river-and-pgx.md)),
+which claims them with `SELECT … FOR UPDATE SKIP LOCKED` and provides retries,
+scheduling, and unique jobs. Jobs are enqueued in the same transaction as the
+change that causes them.
 
 | Job | Trigger | Does |
 |-----|---------|------|
@@ -146,9 +148,12 @@ cancellation is a flag the job checks between steps (as today).
 
 Replaces Redis. Build and deploy log lines are inserted into a
 `deployment_logs` table (deployment ID, sequence number, line). After insert,
-Hatch sends `NOTIFY deployment_logs, '<deployment_id>:<seq>'`. The WebSocket
-handler sends history from the table first, then live lines as notifications
-arrive. Payloads stay small because the line is read from the table, not sent
+Hatch sends `NOTIFY deployment_logs, '<deployment_id>:<seq>'`. The browser
+reads `GET /api/deployments/{id}/logs/stream` as server-sent events
+([ADR 0012](decisions/0012-server-sent-events-for-logs.md)): the handler sends
+lines after the client's `Last-Event-ID` from the table, then live lines as
+notifications arrive, so a dropped connection resumes exactly where it
+stopped. Payloads stay small because the line is read from the table, not sent
 through `NOTIFY` (Postgres limits `NOTIFY` payloads to 8,000 bytes). Old log
 rows are pruned on a schedule.
 
@@ -222,11 +227,10 @@ sequenceDiagram
 
 ### Source access for builds
 
-CodeBuild needs to fetch the repository. Options _(open)_: pass a short-lived
-GitHub token per build (with a GitHub App, an installation token that expires
-within an hour), or have Hatch upload a source archive to S3 in the user's
-account. The token must never appear in build logs or be stored in the user's
-account longer than the build.
+CodeBuild fetches the repository with a GitHub App installation token scoped
+to that one repository and valid for an hour
+([ADR 0010](decisions/0010-github-app.md)). The token must never appear in
+build logs or be stored in the user's account longer than the build.
 
 ### Secrets
 
@@ -250,8 +254,8 @@ release's image and env snapshot without rebuilding.
 | One Hatch user assumes another's role | ExternalId per connection; role ownership checked on every job |
 | Leaked control-plane database | No long-lived AWS keys stored; GitHub tokens and secrets encrypted at rest; app secrets live in the user's account |
 | Overly broad AWS permissions | Role policy scoped by `hatch-` prefix and `hatch:managed` tag; no IAM write except passing the two Hatch roles |
-| Over-broad GitHub access | Move to a GitHub App with per-repository installation _(open)_ |
-| Stolen session | Server-side sessions in Postgres so they can be revoked _(open)_ |
+| Over-broad GitHub access | GitHub App installed per repository, read-only, short-lived tokens ([0010](decisions/0010-github-app.md)) |
+| Stolen session | Server-side sessions in Postgres that can be revoked; only hashed IDs stored ([0013](decisions/0013-server-side-sessions.md)) |
 | Surprise cost | See [Cost guardrails](04-cost-guardrails.md) |
 
 ## Data model changes
@@ -270,9 +274,13 @@ New or changed tables (names provisional):
   `ecr_image`, `secret`), cloud identifier (ARN), state, created and deleted
   times.
 - `deployment_logs`: deployment, sequence, line, created time.
-- `jobs`: if the job queue is hand-rolled (a library such as River brings its
-  own tables).
-- `sessions`: if server-side sessions are adopted.
+- River's own tables (`river_job` and related), created by its migrations.
+- `sessions`: user, SHA-256 hash of the session ID, created, last seen, and
+  expiry times.
+- `github_installations`: installation ID, account, owning user; replaces the
+  stored OAuth token and the per-project `webhook_secret` and `webhook_id`.
+- v1 is single-user: each user owns their own connections and projects, but
+  ownership columns are named so an organization owner can be added later.
 - `env_vars` and `project_env_vars`: mark each variable as secret or plain;
   secret values point to a Secrets Manager ARN instead of the unused
   `secret_arn` column carrying no meaning today.
@@ -293,17 +301,21 @@ New or changed tables (names provisional):
 | Layer | Choice | Status |
 |-------|--------|--------|
 | Language (backend) | Go | Keep |
-| HTTP router | Gin | Keep for now _(open: stdlib `net/http` routing)_ |
+| HTTP router | Gin | Keep |
 | Database | PostgreSQL 16 | Keep |
-| Queries and migrations | sqlc + golang-migrate | Keep |
-| Job queue | Postgres (`SKIP LOCKED`) | Decided; library _(open)_ |
-| Log streaming | Postgres `LISTEN/NOTIFY` + WebSocket | Decided |
+| Postgres driver | pgx v5 + pgxpool | Decided ([0011](decisions/0011-river-and-pgx.md)), replaces `lib/pq` |
+| Queries and migrations | sqlc + golang-migrate (embedded in the binary) | Keep |
+| Job queue | River on Postgres | Decided ([0011](decisions/0011-river-and-pgx.md)) |
+| Live logs | Postgres `LISTEN/NOTIFY` + server-sent events | Decided ([0012](decisions/0012-server-sent-events-for-logs.md)) |
+| Sessions | Server-side, in Postgres | Decided ([0013](decisions/0013-server-side-sessions.md)) |
+| Logging | `log/slog`, JSON in production | Decided |
+| GitHub integration | GitHub App | Decided ([0010](decisions/0010-github-app.md)) |
+| Frontend | React + Vite + TypeScript, React Router, TanStack Query, Tailwind 4; embedded in the Go binary | Decided ([0009](decisions/0009-react-spa-served-by-go.md)) |
 | AWS SDK | aws-sdk-go-v2 | Keep |
 | AWS builds | CodeBuild | Decided |
 | AWS runtime | ECS Fargate + ALB | Keep |
 | AWS secrets | Secrets Manager | Decided |
 | Account connection | CloudFormation quick-create + STS AssumeRole with ExternalId | Decided |
-| Frontend | Next.js + React + Tailwind | Keep _(open: component restructuring)_ |
-| GitHub integration | OAuth App today | _(open: GitHub App)_ |
-| Local proxy | — | _(open: Caddy or Traefik)_ |
-| CI | GitHub Actions | Planned (Phase 0) |
+| Local proxy | Caddy, routes managed through its admin API | Decided |
+| Tests | Go tests against a real Postgres (Docker locally, a service container in CI); fakes for cloud providers | Decided |
+| CI | GitHub Actions | In place |

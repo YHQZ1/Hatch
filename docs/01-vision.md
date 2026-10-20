@@ -46,14 +46,17 @@ Hatch gives you the managed-platform experience on infrastructure you own.
 
 ## The user journey
 
-1. **Sign in** with GitHub.
+1. **Sign in** with GitHub and install the Hatch GitHub App on the
+   repositories Hatch may read (read-only).
 2. **Connect AWS.** A link opens AWS's one-click stack creation
    (CloudFormation). The stack creates, in the user's account: a limited role
    Hatch can assume, a network, an ECS cluster, a load balancer, an image
    registry, a build project, a log group, and a **budget alarm**.
 3. **Create a project** from a repo with a Dockerfile. Set port, CPU, memory,
    and environment variables. Hatch shows the **estimated monthly cost** before
-   anything is created.
+   anything is created. New users are offered a sample app with a short expiry
+   as their first deploy. Self-hosted installs can also deploy to local Docker
+   without an AWS account.
 4. **Deploy.** The image is built inside the user's account (AWS CodeBuild),
    pushed to their registry, and run on ECS Fargate behind HTTPS. Logs stream
    to the browser.
