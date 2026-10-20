@@ -1,14 +1,15 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ type Handler struct {
 	clientID     string
 	clientSecret string
 	redirectURI  string
+	frontendURL  string
 	jwtSecret    string
 	queries      *dbpkg.Queries
 	secrets      *secrets.Codec
@@ -38,11 +40,12 @@ const OAuthStateCookieName = "hatch_oauth_state"
 
 var githubHTTPClient = &http.Client{Timeout: 12 * time.Second}
 
-func NewHandler(clientID, clientSecret, redirectURI, jwtSecret string, db *sql.DB, secretCodec *secrets.Codec) *Handler {
+func NewHandler(clientID, clientSecret, redirectURI, frontendURL, jwtSecret string, db *sql.DB, secretCodec *secrets.Codec) *Handler {
 	return &Handler{
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		redirectURI:  redirectURI,
+		frontendURL:  strings.TrimRight(frontendURL, "/"),
 		jwtSecret:    jwtSecret,
 		queries:      dbpkg.New(db),
 		secrets:      secretCodec,
@@ -60,7 +63,7 @@ func (h *Handler) RedirectToGitHub(c *gin.Context) {
 	params := url.Values{}
 	params.Set("client_id", h.clientID)
 	params.Set("redirect_uri", h.redirectURI)
-	params.Set("scope", "repo,user")
+	params.Set("scope", "repo,read:user")
 	params.Set("state", state)
 
 	c.Redirect(http.StatusTemporaryRedirect, "https://github.com/login/oauth/authorize?"+params.Encode())
@@ -80,13 +83,13 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	token, err := h.exchangeCodeForToken(code)
+	token, err := h.exchangeCodeForToken(c.Request.Context(), code)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "token exchange failed"})
 		return
 	}
 
-	ghUser, err := h.fetchGitHubUser(token)
+	ghUser, err := h.fetchGitHubUser(c.Request.Context(), token)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "github profile fetch failed"})
 		return
@@ -120,7 +123,7 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	successURL := fmt.Sprintf("%s/auth/success", os.Getenv("FRONTEND_URL"))
+	successURL := h.frontendURL + "/auth/success"
 	c.Redirect(http.StatusTemporaryRedirect, successURL)
 }
 
@@ -130,17 +133,25 @@ func (h *Handler) Logout(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-func (h *Handler) exchangeCodeForToken(code string) (string, error) {
-	url := fmt.Sprintf(
-		"https://github.com/login/oauth/access_token?client_id=%s&client_secret=%s&code=%s",
-		h.clientID, h.clientSecret, code,
-	)
+func (h *Handler) exchangeCodeForToken(ctx context.Context, code string) (string, error) {
+	form := url.Values{}
+	form.Set("client_id", h.clientID)
+	form.Set("client_secret", h.clientSecret)
+	form.Set("code", code)
+	form.Set("redirect_uri", h.redirectURI)
 
-	req, err := http.NewRequest(http.MethodPost, url, nil)
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		"https://github.com/login/oauth/access_token",
+		strings.NewReader(form.Encode()),
+	)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "Hatch")
 
 	resp, err := githubHTTPClient.Do(req)
 	if err != nil {
@@ -161,17 +172,22 @@ func (h *Handler) exchangeCodeForToken(code string) (string, error) {
 	if result.Error != "" {
 		return "", fmt.Errorf("github: %s", result.Error)
 	}
+	if strings.TrimSpace(result.AccessToken) == "" {
+		return "", fmt.Errorf("github returned an empty access token")
+	}
 
 	return result.AccessToken, nil
 }
 
-func (h *Handler) fetchGitHubUser(token string) (*GitHubUser, error) {
-	req, err := http.NewRequest(http.MethodGet, "https://api.github.com/user", nil)
+func (h *Handler) fetchGitHubUser(ctx context.Context, token string) (*GitHubUser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user", nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("User-Agent", "Hatch")
 
 	resp, err := githubHTTPClient.Do(req)
 	if err != nil {
@@ -185,6 +201,9 @@ func (h *Handler) fetchGitHubUser(token string) (*GitHubUser, error) {
 	var user GitHubUser
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
 		return nil, err
+	}
+	if user.ID <= 0 || strings.TrimSpace(user.Login) == "" {
+		return nil, fmt.Errorf("github returned an invalid user profile")
 	}
 
 	return &user, nil
@@ -205,6 +224,7 @@ func setSessionCookie(c *gin.Context, token string) {
 		Value:    token,
 		Path:     "/",
 		MaxAge:   int((24 * time.Hour).Seconds()),
+		Expires:  time.Now().Add(24 * time.Hour),
 		HttpOnly: true,
 		Secure:   isSecureRequest(c.Request),
 		SameSite: http.SameSiteLaxMode,
@@ -229,6 +249,7 @@ func setOAuthStateCookie(c *gin.Context, state string) {
 		Value:    state,
 		Path:     "/auth/callback",
 		MaxAge:   int((10 * time.Minute).Seconds()),
+		Expires:  time.Now().Add(10 * time.Minute),
 		HttpOnly: true,
 		Secure:   isSecureRequest(c.Request),
 		SameSite: http.SameSiteLaxMode,
@@ -253,7 +274,10 @@ func validOAuthState(c *gin.Context) bool {
 		return false
 	}
 	state := c.Query("state")
-	return state != "" && cookie == state
+	if state == "" || len(cookie) != len(state) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(cookie), []byte(state)) == 1
 }
 
 func generateOAuthState() (string, error) {

@@ -29,6 +29,7 @@ const (
 	writeWait            = 10 * time.Second
 	pongWait             = 60 * time.Second
 	pingPeriod           = (pongWait * 9) / 10
+	maxLogHistoryLines   = 5000
 )
 
 func NewHub(url, jwtSecret string, allowedOrigins []string, db *sql.DB) *Hub {
@@ -93,11 +94,15 @@ func (h *Hub) HandleDeploymentLogs(c *gin.Context) {
 	pingTicker := time.NewTicker(pingPeriod)
 	defer pingTicker.Stop()
 
-	time.Sleep(50 * time.Millisecond)
-
 	listKey := "logs:" + id
+	channel := "deployment:" + id
+	sub := h.redis.Subscribe(ctx, channel)
+	defer sub.Close()
+	if _, err := sub.Receive(ctx); err != nil {
+		return
+	}
 
-	history, err := h.redis.LRange(ctx, listKey, 0, -1).Result()
+	history, err := h.redis.LRange(ctx, listKey, -maxLogHistoryLines, -1).Result()
 	if err == nil {
 		for _, line := range history {
 			if err := writeSocketMessage(conn, &writeMu, websocket.TextMessage, []byte(line)); err != nil {
@@ -105,10 +110,6 @@ func (h *Hub) HandleDeploymentLogs(c *gin.Context) {
 			}
 		}
 	}
-
-	channel := "deployment:" + id
-	sub := h.redis.Subscribe(ctx, channel)
-	defer sub.Close()
 
 	pubsub := sub.Channel()
 	for {
@@ -172,12 +173,14 @@ func (h *Hub) authenticateDeployment(ctx context.Context, r *http.Request, deplo
 		return jwt.ErrTokenMalformed
 	}
 
-	token, err := jwt.Parse(cookie.Value, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return []byte(h.jwtSecret), nil
-	})
+	token, err := jwt.Parse(
+		cookie.Value,
+		func(t *jwt.Token) (interface{}, error) {
+			return []byte(h.jwtSecret), nil
+		},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithExpirationRequired(),
+	)
 	if err != nil || !token.Valid {
 		return jwt.ErrSignatureInvalid
 	}
