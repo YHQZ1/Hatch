@@ -29,10 +29,7 @@ Desktop.ini
 
 # ─── Go ───────────────────────────────────────────────────────────────────────
 # Binaries
-apps/api/bin/
-apps/builder/bin/
-apps/deployer/bin/
-**/cmd/**/main
+/bin/
 
 # Test artifacts
 *.test
@@ -87,7 +84,7 @@ dump.sql
 
 # ─── sqlc ─────────────────────────────────────────────────────────────────────
 # Keep generated files in source control so CI doesn't need sqlc installed
-# packages/db/gen/ is intentionally NOT ignored
+# internal/store/db/ is intentionally NOT ignored
 
 # ─── Logs ─────────────────────────────────────────────────────────────────────
 *.log

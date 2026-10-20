@@ -1,8 +1,10 @@
 # Current State
 
-This describes the code as it exists on branch `stabilize/in-flight-hardening`
-(audited 2026-10-20). It is the **old hosted model**: Hatch runs every user's
-apps in Hatch's own AWS account. The rebuild changes that; see
+This describes the code as it existed on branch
+`stabilize/in-flight-hardening` (audited 2026-10-20), before the Phase 1 move.
+File paths refer to that layout; [ADR 0008](decisions/0008-repository-structure.md)
+shows where each moved. It is the **old hosted model**: Hatch runs every
+user's apps in Hatch's own AWS account. The rebuild changes that; see
 [Target architecture](03-architecture.md).
 
 ## Summary

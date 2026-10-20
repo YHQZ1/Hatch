@@ -98,14 +98,12 @@ git clone https://github.com/YHQZ1/Hatch.git && cd Hatch
 (cd apps/web && npm install)
 
 # Configuration: fill in the GitHub OAuth values, JWT_SECRET, and
-# DATA_ENCRYPTION_KEY (the same value in the api, builder, and deployer files).
-cp apps/api/.env.example      apps/api/.env
-cp apps/builder/.env.example  apps/builder/.env
-cp apps/deployer/.env.example apps/deployer/.env
+# DATA_ENCRYPTION_KEY. Every hatch subcommand reads this one file.
+cp .env.example .env
 
 make infra     # Postgres, Redis, and RabbitMQ in Docker
 make migrate   # apply database migrations
-make dev       # run the API, builder, deployer, and web app
+make dev       # run hatch api, builder, and deployer, and the web app
 ```
 
 Open <http://localhost:3000>. `make stop-dev` stops everything `make dev`
@@ -113,22 +111,25 @@ started.
 
 Signing in, browsing repositories, and creating projects work with only the
 local services. Building and deploying need an AWS account with an ECR
-repository, an ECS cluster, and an ALB, set in the builder and deployer `.env`
-files. The rebuild removes that requirement for local development.
+repository, an ECS cluster, and an ALB, set in `.env`. The rebuild removes
+that requirement for local development.
 
 ## Repository layout
 
 ```text
-apps/api        Go: REST API, GitHub OAuth and webhooks, WebSocket log hub
-apps/builder    Go: clones, builds, and pushes images
-apps/deployer   Go: creates and manages ECS services and ALB routing
-apps/web        Next.js dashboard
-packages/       shared Go modules: config, db (sqlc + migrations), secrets
-infra/          Terraform for the old hosted model (to be removed)
-docs/           vision, architecture, roadmap, and decision records
+cmd/hatch          the hatch binary: `api`, `builder`, and `deployer` subcommands
+internal/api       REST API, GitHub OAuth and webhooks, WebSocket log hub
+internal/build     cloning, building, and pushing images
+internal/runtime   ECS services and ALB routing
+internal/store     database access (sqlc) and migrations
+internal/config    configuration loading
+internal/secrets   encryption at rest
+apps/web           Next.js dashboard
+infra/             Terraform for the old hosted model (to be removed)
+docs/              vision, architecture, roadmap, and decision records
 ```
 
-This layout changes in the rebuild; see
+Where this layout is heading, and why, is in
 [ADR 0008](docs/decisions/0008-repository-structure.md).
 
 ## Documentation

@@ -5,7 +5,6 @@ DEV_PORTS := 3000 8080
 
 .PHONY: dev stop-dev check-dev-ports infra build up down migrate test lint lint-go lint-web fmt check
 
-GO_MODULES := apps/api apps/builder apps/deployer packages/config packages/db packages/secrets
 
 infra:
 	docker compose up -d postgres redis rabbitmq
@@ -23,11 +22,11 @@ stop-dev:
 		fi; \
 	done; \
 	workspace="$$(pwd)"; \
-	process_pids="$$(pgrep -f 'go run cmd/(server|worker)/main.go|/go-build.*/(exe/)?main|next dev|npm run dev' 2>/dev/null || true)"; \
+	process_pids="$$(pgrep -f 'go run ./cmd/hatch|/go-build.*/exe/hatch (api|builder|deployer)|next dev|npm run dev' 2>/dev/null || true)"; \
 	for pid in $$process_pids; do \
 		cwd="$$(lsof -a -p "$$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"; \
 		case "$$cwd" in \
-			"$$workspace/apps/api"|"$$workspace/apps/builder"|"$$workspace/apps/deployer"|"$$workspace/apps/web") \
+			"$$workspace"|"$$workspace/apps/web") \
 				pids="$$pids $$pid"; \
 				;; \
 		esac; \
@@ -68,21 +67,19 @@ check-dev-ports:
 	done
 
 dev: infra stop-dev check-dev-ports
-	@test -f apps/api/.env || { echo "Missing apps/api/.env"; exit 1; }
-	@test -f apps/builder/.env || { echo "Missing apps/builder/.env"; exit 1; }
-	@test -f apps/deployer/.env || { echo "Missing apps/deployer/.env"; exit 1; }
+	@test -f .env || { echo "Missing .env (copy .env.example)"; exit 1; }
 	@test -f apps/web/.env.development.local || cp apps/web/.env.example apps/web/.env.development.local
 	@set -e; \
 	rm -f "$(DEV_PID_FILE)"; \
 	trap '$(MAKE) --no-print-directory stop-dev >/dev/null 2>&1 || true; wait' INT TERM EXIT; \
-	( cd apps/api && go run cmd/server/main.go ) & echo $$! >> "$(DEV_PID_FILE)"; \
-	( cd apps/builder && go run cmd/worker/main.go ) & echo $$! >> "$(DEV_PID_FILE)"; \
-	( cd apps/deployer && go run cmd/worker/main.go ) & echo $$! >> "$(DEV_PID_FILE)"; \
+	go run ./cmd/hatch api & echo $$! >> "$(DEV_PID_FILE)"; \
+	go run ./cmd/hatch builder & echo $$! >> "$(DEV_PID_FILE)"; \
+	go run ./cmd/hatch deployer & echo $$! >> "$(DEV_PID_FILE)"; \
 	( cd apps/web && npm run dev ) & echo $$! >> "$(DEV_PID_FILE)"; \
 	wait
 
 build:
-	docker compose build
+	go build -o bin/hatch ./cmd/hatch
 
 up:
 	docker compose up
@@ -91,30 +88,24 @@ down:
 	docker compose down
 
 migrate:
-	migrate -path packages/db/migrations \
+	migrate -path internal/store/migrations \
 		-database "postgres://hatch:hatch@localhost:5433/hatch?sslmode=disable" up
 
 # Checks (CI runs `make check` and the web build)
 
 test:
-	@set -e; for m in $(GO_MODULES); do \
-		echo "==> go test $$m"; \
-		( cd $$m && go test -race ./... ); \
-	done
+	go test -race ./...
 
 lint: lint-go lint-web
 
 lint-go:
 	@command -v golangci-lint >/dev/null || { echo "golangci-lint not found: https://golangci-lint.run/welcome/install/"; exit 1; }
-	@set -e; for m in $(GO_MODULES); do \
-		echo "==> golangci-lint $$m"; \
-		( cd $$m && golangci-lint run ./... ); \
-	done
+	golangci-lint run ./...
 
 lint-web:
 	cd apps/web && npm run lint
 
 fmt:
-	@set -e; for m in $(GO_MODULES); do gofmt -w $$m; done
+	gofmt -w cmd internal
 
 check: lint test
