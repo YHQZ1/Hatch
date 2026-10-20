@@ -1,0 +1,18 @@
+# golangci-lint v2. Run from each Go module (see `make lint`).
+version: "2"
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  exclusions:
+    presets:
+      # Unchecked Close, Flush, os.Remove, and fmt.Print* calls.
+      - std-error-handling
+    rules:
+      # Deferred tx.Rollback after Commit is a no-op by design.
+      - linters: [errcheck]
+        text: "Error return value of `.*\\.Rollback` is not checked"
+
+formatters:
+  enable:
+    - gofmt

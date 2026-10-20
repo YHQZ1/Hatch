@@ -20,6 +20,49 @@ body {
   background-repeat: repeat;
 }
 
+.hatch-modal-backdrop {
+  animation: hatch-modal-fade 160ms ease-out both;
+}
+
+.hatch-modal-panel {
+  animation: hatch-modal-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.hatch-toast-enter {
+  animation: hatch-toast-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes hatch-modal-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes hatch-modal-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes hatch-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 ::selection {
   background: #ffffff;
   color: #000000;

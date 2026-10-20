@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
-	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"sort"
@@ -28,12 +28,13 @@ type MetricsHandler struct {
 }
 
 type metricPoint struct {
-	Label    string  `json:"label"`
-	Requests float64 `json:"requests"`
-	Errors   float64 `json:"errors"`
-	Latency  float64 `json:"latency"`
-	CPU      float64 `json:"cpu"`
-	Memory   float64 `json:"memory"`
+	Timestamp string  `json:"timestamp"`
+	Label     string  `json:"label"`
+	Requests  float64 `json:"requests"`
+	Errors    float64 `json:"errors"`
+	Latency   float64 `json:"latency"`
+	CPU       float64 `json:"cpu"`
+	Memory    float64 `json:"memory"`
 }
 
 type metricSummary struct {
@@ -124,10 +125,11 @@ func (h *MetricsHandler) GetProjectMetrics(c *gin.Context) {
 
 	points, err := h.fetchProjectMetrics(c.Request.Context(), deployment, parseMetricRange(c.Query("range")))
 	if err != nil {
+		log.Printf("CloudWatch metrics unavailable for project %s: %v", projectID, err)
 		c.JSON(http.StatusOK, projectMetricsResponse{
 			Source:    "cloudwatch",
 			Available: false,
-			Reason:    fmt.Sprintf("CloudWatch metrics unavailable: %v", err),
+			Reason:    "CloudWatch metrics are temporarily unavailable.",
 			Points:    []metricPoint{},
 		})
 		return
@@ -231,12 +233,13 @@ func hydrateMetricPoints(start, end time.Time, period int32, rangeValue string, 
 		latency := valueAt(series, "latency", key) * 1000
 
 		points = append(points, metricPoint{
-			Label:    metricLabel(bucketTime, rangeValue),
-			Requests: math.Round(requests),
-			Errors:   roundTwo(errorRate),
-			Latency:  roundTwo(latency),
-			CPU:      roundTwo(valueAt(series, "cpu", key)),
-			Memory:   roundTwo(valueAt(series, "memory", key)),
+			Timestamp: bucketTime.UTC().Format(time.RFC3339),
+			Label:     metricLabel(bucketTime, rangeValue),
+			Requests:  math.Round(requests),
+			Errors:    roundTwo(errorRate),
+			Latency:   roundTwo(latency),
+			CPU:       roundTwo(valueAt(series, "cpu", key)),
+			Memory:    roundTwo(valueAt(series, "memory", key)),
 		})
 	}
 

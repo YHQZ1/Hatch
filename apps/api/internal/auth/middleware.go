@@ -22,12 +22,14 @@ func Middleware(jwtSecret string, db *sql.DB, secretCodec *secrets.Codec) gin.Ha
 			return
 		}
 
-		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrSignatureInvalid
-			}
-			return []byte(jwtSecret), nil
-		})
+		token, err := jwt.Parse(
+			tokenStr,
+			func(t *jwt.Token) (interface{}, error) {
+				return []byte(jwtSecret), nil
+			},
+			jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+			jwt.WithExpirationRequired(),
+		)
 
 		if err != nil || !token.Valid {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid session"})

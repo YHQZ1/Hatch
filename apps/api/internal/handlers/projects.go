@@ -194,24 +194,36 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 	h.recordActivity(c, userID, "CREATE", fmt.Sprintf("Project %s initialized", project.RepoName))
 
 	if userToken != "" {
-		hookID, err := h.registerGitHubWebhook(repoURL, userToken, secret)
+		hookID, err := h.registerGitHubWebhook(c.Request.Context(), repoURL, userToken, secret)
 		if err != nil {
 			log.Printf("failed to register GitHub webhook for project %s: %v", project.ID, err)
-			_ = h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
+			if updateErr := h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
 				ID:              project.ID,
 				WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
 				GithubWebhookID: sql.NullInt64{},
 				AutoDeploy:      false,
-			})
+			}); updateErr != nil {
+				log.Printf("failed to disable auto-deploy after webhook registration error for project %s: %v", project.ID, updateErr)
+			}
 			project.AutoDeploy = false
 		} else {
-			_ = h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
+			if updateErr := h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
 				ID:              project.ID,
 				WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
 				GithubWebhookID: sql.NullInt64{Int64: hookID, Valid: true},
 				AutoDeploy:      true,
-			})
-			project.GithubWebhookID = sql.NullInt64{Int64: hookID, Valid: true}
+			}); updateErr != nil {
+				log.Printf("failed to save GitHub webhook state for project %s: %v", project.ID, updateErr)
+				if deleteErr := h.deleteGitHubWebhook(c.Request.Context(), repoURL, userToken, hookID); deleteErr != nil {
+					log.Printf("failed to remove orphaned GitHub webhook %d for project %s: %v", hookID, project.ID, deleteErr)
+				}
+				if clearErr := h.queries.ClearProjectWebhook(c.Request.Context(), project.ID); clearErr != nil {
+					log.Printf("failed to clear webhook state for project %s: %v", project.ID, clearErr)
+				}
+				project.AutoDeploy = false
+			} else {
+				project.GithubWebhookID = sql.NullInt64{Int64: hookID, Valid: true}
+			}
 		}
 	}
 
@@ -239,7 +251,6 @@ func (h *ProjectHandler) GetProject(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
 		return
 	}
-
 	c.JSON(http.StatusOK, toProjectResponse(project))
 }
 
@@ -324,7 +335,7 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 
 	if current.AutoDeploy && !autoDeploy {
 		if current.GithubWebhookID.Valid {
-			if err := h.deleteGitHubWebhook(current.RepoUrl, userToken, current.GithubWebhookID.Int64); err != nil {
+			if err := h.deleteGitHubWebhook(c.Request.Context(), current.RepoUrl, userToken, current.GithubWebhookID.Int64); err != nil {
 				c.JSON(http.StatusBadGateway, gin.H{
 					"error": "auto-deploy could not be disabled because Hatch could not remove the GitHub webhook",
 				})
@@ -369,7 +380,7 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 			}
 		}
 
-		hookID, err := h.registerGitHubWebhook(current.RepoUrl, userToken, secret)
+		hookID, err := h.registerGitHubWebhook(c.Request.Context(), current.RepoUrl, userToken, secret)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{
 				"error": "auto-deploy could not be enabled because Hatch could not register the GitHub webhook",
@@ -530,11 +541,19 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
 		return
 	}
+	if project.Status == "deleting" {
+		c.JSON(http.StatusAccepted, toProjectResponse(project))
+		return
+	}
+	if project.Status == "deleted" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+		return
+	}
 
 	resourceName := projectResourceName(project)
 	if tokenRaw, ok := c.Get("access_token"); ok && project.GithubWebhookID.Valid {
 		if token, ok := tokenRaw.(string); ok && token != "" {
-			if err := h.deleteGitHubWebhook(project.RepoUrl, token, project.GithubWebhookID.Int64); err != nil {
+			if err := h.deleteGitHubWebhook(c.Request.Context(), project.RepoUrl, token, project.GithubWebhookID.Int64); err != nil {
 				log.Printf("failed to delete GitHub webhook for project %s: %v", project.ID, err)
 			}
 		}
@@ -599,13 +618,33 @@ func (h *ProjectHandler) handleServiceControl(c *gin.Context, action, nextStatus
 		c.JSON(http.StatusConflict, gin.H{"error": "project is being deleted"})
 		return
 	}
-	if action == "suspend" && project.Status == "suspended" {
-		c.JSON(http.StatusOK, toProjectResponse(project))
-		return
-	}
-	if action == "resume" && project.Status == "active" {
-		c.JSON(http.StatusOK, toProjectResponse(project))
-		return
+	switch action {
+	case "suspend":
+		if project.Status == "suspended" {
+			c.JSON(http.StatusOK, toProjectResponse(project))
+			return
+		}
+		if project.Status == "suspending" {
+			c.JSON(http.StatusAccepted, toProjectResponse(project))
+			return
+		}
+		if project.Status != "active" && project.Status != "suspend_failed" {
+			c.JSON(http.StatusConflict, gin.H{"error": "project cannot be suspended from its current state"})
+			return
+		}
+	case "resume":
+		if project.Status == "active" {
+			c.JSON(http.StatusOK, toProjectResponse(project))
+			return
+		}
+		if project.Status == "resuming" {
+			c.JSON(http.StatusAccepted, toProjectResponse(project))
+			return
+		}
+		if project.Status != "suspended" && project.Status != "resume_failed" {
+			c.JSON(http.StatusConflict, gin.H{"error": "project cannot be resumed from its current state"})
+			return
+		}
 	}
 
 	resourceName := projectResourceName(project)
@@ -724,7 +763,7 @@ func validateGitHubDeployInputs(ctx context.Context, repoURL, branch, dockerfile
 		return err
 	}
 	if dockerfileStatus == http.StatusNotFound {
-		return fmt.Errorf("Dockerfile not found at %q on branch %q", dockerfilePath, branch)
+		return fmt.Errorf("no Dockerfile found at %q on branch %q", dockerfilePath, branch)
 	}
 	if dockerfileStatus < 200 || dockerfileStatus >= 300 {
 		return fmt.Errorf("github Dockerfile check failed with status %d: %s", dockerfileStatus, dockerfileBody)
@@ -732,7 +771,7 @@ func validateGitHubDeployInputs(ctx context.Context, repoURL, branch, dockerfile
 
 	var content githubContentMetadata
 	if err := json.Unmarshal([]byte(dockerfileBody), &content); err == nil && content.Type != "" && content.Type != "file" {
-		return fmt.Errorf("Dockerfile path %q is not a file", dockerfilePath)
+		return fmt.Errorf("the Dockerfile path %q is not a file", dockerfilePath)
 	}
 	return nil
 }
@@ -759,8 +798,7 @@ func githubGet(ctx context.Context, endpoint, token string) (int, string, error)
 	if err != nil {
 		return 0, "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
+	setGitHubHeaders(req, token)
 
 	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
@@ -772,7 +810,7 @@ func githubGet(ctx context.Context, endpoint, token string) (int, string, error)
 	return resp.StatusCode, strings.TrimSpace(string(body)), nil
 }
 
-func (h *ProjectHandler) registerGitHubWebhook(repoURL, token, secret string) (int64, error) {
+func (h *ProjectHandler) registerGitHubWebhook(ctx context.Context, repoURL, token, secret string) (int64, error) {
 	owner, repo, err := parseRepoURL(repoURL)
 	if err != nil {
 		return 0, err
@@ -795,19 +833,18 @@ func (h *ProjectHandler) registerGitHubWebhook(repoURL, token, secret string) (i
 		return 0, err
 	}
 
-	if existingHookID, ok, err := h.findGitHubWebhook(owner, repo, token, webhookURL); err != nil {
+	if existingHookID, ok, err := h.findGitHubWebhook(ctx, owner, repo, token, webhookURL); err != nil {
 		return 0, err
 	} else if ok {
-		return existingHookID, h.updateGitHubWebhook(owner, repo, token, existingHookID, body)
+		return existingHookID, h.updateGitHubWebhook(ctx, owner, repo, token, existingHookID, body)
 	}
 
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks", owner, repo)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks", owner, repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
+	setGitHubHeaders(req, token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := outboundHTTPClient.Do(req)
@@ -824,12 +861,12 @@ func (h *ProjectHandler) registerGitHubWebhook(repoURL, token, secret string) (i
 		return hook.ID, nil
 	}
 	if resp.StatusCode == http.StatusUnprocessableEntity {
-		existingHookID, ok, err := h.findGitHubWebhook(owner, repo, token, webhookURL)
+		existingHookID, ok, err := h.findGitHubWebhook(ctx, owner, repo, token, webhookURL)
 		if err != nil {
 			return 0, err
 		}
 		if ok {
-			return existingHookID, h.updateGitHubWebhook(owner, repo, token, existingHookID, body)
+			return existingHookID, h.updateGitHubWebhook(ctx, owner, repo, token, existingHookID, body)
 		}
 	}
 
@@ -837,14 +874,13 @@ func (h *ProjectHandler) registerGitHubWebhook(repoURL, token, secret string) (i
 	return 0, fmt.Errorf("github webhook registration failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
 }
 
-func (h *ProjectHandler) findGitHubWebhook(owner, repo, token, webhookURL string) (int64, bool, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks?per_page=100", owner, repo)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+func (h *ProjectHandler) findGitHubWebhook(ctx context.Context, owner, repo, token, webhookURL string) (int64, bool, error) {
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks?per_page=100", owner, repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return 0, false, err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
+	setGitHubHeaders(req, token)
 
 	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
@@ -868,14 +904,13 @@ func (h *ProjectHandler) findGitHubWebhook(owner, repo, token, webhookURL string
 	return 0, false, nil
 }
 
-func (h *ProjectHandler) updateGitHubWebhook(owner, repo, token string, hookID int64, body []byte) error {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks/%d", owner, repo, hookID)
-	req, err := http.NewRequest(http.MethodPatch, url, bytes.NewReader(body))
+func (h *ProjectHandler) updateGitHubWebhook(ctx context.Context, owner, repo, token string, hookID int64, body []byte) error {
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks/%d", owner, repo, hookID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
+	setGitHubHeaders(req, token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := outboundHTTPClient.Do(req)
@@ -890,18 +925,17 @@ func (h *ProjectHandler) updateGitHubWebhook(owner, repo, token string, hookID i
 	return fmt.Errorf("github webhook update failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
 }
 
-func (h *ProjectHandler) deleteGitHubWebhook(repoURL, token string, hookID int64) error {
+func (h *ProjectHandler) deleteGitHubWebhook(ctx context.Context, repoURL, token string, hookID int64) error {
 	owner, repo, err := parseRepoURL(repoURL)
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks/%d", owner, repo, hookID)
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks/%d", owner, repo, hookID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
+	setGitHubHeaders(req, token)
 
 	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
@@ -930,14 +964,28 @@ func parseRepoURL(url string) (string, string, error) {
 
 func normalizeGitHubRepoURL(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
-	trimmed = strings.TrimPrefix(trimmed, "git@github.com:")
-	trimmed = strings.TrimPrefix(trimmed, "https://github.com/")
-	trimmed = strings.TrimPrefix(trimmed, "http://github.com/")
+	if strings.HasPrefix(trimmed, "git@github.com:") {
+		trimmed = strings.TrimPrefix(trimmed, "git@github.com:")
+	} else if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+		parsed, err := url.Parse(trimmed)
+		if err != nil || !strings.EqualFold(parsed.Hostname(), "github.com") || parsed.User != nil {
+			return "", fmt.Errorf("invalid github url")
+		}
+		if parsed.RawQuery != "" || parsed.Fragment != "" {
+			return "", fmt.Errorf("invalid github url")
+		}
+		trimmed = parsed.EscapedPath()
+		unescaped, err := url.PathUnescape(trimmed)
+		if err != nil {
+			return "", fmt.Errorf("invalid github url")
+		}
+		trimmed = unescaped
+	}
 	trimmed = strings.TrimSuffix(trimmed, ".git")
 	trimmed = strings.Trim(trimmed, "/")
 
 	parts := strings.Split(trimmed, "/")
-	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+	if len(parts) != 2 || !githubOwnerPattern.MatchString(parts[0]) || !githubRepoPattern.MatchString(parts[1]) {
 		return "", fmt.Errorf("invalid github url")
 	}
 
@@ -946,6 +994,8 @@ func normalizeGitHubRepoURL(raw string) (string, error) {
 
 var subdomainPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 var envVarKeyPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+var githubOwnerPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`)
+var githubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
 
 const (
 	maxEnvVars        = 100
@@ -1106,8 +1156,10 @@ func generateSecret() (string, error) {
 }
 
 func (h *ProjectHandler) recordActivity(c *gin.Context, userID uuid.UUID, logType, message string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 2*time.Second)
 	go func() {
-		_, _ = h.queries.CreateActivityLog(context.Background(), dbpkg.CreateActivityLogParams{
+		defer cancel()
+		_, _ = h.queries.CreateActivityLog(ctx, dbpkg.CreateActivityLogParams{
 			UserID:  userID,
 			Type:    logType,
 			Message: message,

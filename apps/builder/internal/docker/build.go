@@ -7,8 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/YHQZ1/hatch/apps/builder/internal/logs"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -16,6 +20,10 @@ import (
 )
 
 var ErrCanceled = errors.New("build canceled")
+
+const maxLogLineBytes = 1024 * 1024
+
+var imageTagReplacer = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)
 
 type CancelStage string
 
@@ -64,7 +72,8 @@ func NewBuilder(registry, repo, region string, streamer *logs.Streamer, reporter
 }
 
 func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath string) (string, error) {
-	tag := fmt.Sprintf("%s/%s:%s", b.registry, b.repo, id[:8])
+	imageTag := imageTag(id)
+	tag := fmt.Sprintf("%s/%s:%s", b.registry, b.repo, imageTag)
 
 	if err := ensureActive(ctx, CancelStageBeforeDockerBuild); err != nil {
 		return "", err
@@ -117,13 +126,9 @@ func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath 
 }
 
 func (b *Builder) runBuild(ctx context.Context, id, repoDir, dockerfilePath, tag string) error {
-	lastSlash := strings.LastIndex(dockerfilePath, "/")
-	contextDir := repoDir
-	dockerfileBase := dockerfilePath
-
-	if lastSlash != -1 {
-		contextDir = fmt.Sprintf("%s/%s", repoDir, dockerfilePath[:lastSlash])
-		dockerfileBase = dockerfilePath[lastSlash+1:]
+	contextDir, dockerfileBase, err := buildContext(repoDir, dockerfilePath)
+	if err != nil {
+		return err
 	}
 
 	cmd := exec.CommandContext(ctx, "docker", "build",
@@ -133,6 +138,7 @@ func (b *Builder) runBuild(ctx context.Context, id, repoDir, dockerfilePath, tag
 		".",
 	)
 	cmd.Dir = contextDir
+	cmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
 
 	return b.executeAndStream(ctx, id, cmd)
 }
@@ -188,14 +194,29 @@ func (b *Builder) executeAndStream(ctx context.Context, id string, cmd *exec.Cmd
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
-	go b.capture(ctx, id, stdout)
-	go b.capture(ctx, id, stderr)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		b.capture(ctx, id, stdout)
+	}()
+	go func() {
+		defer wg.Done()
+		b.capture(ctx, id, stderr)
+	}()
 
-	return cmd.Wait()
+	waitErr := cmd.Wait()
+	wg.Wait()
+
+	if waitErr != nil {
+		return waitErr
+	}
+	return nil
 }
 
 func (b *Builder) capture(ctx context.Context, id string, r io.Reader) {
 	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxLogLineBytes)
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
@@ -243,4 +264,73 @@ func (b *Builder) reportStage(id string, stage CancelStage) {
 	if b.reporter != nil {
 		b.reporter(id, stage)
 	}
+}
+
+func buildContext(repoDir, dockerfilePath string) (string, string, error) {
+	cleanPath, err := cleanDockerfilePath(dockerfilePath)
+	if err != nil {
+		return "", "", err
+	}
+
+	contextDir := repoDir
+	dockerfileBase := cleanPath
+	if dir := filepath.Dir(cleanPath); dir != "." {
+		contextDir = filepath.Join(repoDir, dir)
+		dockerfileBase = filepath.Base(cleanPath)
+	}
+
+	absRepo, err := filepath.Abs(repoDir)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to resolve repo path: %w", err)
+	}
+	absContext, err := filepath.Abs(contextDir)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to resolve build context: %w", err)
+	}
+	rel, err := filepath.Rel(absRepo, absContext)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to validate build context: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("dockerfile path escapes repository")
+	}
+	if _, err := os.Stat(filepath.Join(absContext, dockerfileBase)); err != nil {
+		if os.IsNotExist(err) {
+			return "", "", fmt.Errorf("dockerfile not found: %s", cleanPath)
+		}
+		return "", "", fmt.Errorf("failed to inspect dockerfile: %w", err)
+	}
+
+	return absContext, dockerfileBase, nil
+}
+
+func cleanDockerfilePath(dockerfilePath string) (string, error) {
+	path := strings.TrimSpace(strings.ReplaceAll(dockerfilePath, "\\", "/"))
+	if path == "" {
+		path = "Dockerfile"
+	}
+	if strings.HasPrefix(path, "/") {
+		return "", fmt.Errorf("dockerfile path must be relative")
+	}
+	clean := filepath.Clean(filepath.FromSlash(path))
+	if clean == "." || clean == string(filepath.Separator) {
+		return "", fmt.Errorf("dockerfile path is invalid")
+	}
+	for _, part := range strings.Split(clean, string(filepath.Separator)) {
+		if part == ".." {
+			return "", fmt.Errorf("dockerfile path cannot contain '..'")
+		}
+	}
+	return clean, nil
+}
+
+func imageTag(id string) string {
+	tag := strings.Trim(imageTagReplacer.ReplaceAllString(strings.TrimSpace(id), "-"), ".-")
+	if tag == "" {
+		return "deployment"
+	}
+	if len(tag) > 128 {
+		return tag[:128]
+	}
+	return tag
 }

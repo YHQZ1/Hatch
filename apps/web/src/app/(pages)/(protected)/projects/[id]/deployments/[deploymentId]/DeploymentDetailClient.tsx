@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { PageLoadingState } from "../../../../../../components/LoadingState";
 import {
@@ -10,6 +9,17 @@ import {
   readApiError,
   redirectIfUnauthorized,
 } from "@/app/lib/api";
+import {
+  AppShell,
+  Button,
+  PageTitle,
+  StatusText,
+  cn,
+} from "@/app/components/ui";
+import {
+  NoticeToast,
+  type NoticePayload,
+} from "@/app/components/NoticeToast";
 
 interface Deployment {
   id: string;
@@ -44,11 +54,7 @@ interface LogLine {
   timestamp?: string;
 }
 
-interface Notice {
-  type: "success" | "error" | "info";
-  title: string;
-  message?: string;
-}
+type DeploymentTone = "default" | "success" | "warning" | "danger" | "muted";
 
 const CACHE_KEY_PREFIX = "hatch_deployment_";
 const CACHE_TTL = 90 * 1000;
@@ -67,7 +73,7 @@ export default function DeploymentDetailClient() {
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState(false);
-  const [notice, setNotice] = useState<Notice | null>(null);
+  const [notice, setNotice] = useState<NoticePayload | null>(null);
 
   const loadDeployment = useCallback(
     async ({ quiet = false }: { quiet?: boolean } = {}) => {
@@ -220,17 +226,18 @@ export default function DeploymentDetailClient() {
 
   if (!deployment) {
     return (
-      <div className="flex h-[calc(100vh-64px)] items-center justify-center bg-black text-zinc-600">
+      <div className="flex h-[calc(100vh-64px)] items-center justify-center bg-[#050505] text-zinc-600">
         <div className="text-center">
-          <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-zinc-800">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-700">
             Deployment unavailable
           </p>
-          <Link
+          <Button
             href={`/projects/${id}`}
-            className="mt-4 inline-block text-[11px] font-bold uppercase tracking-[0.16em] text-zinc-500 hover:text-zinc-200"
+            variant="secondary"
+            className="mt-4"
           >
             Back to service
-          </Link>
+          </Button>
         </div>
       </div>
     );
@@ -254,141 +261,117 @@ export default function DeploymentDetailClient() {
       : isCanceled
         ? "Canceled"
         : "In progress";
+  const statusTone = deploymentStatusTone(status);
 
   return (
-    <div className="flex h-[calc(100vh-64px)] flex-col overflow-hidden bg-black text-zinc-400">
-      <DeploymentToast notice={notice} onDismiss={() => setNotice(null)} />
-
-      <header className="shrink-0 border-b border-[#171717] bg-black px-5 py-3 md:px-8">
-        <div className="flex items-center justify-between gap-4">
-          <Link
-            href={`/projects/${id}`}
-            className="group inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-700 transition-colors hover:text-zinc-400"
-          >
-            <span className="transition-transform group-hover:-translate-x-0.5">
-              -
-            </span>
-            Back to service
-          </Link>
-
-          <div className="flex flex-wrap items-center gap-3">
+    <AppShell
+      className="xl:h-[calc(100vh-64px)] xl:overflow-hidden"
+      contentClassName="xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:py-5"
+    >
+      <NoticeToast notice={notice} onDismiss={() => setNotice(null)} />
+      <PageTitle
+        eyebrow="Deployment"
+        title={project?.repo_name || "Deployment"}
+        description={deployment.commit_message || `Run ${shortDeploymentId}`}
+        className="xl:mb-5 xl:shrink-0 xl:pb-5"
+        actions={
+          <>
+            <Button variant="ghost" href={`/projects/${id}`}>
+              Back
+            </Button>
             {liveUrl && (
-              <a
+              <Button
                 href={liveUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="border border-[#242424] px-4 py-2 text-[9px] font-bold uppercase tracking-[0.16em] text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-200"
+                variant="secondary"
               >
-                Open live URL
-              </a>
+                Open
+              </Button>
             )}
             {active && (
-              <button
+              <Button
+                variant="danger"
                 onClick={handleCancel}
                 disabled={canceling}
-                className="cursor-pointer border border-[#2a1515] px-4 py-2 text-[9px] font-bold uppercase tracking-[0.16em] text-[#c56b6b] transition-colors hover:border-[#5a2525] hover:text-[#d88a8a] disabled:cursor-not-allowed disabled:opacity-30"
               >
-                {canceling ? "Canceling" : "Cancel deployment"}
-              </button>
+                {canceling ? "Canceling" : "Cancel"}
+              </Button>
             )}
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
-      <main className="flex-1 overflow-y-auto px-5 py-6 md:px-8 lg:px-10">
-        <div className="mx-auto max-w-7xl space-y-6">
-          <section className="border border-[#181818] bg-[#030303]">
-            <div className="grid gap-px bg-[#181818] lg:grid-cols-[1.35fr_0.65fr]">
-              <div className="bg-[#030303] p-6 md:p-7">
-                <div className="mb-6 flex flex-wrap items-center gap-3">
-                  <span
-                    className={`h-2 w-2 rounded-full ${statusDotColor(status)} ${active ? "animate-pulse" : ""}`}
-                  />
-                  <span
-                    className={`text-[10px] font-bold uppercase tracking-[0.18em] ${statusTextColor(status)}`}
-                  >
-                    {resultLabel}
-                  </span>
-                  <span className="font-mono text-[10px] text-zinc-800">
-                    {formatDateTime(deployment.created_at)}
-                  </span>
-                </div>
+      <div className="mb-7 grid grid-cols-2 gap-x-8 gap-y-4 border-b border-white/[0.08] pb-7 sm:flex sm:items-end sm:gap-12 xl:mb-5 xl:shrink-0 xl:pb-5">
+        <SummaryMetric label="Status" value={resultLabel} tone={statusTone} />
+        <SummaryMetric label="Deployment" value={shortDeploymentId} />
+        <SummaryMetric label="Commit" value={commitLabel} />
+        <SummaryMetric label="Duration" value={duration === null ? "-" : formatDuration(duration)} />
+      </div>
 
-                <h1 className="max-w-4xl text-[28px] font-semibold leading-tight tracking-tight text-zinc-100 md:text-[34px]">
-                  {deployment.commit_message ||
-                    `Deployment for ${project?.repo_name || "service"}`}
-                </h1>
+      <main className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_390px]">
+          <section className="min-w-0 space-y-7 pb-8">
+            <HeroPanel
+              deployment={deployment}
+              project={project}
+              resultLabel={resultLabel}
+              statusTone={statusTone}
+              active={active}
+            />
 
-                <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <SummaryMetric label="Deployment" value={shortDeploymentId} />
-                  <SummaryMetric label="Commit" value={commitLabel} />
-                  <SummaryMetric label="Branch" value={deployment.branch} />
-                  <SummaryMetric
-                    label="Duration"
-                    value={duration === null ? "-" : formatDuration(duration)}
-                  />
-                </div>
-              </div>
+            <PipelinePanel
+              status={status}
+              active={active}
+              isFailed={isFailed}
+              isCanceled={isCanceled}
+              pipelineIndex={pipelineIndex}
+              deployment={deployment}
+            />
 
-              <div className="bg-[#030303] p-6 md:p-7">
-                <p className="mb-4 text-[9px] font-bold uppercase tracking-[0.22em] text-zinc-800">
-                  Deployment ID
-                </p>
-                <code className="block break-all font-mono text-[12px] leading-relaxed text-zinc-400">
-                  {deployment.id}
-                </code>
-                <div className="mt-6 space-y-3">
-                  <MiniKv label="Service" value={project?.repo_name || "-"} />
-                  <MiniKv label="Repository" value={repoLabel(project?.repo_url)} />
-                  <MiniKv label="Created" value={formatDateTime(deployment.created_at)} />
-                </div>
-              </div>
+            <div className="grid gap-7 lg:grid-cols-2">
+              <InfoCard title="Source">
+                <Kv label="Repository" value={repoLabel(project?.repo_url)} />
+                <Kv label="Branch" value={deployment.branch} />
+                <Kv label="Commit" value={deployment.commit_sha ? deployment.commit_sha.slice(0, 7) : "-"} />
+                <Kv label="Message" value={deployment.commit_message || "-"} wide />
+              </InfoCard>
+
+              <InfoCard title="Runtime">
+                <Kv label="Port" value={`TCP/${deployment.port}`} />
+                <Kv label="Health check" value={deployment.health_check || "/"} />
+                <Kv label="Status" value={deployment.status} />
+              </InfoCard>
             </div>
-          </section>
 
-          <section className="grid border border-[#181818] bg-[#030303] xl:grid-cols-4">
-            {PIPELINE_STEPS.map((step, index) => {
-              const done = !isFailed && !isCanceled && pipelineIndex >= index;
-              const current = active && pipelineIndex === index;
-              const terminalProblem =
-                (isFailed || isCanceled) && index === Math.max(pipelineIndex, 0);
-              return (
-                <div
-                  key={step.key}
-                  className="border-b border-[#181818] p-5 xl:border-b-0 xl:border-r xl:last:border-r-0"
-                >
-                  <div className="mb-4 flex items-center justify-between">
-                    <p className="text-[8px] font-bold uppercase tracking-[0.22em] text-zinc-800">
-                      Step {String(index + 1).padStart(2, "0")}
+            <InfoCard title="Recent Logs">
+              {recentLogs.length === 0 ? (
+                <p className="font-mono text-sm text-zinc-700">
+                  No log lines recorded for this deployment.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {recentLogs.map((log, index) => (
+                    <p
+                      key={`${log.text}-${index}`}
+                      className={`break-words font-mono text-xs leading-relaxed ${logColor(log.text)}`}
+                    >
+                      {log.text}
                     </p>
-                    <span className={`text-[10px] ${terminalProblem ? "text-[#c56b6b]" : done ? "text-zinc-300" : current ? "text-[#b8872f]" : "text-zinc-800"}`}>
-                      {terminalProblem ? "x" : done ? "done" : current ? "now" : "-"}
-                    </span>
-                  </div>
-                  <p className={`text-[15px] font-semibold ${done ? "text-zinc-100" : current ? "text-[#b8872f]" : terminalProblem ? "text-[#c56b6b]" : "text-zinc-700"}`}>
-                    {step.label}
-                  </p>
-                  <p className="mt-2 font-mono text-[9px] text-zinc-800">
-                    {step.key === "queued"
-                      ? formatTime(deployment.created_at)
-                      : step.key === "live" && deployment.deployed_at
-                        ? formatTime(deployment.deployed_at)
-                        : done
-                          ? "completed"
-                          : current
-                            ? "in progress"
-                            : "pending"}
-                  </p>
+                  ))}
                 </div>
-              );
-            })}
+              )}
+            </InfoCard>
           </section>
 
-          <section className="grid gap-px overflow-hidden border border-[#181818] bg-[#181818] xl:grid-cols-[0.95fr_1.05fr_1.2fr]">
-            <InfoCard title="Runtime">
-              <Kv label="Port" value={`TCP/${deployment.port}`} />
-              <Kv label="Health check" value={deployment.health_check || "/"} />
-              <Kv label="Status" value={deployment.status} />
+          <aside className="space-y-7 pb-8">
+            <InfoCard title="Deployment ID">
+              <code className="block break-all font-mono text-sm leading-relaxed text-zinc-400">
+                {deployment.id}
+              </code>
+              <div className="mt-5 space-y-3">
+                <MiniKv label="Service" value={project?.repo_name || "-"} />
+                <MiniKv label="Created" value={formatDateTime(deployment.created_at)} />
+                <MiniKv label="Deployed" value={deployment.deployed_at ? formatDateTime(deployment.deployed_at) : "-"} />
+              </div>
             </InfoCard>
 
             <InfoCard title="Network">
@@ -401,7 +384,7 @@ export default function DeploymentDetailClient() {
                       href={liveUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[#74c69d] hover:underline"
+                      className="text-[#5cc98f] hover:underline"
                     >
                       {liveUrl.replace(/^https?:\/\//, "")}
                     </a>
@@ -418,38 +401,10 @@ export default function DeploymentDetailClient() {
               <Kv label="Image" value={deployment.image_uri || "No image recorded"} wide />
               <Kv label="Task ARN" value={shortArn(deployment.ecs_task_arn)} wide />
             </InfoCard>
-          </section>
-
-          <section className="grid gap-px overflow-hidden border border-[#181818] bg-[#181818] xl:grid-cols-[0.75fr_1.25fr]">
-            <InfoCard title="Source">
-              <Kv label="Repository" value={repoLabel(project?.repo_url)} />
-              <Kv label="Branch" value={deployment.branch} />
-              <Kv label="Commit" value={deployment.commit_sha ? deployment.commit_sha.slice(0, 7) : "-"} />
-              <Kv label="Message" value={deployment.commit_message || "-"} wide />
-            </InfoCard>
-
-            <InfoCard title="Recent logs">
-              {recentLogs.length === 0 ? (
-                <p className="font-mono text-[11px] text-zinc-700">
-                  No log lines recorded for this deployment.
-                </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {recentLogs.map((log, index) => (
-                    <p
-                      key={`${log.text}-${index}`}
-                      className={`break-words font-mono text-[10px] leading-relaxed ${logColor(log.text)}`}
-                    >
-                      {log.text}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </InfoCard>
-          </section>
+          </aside>
         </div>
       </main>
-    </div>
+    </AppShell>
   );
 }
 
@@ -461,22 +416,147 @@ function InfoCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-[#030303] p-5">
-      <p className="mb-5 text-[9px] font-bold uppercase tracking-[0.22em] text-zinc-800">
+    <section className="border-y border-white/[0.08] py-5">
+      <p className="mb-5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
         {title}
       </p>
       <div className="space-y-4">{children}</div>
-    </div>
+    </section>
   );
 }
 
-function SummaryMetric({ label, value }: { label: string; value: string }) {
+function HeroPanel({
+  deployment,
+  project,
+  resultLabel,
+  statusTone,
+  active,
+}: {
+  deployment: Deployment;
+  project: Project | null;
+  resultLabel: string;
+  statusTone: DeploymentTone;
+  active: boolean;
+}) {
   return (
-    <div className="border border-[#181818] bg-black px-4 py-3">
-      <p className="mb-2 text-[8px] font-bold uppercase tracking-[0.18em] text-zinc-800">
+    <section className="rounded-xl border border-white/[0.08] bg-white/[0.018] p-5 sm:p-6">
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <StatusText tone={statusTone} pulse={active}>
+          {resultLabel}
+        </StatusText>
+        <span className="font-mono text-[10px] text-zinc-700">
+          {formatDateTime(deployment.created_at)}
+        </span>
+      </div>
+      <h2 className="max-w-4xl text-2xl font-medium leading-tight tracking-tight text-white sm:text-3xl">
+        {deployment.commit_message ||
+          `Deployment for ${project?.repo_name || "service"}`}
+      </h2>
+      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <StaticMini label="Repository" value={repoLabel(project?.repo_url)} />
+        <StaticMini label="Branch" value={deployment.branch} />
+        <StaticMini
+          label="Commit"
+          value={deployment.commit_sha ? deployment.commit_sha.slice(0, 7) : "-"}
+        />
+      </div>
+    </section>
+  );
+}
+
+function PipelinePanel({
+  active,
+  isFailed,
+  isCanceled,
+  pipelineIndex,
+  deployment,
+}: {
+  status: string;
+  active: boolean;
+  isFailed: boolean;
+  isCanceled: boolean;
+  pipelineIndex: number;
+  deployment: Deployment;
+}) {
+  return (
+    <section className="grid overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.018] lg:grid-cols-4">
+      {PIPELINE_STEPS.map((step, index) => {
+        const done = !isFailed && !isCanceled && pipelineIndex >= index;
+        const current = active && pipelineIndex === index;
+        const terminalProblem =
+          (isFailed || isCanceled) && index === Math.max(pipelineIndex, 0);
+        const tone = terminalProblem
+          ? "danger"
+          : current
+            ? "warning"
+            : done
+              ? "success"
+              : "muted";
+        return (
+          <div
+            key={step.key}
+            className="border-b border-white/[0.08] p-5 last:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0"
+          >
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-600">
+                Step {String(index + 1).padStart(2, "0")}
+              </p>
+              <StatusText tone={tone} pulse={current}>
+                {terminalProblem ? "stopped" : done ? "done" : current ? "now" : "wait"}
+              </StatusText>
+            </div>
+            <p
+              className={cn(
+                "text-base font-medium",
+                done && "text-white",
+                current && "text-[#d8ad4f]",
+                terminalProblem && "text-[#d86666]",
+                !done && !current && !terminalProblem && "text-zinc-700",
+              )}
+            >
+              {step.label}
+            </p>
+            <p className="mt-2 font-mono text-[10px] text-zinc-700">
+              {step.key === "queued"
+                ? formatTime(deployment.created_at)
+                : step.key === "live" && deployment.deployed_at
+                  ? formatTime(deployment.deployed_at)
+                  : done
+                    ? "completed"
+                    : current
+                      ? "in progress"
+                      : "pending"}
+            </p>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function SummaryMetric({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: DeploymentTone;
+}) {
+  const colors = {
+    default: "text-white",
+    success: "text-[#5cc98f]",
+    warning: "text-[#d8ad4f]",
+    danger: "text-[#d86666]",
+    muted: "text-zinc-500",
+  } satisfies Record<DeploymentTone, string>;
+
+  return (
+    <div className="min-w-0">
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
         {label}
       </p>
-      <p className="truncate font-mono text-[11px] text-zinc-400">{value}</p>
+      <p className={cn("truncate font-mono text-sm", colors[tone])}>{value}</p>
     </div>
   );
 }
@@ -484,12 +564,23 @@ function SummaryMetric({ label, value }: { label: string; value: string }) {
 function MiniKv({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <span className="text-[8px] font-bold uppercase tracking-[0.16em] text-zinc-800">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
         {label}
       </span>
-      <span className="truncate text-right font-mono text-[10px] text-zinc-600">
+      <span className="truncate text-right font-mono text-xs text-zinc-500">
         {value}
       </span>
+    </div>
+  );
+}
+
+function StaticMini({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-white/[0.08] bg-black px-4 py-3">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+        {label}
+      </p>
+      <p className="truncate font-mono text-sm text-zinc-400">{value}</p>
     </div>
   );
 }
@@ -507,52 +598,12 @@ function Kv({
     <div
       className={`grid gap-3 ${wide ? "grid-cols-1" : "grid-cols-[120px_minmax(0,1fr)]"}`}
     >
-      <span className="text-[8px] font-bold uppercase tracking-[0.16em] text-zinc-800">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
         {label}
       </span>
-      <span className="min-w-0 truncate text-right font-mono text-[10px] text-zinc-500">
+      <span className="min-w-0 truncate text-right font-mono text-xs text-zinc-500">
         {value}
       </span>
-    </div>
-  );
-}
-
-function DeploymentToast({
-  notice,
-  onDismiss,
-}: {
-  notice: Notice | null;
-  onDismiss: () => void;
-}) {
-  if (!notice) return null;
-  const color =
-    notice.type === "success"
-      ? "text-[#74c69d]"
-      : notice.type === "error"
-        ? "text-[#c56b6b]"
-        : "text-zinc-300";
-  return (
-    <div className="fixed right-5 top-[76px] z-50 w-[320px] border border-[#242424] bg-[#050505] px-4 py-3 shadow-2xl">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className={`text-[10px] font-bold uppercase tracking-[0.18em] ${color}`}>
-            {notice.title}
-          </p>
-          {notice.message && (
-            <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-500">
-              {notice.message}
-            </p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="cursor-pointer text-[13px] leading-none text-zinc-700 transition-colors hover:text-zinc-300"
-          aria-label="Dismiss notification"
-        >
-          x
-        </button>
-      </div>
     </div>
   );
 }
@@ -571,27 +622,20 @@ function isActiveStatus(status: string) {
   return ["queued", "building", "deploying"].includes(status.toLowerCase());
 }
 
-function statusDotColor(status: string) {
+function deploymentStatusTone(status: string): DeploymentTone {
   const s = status.toLowerCase();
-  if (s === "live") return "bg-[#74c69d]";
-  if (isActiveStatus(s)) return "bg-[#b8872f]";
-  if (s === "failed" || s === "error") return "bg-[#c56b6b]";
-  return "bg-zinc-700";
-}
-
-function statusTextColor(status: string) {
-  const s = status.toLowerCase();
-  if (s === "live") return "text-[#74c69d]";
-  if (isActiveStatus(s)) return "text-[#b8872f]";
-  if (s === "failed" || s === "error") return "text-[#c56b6b]";
-  return "text-zinc-500";
+  if (s === "live") return "success";
+  if (isActiveStatus(s)) return "warning";
+  if (s === "failed" || s === "error") return "danger";
+  if (s === "canceled") return "muted";
+  return "default";
 }
 
 function logColor(text: string) {
   const lower = text.toLowerCase();
-  if (lower.includes("failed") || lower.includes("error")) return "text-[#c56b6b]";
+  if (lower.includes("failed") || lower.includes("error")) return "text-[#d86666]";
   if (lower.includes("success") || lower.includes("live at") || lower.includes("healthy")) {
-    return "text-[#74c69d]";
+    return "text-[#5cc98f]";
   }
   return "text-zinc-600";
 }

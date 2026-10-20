@@ -8,6 +8,7 @@ const CACHE_KEYS = [
 ];
 const CSRF_COOKIE_NAME = "hatch_csrf";
 const CSRF_HEADER_NAME = "X-CSRF-Token";
+const CSRF_STORAGE_KEY = "hatch_csrf_token";
 const FLASH_NOTICE_KEY = "hatch_flash_notice";
 
 export function apiUrl(path: string) {
@@ -29,31 +30,63 @@ function getCookie(name: string) {
 }
 
 async function ensureCSRFToken() {
-  if (getCookie(CSRF_COOKIE_NAME)) return;
+  const cookieToken = getCookie(CSRF_COOKIE_NAME);
+  if (cookieToken) return cookieToken;
 
-  await fetch(apiUrl("/api/csrf"), {
+  const storedToken =
+    typeof sessionStorage === "undefined"
+      ? null
+      : sessionStorage.getItem(CSRF_STORAGE_KEY);
+  if (storedToken) return storedToken;
+
+  const res = await fetch(apiUrl("/api/csrf"), {
     method: "GET",
     credentials: "include",
   });
+  if (!res.ok) return null;
+
+  try {
+    const data = await res.json();
+    const token =
+      typeof data?.csrf_token === "string" ? data.csrf_token.trim() : "";
+    if (token) {
+      sessionStorage.setItem(CSRF_STORAGE_KEY, token);
+      return token;
+    }
+  } catch {}
+
+  return getCookie(CSRF_COOKIE_NAME);
 }
 
 export async function apiFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   const method = (init.method || "GET").toUpperCase();
+  const requiresCSRF = !["GET", "HEAD", "OPTIONS"].includes(method);
 
-  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
-    await ensureCSRFToken();
-    const csrfToken = getCookie(CSRF_COOKIE_NAME);
+  if (requiresCSRF) {
+    const csrfToken = await ensureCSRFToken();
     if (csrfToken) {
       headers.set(CSRF_HEADER_NAME, csrfToken);
     }
   }
 
-  return fetch(apiUrl(path), {
+  const request = {
     ...init,
     headers,
     credentials: "include",
-  });
+  } satisfies RequestInit;
+
+  const res = await fetch(apiUrl(path), request);
+  if (requiresCSRF && res.status === 403) {
+    sessionStorage.removeItem(CSRF_STORAGE_KEY);
+    const retryToken = await ensureCSRFToken();
+    if (retryToken && retryToken !== headers.get(CSRF_HEADER_NAME)) {
+      headers.set(CSRF_HEADER_NAME, retryToken);
+      return fetch(apiUrl(path), request);
+    }
+  }
+
+  return res;
 }
 
 export async function readApiError(
@@ -71,6 +104,7 @@ export async function readApiError(
 
 export function clearClientSession() {
   CACHE_KEYS.forEach((key) => localStorage.removeItem(key));
+  sessionStorage.removeItem(CSRF_STORAGE_KEY);
 
   for (let i = localStorage.length - 1; i >= 0; i -= 1) {
     const key = localStorage.key(i);

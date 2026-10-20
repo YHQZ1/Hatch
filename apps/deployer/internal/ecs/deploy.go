@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/aws/smithy-go"
 )
 
 type Deployer struct {
@@ -87,6 +88,12 @@ type DeployResult struct {
 }
 
 func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (DeployResult, error) {
+	var err error
+	input, err = normalizeDeployInput(input)
+	if err != nil {
+		return DeployResult{}, err
+	}
+
 	id := input.DeploymentID
 	slug := input.Subdomain
 
@@ -220,7 +227,20 @@ func (d *Deployer) upsertTargetGroup(ctx context.Context, input DeployInput) (st
 		Names: []string{name},
 	})
 	if err == nil && len(tgs.TargetGroups) > 0 {
-		return *tgs.TargetGroups[0].TargetGroupArn, nil
+		tgArn := *tgs.TargetGroups[0].TargetGroupArn
+		_, err := d.elbClient.ModifyTargetGroup(ctx, &elbv2.ModifyTargetGroupInput{
+			TargetGroupArn:      aws.String(tgArn),
+			HealthCheckPath:     aws.String(input.HealthCheck),
+			HealthCheckPort:     aws.String("traffic-port"),
+			HealthCheckProtocol: elbv2types.ProtocolEnumHttp,
+		})
+		if err != nil {
+			return "", err
+		}
+		return tgArn, nil
+	}
+	if err != nil && !isNotFound(err) {
+		return "", err
 	}
 
 	out, err := d.elbClient.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
@@ -241,30 +261,26 @@ func (d *Deployer) upsertTargetGroup(ctx context.Context, input DeployInput) (st
 func (d *Deployer) upsertListenerRule(ctx context.Context, subdomain, tgArn string) (string, error) {
 	host := fmt.Sprintf("%s.%s", subdomain, d.baseDomain)
 
-	rules, err := d.elbClient.DescribeRules(ctx, &elbv2.DescribeRulesInput{
-		ListenerArn: aws.String(d.albListenerARN),
-	})
+	rules, err := d.describeListenerRules(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	if rules != nil {
-		for _, r := range rules.Rules {
-			for _, c := range r.Conditions {
-				if c.Field != nil && *c.Field == "host-header" && c.HostHeaderConfig != nil {
-					for _, v := range c.HostHeaderConfig.Values {
-						if v == host {
-							_, err := d.elbClient.ModifyRule(ctx, &elbv2.ModifyRuleInput{
-								RuleArn: r.RuleArn,
-								Actions: []elbv2types.Action{
-									{
-										Type:           elbv2types.ActionTypeEnumForward,
-										TargetGroupArn: aws.String(tgArn),
-									},
+	for _, r := range rules.Rules {
+		for _, c := range r.Conditions {
+			if c.Field != nil && *c.Field == "host-header" && c.HostHeaderConfig != nil {
+				for _, v := range c.HostHeaderConfig.Values {
+					if v == host {
+						_, err := d.elbClient.ModifyRule(ctx, &elbv2.ModifyRuleInput{
+							RuleArn: r.RuleArn,
+							Actions: []elbv2types.Action{
+								{
+									Type:           elbv2types.ActionTypeEnumForward,
+									TargetGroupArn: aws.String(tgArn),
 								},
-							})
-							return host, err
-						}
+							},
+						})
+						return host, err
 					}
 				}
 			}
@@ -386,7 +402,8 @@ func (d *Deployer) waitForStability(ctx context.Context, deployID, slug, tgArn s
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
-	timeout := time.After(8 * time.Minute)
+	timeout := time.NewTimer(8 * time.Minute)
+	defer timeout.Stop()
 
 	check := func() (bool, error) {
 		if err := d.ensureNotCanceled(ctx, deployID); err != nil {
@@ -429,7 +446,7 @@ func (d *Deployer) waitForStability(ctx context.Context, deployID, slug, tgArn s
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-timeout:
+		case <-timeout.C:
 			return fmt.Errorf("stability timeout: service failed to reach healthy state")
 		case <-ticker.C:
 			ok, err := check()
@@ -474,10 +491,11 @@ func (d *Deployer) Teardown(ctx context.Context, slug string) error {
 	svcName := serviceName(slug)
 
 	host := fmt.Sprintf("%s.%s", slug, d.baseDomain)
-	rules, err := d.elbClient.DescribeRules(ctx, &elbv2.DescribeRulesInput{
-		ListenerArn: aws.String(d.albListenerARN),
-	})
-	if err == nil && rules != nil {
+	rules, err := d.describeListenerRules(ctx)
+	if err != nil && !isNotFound(err) {
+		return fmt.Errorf("failed to describe listener rules: %w", err)
+	}
+	if rules != nil {
 		for _, r := range rules.Rules {
 			for _, c := range r.Conditions {
 				if c.Field != nil && *c.Field == "host-header" && c.HostHeaderConfig != nil {
@@ -546,6 +564,9 @@ func (d *Deployer) deregisterTaskDefinitions(ctx context.Context, slug string) e
 		}
 
 		for _, taskDefinitionArn := range out.TaskDefinitionArns {
+			if taskDefinitionFamily(taskDefinitionArn) != family {
+				continue
+			}
 			_, err := d.ecsClient.DeregisterTaskDefinition(ctx, &ecs.DeregisterTaskDefinitionInput{
 				TaskDefinition: aws.String(taskDefinitionArn),
 			})
@@ -567,7 +588,8 @@ func (d *Deployer) waitForServiceInactive(ctx context.Context, service string) e
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	timeout := time.After(6 * time.Minute)
+	timeout := time.NewTimer(6 * time.Minute)
+	defer timeout.Stop()
 
 	check := func() (bool, error) {
 		out, err := d.ecsClient.DescribeServices(ctx, &ecs.DescribeServicesInput{
@@ -602,7 +624,7 @@ func (d *Deployer) waitForServiceInactive(ctx context.Context, service string) e
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-timeout:
+		case <-timeout.C:
 			return fmt.Errorf("timeout waiting for ECS service %s to become inactive", service)
 		case <-ticker.C:
 			ok, err := check()
@@ -636,7 +658,8 @@ func (d *Deployer) waitForDesiredCount(ctx context.Context, service string, desi
 	ticker := time.NewTicker(8 * time.Second)
 	defer ticker.Stop()
 
-	timeout := time.After(7 * time.Minute)
+	timeout := time.NewTimer(7 * time.Minute)
+	defer timeout.Stop()
 
 	check := func() (bool, error) {
 		out, err := d.ecsClient.DescribeServices(ctx, &ecs.DescribeServicesInput{
@@ -682,7 +705,7 @@ func (d *Deployer) waitForDesiredCount(ctx context.Context, service string, desi
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-timeout:
+		case <-timeout.C:
 			if desiredCount == 0 {
 				return fmt.Errorf("suspend timeout: service still has running or pending tasks")
 			}
@@ -760,7 +783,7 @@ func (d *Deployer) targetGroupsForService(ctx context.Context, slug string) ([]e
 				continue
 			}
 			name := *tg.TargetGroupName
-			if name == legacyName || strings.HasPrefix(name, prefix+"-") {
+			if name == legacyName || targetGroupNameMatchesSlug(name, prefix) {
 				groups = append(groups, tg)
 			}
 		}
@@ -772,6 +795,26 @@ func (d *Deployer) targetGroupsForService(ctx context.Context, slug string) ([]e
 	}
 
 	return groups, nil
+}
+
+func (d *Deployer) describeListenerRules(ctx context.Context) (*elbv2.DescribeRulesOutput, error) {
+	out := &elbv2.DescribeRulesOutput{}
+	var marker *string
+	for {
+		page, err := d.elbClient.DescribeRules(ctx, &elbv2.DescribeRulesInput{
+			ListenerArn: aws.String(d.albListenerARN),
+			Marker:      marker,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out.Rules = append(out.Rules, page.Rules...)
+		if page.NextMarker == nil || *page.NextMarker == "" {
+			break
+		}
+		marker = page.NextMarker
+	}
+	return out, nil
 }
 
 func nextAvailablePriority(rules *elbv2.DescribeRulesOutput) (int32, error) {
@@ -796,7 +839,90 @@ func nextAvailablePriority(rules *elbv2.DescribeRulesOutput) (int32, error) {
 	return 0, fmt.Errorf("no available listener rule priorities")
 }
 
+func targetGroupNameMatchesSlug(name, prefix string) bool {
+	suffix, ok := strings.CutPrefix(name, prefix+"-")
+	if !ok || suffix == "" {
+		return false
+	}
+	first := suffix[0]
+	return first >= '0' && first <= '9'
+}
+
+func normalizeDeployInput(input DeployInput) (DeployInput, error) {
+	input.DeploymentID = strings.TrimSpace(input.DeploymentID)
+	input.ImageURI = strings.TrimSpace(input.ImageURI)
+	input.Subdomain = strings.TrimSpace(input.Subdomain)
+	input.HealthCheck = strings.TrimSpace(input.HealthCheck)
+	if input.HealthCheck == "" {
+		input.HealthCheck = "/"
+	}
+
+	if input.DeploymentID == "" {
+		return input, fmt.Errorf("deployment id is required")
+	}
+	if input.ImageURI == "" {
+		return input, fmt.Errorf("image uri is required")
+	}
+	if !validDNSLabel(input.Subdomain) {
+		return input, fmt.Errorf("invalid subdomain")
+	}
+	if input.Port <= 0 || input.Port > 65535 {
+		return input, fmt.Errorf("port must be between 1 and 65535")
+	}
+	if input.CPU <= 0 {
+		return input, fmt.Errorf("cpu must be greater than zero")
+	}
+	if input.MemoryMB <= 0 {
+		return input, fmt.Errorf("memory must be greater than zero")
+	}
+	if !strings.HasPrefix(input.HealthCheck, "/") || len(input.HealthCheck) > 1024 || strings.Contains(input.HealthCheck, "\x00") {
+		return input, fmt.Errorf("invalid health check path")
+	}
+	for key := range input.EnvVars {
+		if strings.TrimSpace(key) == "" || strings.Contains(key, "=") || strings.Contains(key, "\x00") {
+			return input, fmt.Errorf("invalid env var name")
+		}
+	}
+	return input, nil
+}
+
+func validDNSLabel(label string) bool {
+	if len(label) == 0 || len(label) > 63 {
+		return false
+	}
+	if label[0] == '-' || label[len(label)-1] == '-' {
+		return false
+	}
+	for _, r := range label {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func taskDefinitionFamily(taskDefinitionArn string) string {
+	_, after, ok := strings.Cut(taskDefinitionArn, "/")
+	if !ok {
+		return ""
+	}
+	family, _, _ := strings.Cut(after, ":")
+	return family
+}
+
 func isNotFound(err error) bool {
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		code := strings.ToLower(apiErr.ErrorCode())
+		return strings.Contains(code, "notfound") ||
+			strings.Contains(code, "not found") ||
+			strings.Contains(code, "notexist") ||
+			strings.Contains(code, "not exist")
+	}
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "notfound") ||
 		strings.Contains(message, "not found") ||

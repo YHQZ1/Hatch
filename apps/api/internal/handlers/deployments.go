@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -105,6 +107,7 @@ type DeploymentHandler struct {
 const (
 	defaultDeploymentCPU      int32 = 512
 	defaultDeploymentMemoryMB int32 = 1024
+	maxDeploymentLogLines           = 5000
 )
 
 func NewDeploymentHandler(db *sql.DB, publisher *queue.Publisher, rdb *redis.Client, secretCodec *secrets.Codec) *DeploymentHandler {
@@ -151,7 +154,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
 		return
 	}
-	if project.Status == "suspended" || project.Status == "suspending" || project.Status == "deleting" {
+	if project.Status != "" && project.Status != "active" {
 		c.JSON(http.StatusConflict, gin.H{"error": "project is not active"})
 		return
 	}
@@ -239,7 +242,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": "deployment already running"})
 			return
 		}
-		fmt.Printf("DATABASE ERROR: %v\n", err)
+		log.Printf("failed to create deployment for project %s: %v", projectID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create deployment"})
 		return
 	}
@@ -268,7 +271,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 				SecretArn:    sql.NullString{},
 			})
 			if err != nil {
-				fmt.Printf("SQL Error inserting env_var: %v\n", err)
+				log.Printf("failed to snapshot environment variable for deployment %s: %v", deployment.ID, err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save environment variables"})
 				return
 			}
@@ -356,8 +359,12 @@ func (h *DeploymentHandler) CancelDeployment(c *gin.Context) {
 	pipe := h.rdb.Pipeline()
 	pipe.RPush(c.Request.Context(), key, msg)
 	pipe.Expire(c.Request.Context(), key, 7*24*time.Hour)
-	_, _ = pipe.Exec(c.Request.Context())
-	h.rdb.Publish(c.Request.Context(), fmt.Sprintf("deployment:%s", id.String()), msg)
+	if _, err := pipe.Exec(c.Request.Context()); err != nil {
+		log.Printf("failed to persist cancel log for deployment %s: %v", id, err)
+	}
+	if err := h.rdb.Publish(c.Request.Context(), fmt.Sprintf("deployment:%s", id.String()), msg).Err(); err != nil {
+		log.Printf("failed to publish cancel log for deployment %s: %v", id, err)
+	}
 
 	c.JSON(http.StatusOK, h.toDeploymentResponse(deployment))
 }
@@ -414,7 +421,7 @@ func (h *DeploymentHandler) GetDeploymentLogs(c *gin.Context) {
 	}
 
 	key := fmt.Sprintf("logs:%s", id.String())
-	logs, err := h.rdb.LRange(c.Request.Context(), key, 0, -1).Result()
+	logs, err := h.rdb.LRange(c.Request.Context(), key, -maxDeploymentLogLines, -1).Result()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch logs"})
 		return
@@ -438,13 +445,12 @@ func fetchGitHubBranchHead(ctx context.Context, repoURL, branch, token string) (
 		return "", ""
 	}
 
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/branches/%s", owner, repo, branch)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/branches/%s", owner, repo, url.PathEscape(branch))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", ""
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
+	setGitHubHeaders(req, token)
 
 	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
@@ -485,6 +491,9 @@ func normalizeHealthCheckPath(raw string) (string, error) {
 	if !strings.HasPrefix(healthCheck, "/") || strings.ContainsAny(healthCheck, " \t\r\n") {
 		return "", fmt.Errorf("health_check must be an absolute path without whitespace")
 	}
+	if len(healthCheck) > 1024 {
+		return "", fmt.Errorf("health_check cannot exceed 1024 characters")
+	}
 	return healthCheck, nil
 }
 
@@ -513,21 +522,14 @@ func (h *DeploymentHandler) buildDeploymentEnvSnapshot(ctx context.Context, q *d
 }
 
 func (h *DeploymentHandler) activeDeploymentForProject(ctx context.Context, projectID, userID uuid.UUID) (dbpkg.Deployment, bool) {
-	deployments, err := h.queries.GetDeploymentsByProjectIDAndUserID(ctx, dbpkg.GetDeploymentsByProjectIDAndUserIDParams{
+	deployment, err := h.queries.GetActiveDeploymentByProjectIDAndUserID(ctx, dbpkg.GetActiveDeploymentByProjectIDAndUserIDParams{
 		ProjectID: projectID,
 		UserID:    userID,
 	})
 	if err != nil {
 		return dbpkg.Deployment{}, false
 	}
-
-	for _, deployment := range deployments {
-		if deployment.Status == "queued" || deployment.Status == "building" || deployment.Status == "deploying" {
-			return deployment, true
-		}
-	}
-
-	return dbpkg.Deployment{}, false
+	return deployment, true
 }
 
 func isActiveDeploymentConflict(err error) bool {

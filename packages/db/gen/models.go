@@ -87,3 +87,9 @@ type User struct {
 	AccessToken    string    `json:"access_token"`
 	CreatedAt      time.Time `json:"created_at"`
 }
+
+type WebhookDelivery struct {
+	ProjectID  uuid.UUID `json:"project_id"`
+	DeliveryID string    `json:"delivery_id"`
+	CreatedAt  time.Time `json:"created_at"`
+}

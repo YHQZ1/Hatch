@@ -5,6 +5,71 @@ import (
 	"testing"
 )
 
+func TestNormalizeGitHubRepoURL(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "https",
+			input: "https://github.com/YHQZ1/hatch.git",
+			want:  "https://github.com/YHQZ1/hatch",
+		},
+		{
+			name:  "ssh",
+			input: "git@github.com:YHQZ1/hatch.git",
+			want:  "https://github.com/YHQZ1/hatch",
+		},
+		{
+			name:  "slug",
+			input: "YHQZ1/hatch",
+			want:  "https://github.com/YHQZ1/hatch",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeGitHubRepoURL(tt.input)
+			if err != nil {
+				t.Fatalf("normalizeGitHubRepoURL(%q): %v", tt.input, err)
+			}
+			if got != tt.want {
+				t.Fatalf("normalizeGitHubRepoURL(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeGitHubRepoURLRejectsNonRepositoryURLs(t *testing.T) {
+	cases := []string{
+		"https://example.com/YHQZ1/hatch",
+		"https://github.com/YHQZ1/hatch/issues",
+		"https://github.com/YHQZ1/hatch?tab=readme",
+		"github.com/YHQZ1/hatch",
+	}
+
+	for _, value := range cases {
+		if _, err := normalizeGitHubRepoURL(value); err == nil {
+			t.Fatalf("expected %q to be rejected", value)
+		}
+	}
+}
+
+func TestNormalizeHealthCheckPath(t *testing.T) {
+	if got, err := normalizeHealthCheckPath(""); err != nil || got != "/" {
+		t.Fatalf("empty health check = %q, %v; want /", got, err)
+	}
+	if got, err := normalizeHealthCheckPath("/health/ready"); err != nil || got != "/health/ready" {
+		t.Fatalf("valid health check = %q, %v", got, err)
+	}
+	for _, value := range []string{"health", "/health check", "/" + strings.Repeat("x", 1024)} {
+		if _, err := normalizeHealthCheckPath(value); err == nil {
+			t.Fatalf("expected health check %q to be rejected", value)
+		}
+	}
+}
+
 func TestNormalizeEnvVars(t *testing.T) {
 	envVars, err := normalizeEnvVars(map[string]string{
 		" node_env ": "production",

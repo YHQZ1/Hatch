@@ -117,6 +117,51 @@ func (q *Queries) CreateDeployment(ctx context.Context, arg CreateDeploymentPara
 	return i, err
 }
 
+const getActiveDeploymentByProjectIDAndUserID = `-- name: GetActiveDeploymentByProjectIDAndUserID :one
+SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at
+FROM deployments
+JOIN projects ON projects.id = deployments.project_id
+WHERE deployments.project_id = $1
+  AND projects.user_id = $2
+  AND deployments.status IN ('queued', 'building', 'deploying')
+ORDER BY deployments.created_at DESC
+LIMIT 1
+`
+
+type GetActiveDeploymentByProjectIDAndUserIDParams struct {
+	ProjectID uuid.UUID `json:"project_id"`
+	UserID    uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) GetActiveDeploymentByProjectIDAndUserID(ctx context.Context, arg GetActiveDeploymentByProjectIDAndUserIDParams) (Deployment, error) {
+	row := q.db.QueryRowContext(ctx, getActiveDeploymentByProjectIDAndUserID, arg.ProjectID, arg.UserID)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Branch,
+		&i.Status,
+		&i.Cpu,
+		&i.MemoryMb,
+		&i.Port,
+		&i.HealthCheck,
+		&i.ImageUri,
+		&i.EcsTaskArn,
+		&i.Subdomain,
+		&i.Url,
+		&i.CreatedAt,
+		&i.DeployedAt,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.EcsServiceName,
+		&i.TargetGroupArn,
+		&i.ErrorStage,
+		&i.ErrorMessage,
+		&i.FailedAt,
+	)
+	return i, err
+}
+
 const getDeploymentByID = `-- name: GetDeploymentByID :one
 SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at FROM deployments WHERE id = $1
 `

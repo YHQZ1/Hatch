@@ -1,6 +1,6 @@
 module github.com/YHQZ1/hatch/apps/builder
 
-go 1.25.10
+go 1.26.4
 
 require (
 	github.com/YHQZ1/hatch/packages/secrets v0.0.0

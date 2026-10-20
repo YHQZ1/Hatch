@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"fmt"
 	"log"
 	"time"
 
@@ -26,8 +25,7 @@ func StatTracker() gin.HandlerFunc {
 			statusColor = "31"
 		}
 
-		log.Printf(
-			"\033[1;%sm[METRIC]\033[0m | %d | %13v | %s | %s",
+		log.Printf("\033[1;%sm[METRIC]\033[0m | %d | %13v | %s | %s",
 			statusColor,
 			status,
 			latency,
@@ -35,6 +33,5 @@ func StatTracker() gin.HandlerFunc {
 			path,
 		)
 
-		c.Header("X-Hatch-Trace-Duration", fmt.Sprintf("%v", latency))
 	}
 }

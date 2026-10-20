@@ -1,64 +1,63 @@
 # Security Policy
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-**Please do not report security vulnerabilities through public GitHub issues.**
+**Please do not report security vulnerabilities in public GitHub issues.**
 
-If you've found a security vulnerability in Hatch, please disclose it responsibly by emailing:
+Email **rupareluttkarsh2309@gmail.com** with:
 
-**rupareluttkarsh2309@gmail.com**
+- a description of the vulnerability and its impact
+- steps to reproduce or a proof of concept
+- the affected component (api, builder, deployer, web, or a shared package)
+- any suggested fix
 
-Include as much detail as you can:
+You will get an acknowledgment within **48 hours** and a fuller response within
+**7 days** with next steps, and updates as the issue is investigated and fixed.
 
-- A description of the vulnerability and its potential impact
-- Steps to reproduce or a proof of concept
-- Which component is affected (api, builder, deployer, infra, etc.)
-- Any suggested mitigations if you have them
+We will not take legal action against researchers who follow this policy and
+act in good faith.
 
-You'll receive an acknowledgment within **48 hours** and a more detailed response within **7 days** outlining next steps. We'll keep you updated as the issue is investigated and fixed.
+## Supported versions
 
-We won't take legal action against researchers who follow this policy and act in good faith.
-
----
+Hatch is a pre-release prototype that is being rebuilt; it is not ready for
+production use. Security fixes go to the latest `main` only.
 
 ## Scope
 
-The following are in scope:
+In scope:
 
-- Authentication and session handling (`apps/api/internal/auth/`)
-- GitHub OAuth token storage and usage
-- AWS credential handling in the builder and deployer services
-- Webhook signature verification (`apps/api/internal/handlers/webhook.go`)
-- Secrets/environment variable storage and injection
-- Privilege escalation within the Hatch dashboard
-- The Terraform infrastructure definitions (`infra/`)
+- Authentication, sessions, and CSRF protection (`apps/api/internal/auth/`)
+- Storage and use of GitHub OAuth tokens
+- GitHub webhook signature verification
+  (`apps/api/internal/handlers/webhook.go`)
+- Encryption of stored secrets (`packages/secrets/`)
+- Access to another user's projects, deployments, or logs
+- Handling of repositories and Dockerfiles during builds
 
-The following are **out of scope**:
+Out of scope:
 
-- Vulnerabilities in your own AWS account or self-hosted infrastructure
-- Denial of service attacks
-- Issues in third-party dependencies (report those upstream)
-- Findings from automated scanners without a working proof of concept
+- Problems already listed in
+  [Known problems](docs/02-current-state.md#known-problems); the rebuild
+  addresses them
+- Weaknesses in your own AWS account or infrastructure
+- Denial of service
+- Vulnerabilities in third-party dependencies (report those upstream)
+- Automated scanner output without a working proof of concept
 
----
+## If you run the prototype
 
-## Supported Versions
-
-Hatch is currently pre-1.0. Security fixes are applied to the latest `main` branch only.
-
-| Version         | Supported |
-| --------------- | --------- |
-| `main` (latest) | ✅        |
-| Older commits   | ❌        |
-
----
-
-## Security Considerations for Self-Hosters
-
-Hatch provisions real AWS infrastructure and handles sensitive credentials. If you're running Hatch yourself:
-
-- **Never expose the API, builder, or deployer ports publicly** without authentication in front of them.
-- **Rotate your AWS credentials regularly** and use IAM roles with least-privilege policies wherever possible. The Terraform modules in `infra/` follow this principle — don't loosen them.
-- **Use strong `JWT_SECRET` and `SESSION_SECRET` values** in your `.env` files. Generate them with `openssl rand -hex 32`.
-- **Keep RabbitMQ and Redis off public networks.** They should only be reachable within your internal network or VPC.
-- **Review webhook secrets.** The GitHub webhook endpoint verifies signatures — make sure `GITHUB_WEBHOOK_SECRET` is set and rotated if ever exposed.
+- **Builds are not isolated.** The builder runs `docker build` on user
+  Dockerfiles on its own host, with access to the Docker daemon and the host's
+  AWS credentials. Run it only on an isolated host, for repositories you trust.
+- **Env vars are visible in ECS.** They are encrypted in Postgres but written
+  in plain text into ECS task definitions, so anyone with ECS read access in
+  the account can see them.
+- **Use strong secrets.** Generate `JWT_SECRET` and `DATA_ENCRYPTION_KEY` with
+  `openssl rand -hex 32`. `DATA_ENCRYPTION_KEY` must be identical in the api,
+  builder, and deployer, and changing it makes stored tokens and env vars
+  unreadable.
+- **Keep the backing services private.** Postgres, Redis, and RabbitMQ must not
+  be reachable from the internet, and the default credentials in
+  `docker-compose.yaml` are for local development only.
+- **Limit AWS permissions.** Give the builder and deployer only the ECR, ECS,
+  ELB, and CloudWatch permissions they use.

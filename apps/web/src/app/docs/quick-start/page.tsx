@@ -195,7 +195,7 @@ export default function QuickStart() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {[
                 {
-                  name: "Go 1.23+",
+                  name: "Go 1.26.4+",
                   desc: "API, builder, and deployer services",
                   href: "https://go.dev/dl/",
                 },
@@ -337,12 +337,12 @@ export default function QuickStart() {
               Environment Variables
             </h2>
             <CodeBlock
-              code={`cp apps/api/.env.example apps/api/.env\ncp apps/builder/.env.example apps/builder/.env\ncp apps/deployer/.env.example apps/deployer/.env\ncp apps/web/.env.local.example apps/web/.env.local`}
+              code={`cp apps/api/.env.example apps/api/.env\ncp apps/builder/.env.example apps/builder/.env\ncp apps/deployer/.env.example apps/deployer/.env\ncp apps/web/.env.example apps/web/.env.local`}
             />
             <CodeBlock
               language="env"
               filename="apps/api/.env"
-              code={`PORT=8080\nGITHUB_CLIENT_ID=your_github_client_id\nGITHUB_CLIENT_SECRET=your_github_client_secret\nGITHUB_REDIRECT_URI=http://localhost:8080/auth/callback\nJWT_SECRET=a_long_random_string_at_least_32_chars\nDATABASE_URL=postgres://hatch:hatch@localhost:5432/hatch?sslmode=disable\nREDIS_URL=redis://localhost:6379\nRABBITMQ_URL=amqp://guest:guest@localhost:5672/`}
+              code={`PORT=8080\nGITHUB_CLIENT_ID=your_github_client_id\nGITHUB_CLIENT_SECRET=your_github_client_secret\nGITHUB_REDIRECT_URI=http://localhost:8080/auth/callback\nJWT_SECRET=a_long_random_string_at_least_32_chars\nDATA_ENCRYPTION_KEY=a_long_random_string_at_least_32_chars\nDATABASE_URL=postgres://hatch:hatch@localhost:5433/hatch?sslmode=disable\nREDIS_URL=redis://localhost:6379\nRABBITMQ_URL=amqp://guest:guest@localhost:5672/\nWEBHOOK_BASE_URL=http://localhost:8080`}
             />
           </section>
 
@@ -352,7 +352,7 @@ export default function QuickStart() {
             </h2>
             <CodeBlock code={`docker compose up -d postgres redis rabbitmq`} />
             <SimpleNote>
-              Infrastructure binds: PostgreSQL (5432), Redis (6379), and
+              Infrastructure binds: PostgreSQL (5433), Redis (6379), and
               RabbitMQ (5672).
             </SimpleNote>
           </section>
@@ -362,7 +362,7 @@ export default function QuickStart() {
               Run Migrations
             </h2>
             <CodeBlock
-              code={`migrate -path packages/db/migrations -database "postgres://hatch:hatch@localhost:5432/hatch?sslmode=disable" up`}
+              code={`migrate -path packages/db/migrations -database "postgres://hatch:hatch@localhost:5433/hatch?sslmode=disable" up`}
             />
           </section>
 

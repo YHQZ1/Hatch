@@ -8,6 +8,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const maxStoredLogLines int64 = 5000
+
 type Streamer struct {
 	client *redis.Client
 }
@@ -26,6 +28,7 @@ func (s *Streamer) Publish(ctx context.Context, id, message string) {
 
 	pipe := s.client.Pipeline()
 	pipe.RPush(ctx, listKey, message)
+	pipe.LTrim(ctx, listKey, -maxStoredLogLines, -1)
 	pipe.Expire(ctx, listKey, 7*24*time.Hour)
 	pipe.Publish(ctx, channel, message)
 	_, _ = pipe.Exec(ctx)

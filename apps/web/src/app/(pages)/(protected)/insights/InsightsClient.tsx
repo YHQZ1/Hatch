@@ -10,6 +10,12 @@ import {
   readApiError,
   redirectIfUnauthorized,
 } from "@/app/lib/api";
+import {
+  AppShell,
+  Button,
+  PageTitle,
+  StatusText,
+} from "../../../components/ui";
 
 interface Project {
   id: string;
@@ -63,6 +69,7 @@ interface HealthState {
 type TimeRange = "24h" | "7d" | "30d";
 
 interface TelemetryPoint {
+  timestamp?: string;
   label: string;
   requests: number;
   errors: number;
@@ -90,7 +97,7 @@ interface ProjectMetrics {
 interface TelemetryResult {
   points: TelemetryPoint[];
   summary: TelemetrySummary;
-  source: "cloudwatch" | "preview";
+  source: "cloudwatch";
   reason: string;
 }
 
@@ -104,6 +111,11 @@ const TIME_RANGES: { label: string; value: TimeRange }[] = [
   { label: "7D", value: "7d" },
   { label: "30D", value: "30d" },
 ];
+const CHART_LEFT = 54;
+const CHART_RIGHT = 18;
+const CHART_TOP = 18;
+const CHART_BOTTOM = 244;
+const CHART_WIDTH = 760 - CHART_LEFT - CHART_RIGHT;
 
 export default function InsightsClient() {
   const router = useRouter();
@@ -308,9 +320,12 @@ export default function InsightsClient() {
       }
 
       return {
-        ...buildTelemetry([selectedService], selectedService.deployments, timeRange),
-        source: "preview",
-        reason: realMetrics?.reason || "",
+        points: [],
+        summary: summarizeTelemetryPoints([]),
+        source: "cloudwatch",
+        reason:
+          realMetrics?.reason ||
+          "No CloudWatch metrics are available for this service yet.",
       };
     }
 
@@ -320,11 +335,15 @@ export default function InsightsClient() {
     }
 
     return {
-      ...buildTelemetry(services, allDeployments, timeRange),
-      source: "preview",
-      reason: "",
+      points: [],
+      summary: summarizeTelemetryPoints([]),
+      source: "cloudwatch",
+      reason:
+        services.length === 0
+          ? "Create and deploy a service to start collecting runtime metrics."
+          : "No CloudWatch metrics are available for the selected window.",
     };
-  }, [allDeployments, metricsByProject, selectedService, services, timeRange]);
+  }, [metricsByProject, selectedService, services]);
 
   const activeDeployments = services.some((service) =>
     ACTIVE_STATUSES.has(service.latest?.status?.toLowerCase() || ""),
@@ -339,47 +358,45 @@ export default function InsightsClient() {
   if (!mounted) return <PageLoadingState />;
 
   return (
-    <div className="w-full min-h-screen bg-black text-white">
-      <main className="w-full px-5 sm:px-6 lg:px-10 py-6 lg:py-8">
-        <InsightsHeader
-          lastSyncedAt={lastSyncedAt}
-          refreshing={refreshing}
-          onRefresh={() => loadData({ background: true })}
-        />
+    <AppShell>
+      <InsightsHeader
+        lastSyncedAt={lastSyncedAt}
+        refreshing={refreshing}
+        onRefresh={() => loadData({ background: true })}
+      />
 
-        {loading ? (
-          <InsightsSkeleton />
-        ) : (
-          <div className="space-y-6">
-            <ServiceSelector
-              services={services}
-              selectedProjectId={selectedProjectId}
-              onSelect={setSelectedProjectId}
+      {loading ? (
+        <InsightsSkeleton />
+      ) : (
+        <div className="space-y-7">
+          <ServiceSelector
+            services={services}
+            selectedProjectId={selectedProjectId}
+            onSelect={setSelectedProjectId}
+          />
+
+          {selectedService ? (
+            <ServiceDashboard
+              service={selectedService}
+              activity={activity}
+              telemetry={telemetry}
+              timeRange={timeRange}
+              onTimeRangeChange={setTimeRange}
             />
-
-            {selectedService ? (
-              <ServiceDashboard
-                service={selectedService}
-                activity={activity}
-                telemetry={telemetry}
-                timeRange={timeRange}
-                onTimeRangeChange={setTimeRange}
-              />
-            ) : (
-              <OverallDashboard
-                overview={overview}
-                services={services}
-                deployments={allDeployments}
-                activity={activity}
-                telemetry={telemetry}
-                timeRange={timeRange}
-                onTimeRangeChange={setTimeRange}
-              />
-            )}
-          </div>
-        )}
-      </main>
-    </div>
+          ) : (
+            <OverallDashboard
+              overview={overview}
+              services={services}
+              deployments={allDeployments}
+              activity={activity}
+              telemetry={telemetry}
+              timeRange={timeRange}
+              onTimeRangeChange={setTimeRange}
+            />
+          )}
+        </div>
+      )}
+    </AppShell>
   );
 }
 
@@ -393,35 +410,27 @@ function InsightsHeader({
   onRefresh: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between mb-8">
-      <div>
-        <h1 className="text-4xl md:text-5xl font-medium tracking-tight text-white">
-          Insights
-        </h1>
-        <p className="text-[12px] text-zinc-600 mt-2 tracking-wide max-w-xl">
-          Watch traffic, latency, failures, and deployment behaviour across every
-          service.
-        </p>
-      </div>
-
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="text-left sm:text-right">
-          <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-[#333] font-bold">
-            {refreshing ? "Refreshing" : "Last synced"}
-          </p>
-          <p className="text-[11px] text-zinc-600 mt-1">
-            {lastSyncedAt ? formatRelativeTime(lastSyncedAt.toISOString()) : "—"}
-          </p>
-        </div>
-        <button
-          onClick={onRefresh}
-          disabled={refreshing}
-          className="h-9 px-4 border border-[#1a1a1a] rounded-[3px] text-[10px] uppercase tracking-widest font-bold text-zinc-400 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-        >
-          {refreshing ? "Syncing" : "Refresh"}
-        </button>
-      </div>
-    </div>
+    <PageTitle
+      title="Insights"
+      description="CloudWatch-backed runtime metrics for traffic, latency, errors, CPU, and memory."
+      actions={
+        <>
+          <div className="mr-1 min-w-24 text-left sm:text-right">
+            <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-zinc-700 font-bold">
+              {refreshing ? "Refreshing" : "Last synced"}
+            </p>
+            <p className="mt-1 text-[11px] text-zinc-600">
+              {lastSyncedAt
+                ? formatRelativeTime(lastSyncedAt.toISOString())
+                : "—"}
+            </p>
+          </div>
+          <Button onClick={onRefresh} disabled={refreshing}>
+            {refreshing ? "Syncing" : "Refresh"}
+          </Button>
+        </>
+      }
+    />
   );
 }
 
@@ -435,14 +444,14 @@ function ServiceSelector({
   onSelect: (id: string) => void;
 }) {
   return (
-    <div className="border border-[#1a1a1a] rounded-[6px] bg-[#030303] p-2 overflow-x-auto">
-      <div className="flex items-center gap-2 min-w-max">
+    <div className="overflow-x-auto border-b border-white/[0.08] pb-5">
+      <div className="flex min-w-max items-center gap-2">
         <button
           onClick={() => onSelect("all")}
-          className={`h-9 px-4 rounded-[3px] text-[10px] uppercase tracking-widest font-bold transition-all cursor-pointer ${
+          className={`h-9 px-3.5 rounded-md text-[10px] uppercase tracking-[0.16em] font-semibold transition-all cursor-pointer ${
             selectedProjectId === "all"
               ? "bg-white text-black"
-              : "text-zinc-500 hover:text-white hover:bg-white/[0.04]"
+              : "text-zinc-500 hover:text-white hover:bg-white/[0.045]"
           }`}
         >
           All Services
@@ -451,10 +460,10 @@ function ServiceSelector({
           <button
             key={service.project.id}
             onClick={() => onSelect(service.project.id)}
-            className={`h-9 px-4 rounded-[3px] text-[10px] uppercase tracking-widest font-bold transition-all cursor-pointer flex items-center gap-2 ${
+            className={`h-9 px-3.5 rounded-md text-[10px] uppercase tracking-[0.16em] font-semibold transition-all cursor-pointer flex items-center gap-2 ${
               selectedProjectId === service.project.id
                 ? "bg-white text-black"
-                : "text-zinc-500 hover:text-white hover:bg-white/[0.04]"
+                : "text-zinc-500 hover:text-white hover:bg-white/[0.045]"
             }`}
           >
             <span
@@ -487,14 +496,13 @@ function OverallDashboard({
   timeRange: TimeRange;
   onTimeRangeChange: (range: TimeRange) => void;
 }) {
-  const trend = deploymentTrend(deployments);
   const recentDeployments = [...deployments]
     .sort((a, b) => dateValue(b.created_at) - dateValue(a.created_at))
     .slice(0, 6);
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-px bg-[#1a1a1a] border border-[#1a1a1a] rounded-[6px] overflow-hidden">
+    <div className="space-y-7">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-4 border-b border-white/[0.08] pb-7 sm:flex sm:items-end sm:gap-12">
         <MetricCard label="Services" value={String(overview.totalServices)} />
         <MetricCard
           label="Healthy"
@@ -510,16 +518,16 @@ function OverallDashboard({
       </div>
 
       <TelemetrySection
-        title="Runtime Observability"
+        title="Runtime"
         scope="All services"
         telemetry={telemetry}
         timeRange={timeRange}
         onTimeRangeChange={onTimeRangeChange}
       />
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-6">
-        <Panel title="Deployment Behaviour" meta="Last 7 days">
-          <BarTrend data={trend} />
+      <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-7">
+        <Panel title="Deployment Outcomes" meta="Current history">
+          <DeploymentOutcomes deployments={deployments} />
         </Panel>
 
         <Panel title="Fleet Health" meta="Latest deployment per service">
@@ -535,7 +543,7 @@ function OverallDashboard({
         </Panel>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-7">
         <Panel title="Recent Deployments" meta="Newest first">
           <DeploymentList deployments={recentDeployments} services={services} />
         </Panel>
@@ -563,7 +571,6 @@ function ServiceDashboard({
   const deployments = service.deployments;
   const successRate = calculateSuccessRate(deployments);
   const latest = service.latest;
-  const trend = deploymentTrend(deployments);
   const relatedActivity = activity
     .filter((event) =>
       event.message.toLowerCase().includes(service.project.repo_name.toLowerCase()),
@@ -571,8 +578,8 @@ function ServiceDashboard({
     .slice(0, 6);
 
   return (
-    <div className="space-y-6">
-      <div className="border border-[#1a1a1a] rounded-[6px] bg-[#030303] p-5">
+    <div className="space-y-7">
+      <div className="border-b border-white/[0.08] pb-7">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
           <div className="min-w-0">
             <div className="flex items-center gap-3 mb-3">
@@ -596,14 +603,14 @@ function ServiceDashboard({
                 href={service.liveUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="h-9 px-4 border border-[#222] rounded-[3px] text-[10px] uppercase tracking-widest font-bold text-zinc-400 hover:text-white hover:border-zinc-500 transition-all cursor-pointer flex items-center"
+                className="h-9 px-3.5 border border-white/[0.11] rounded-md text-[11px] uppercase tracking-[0.14em] font-semibold text-zinc-300 hover:text-white hover:border-white/25 hover:bg-white/[0.045] transition-all cursor-pointer flex items-center"
               >
                 Open
               </a>
             )}
             <Link
               href={`/projects/${service.project.id}`}
-              className="h-9 px-4 bg-white text-black rounded-[3px] text-[10px] uppercase tracking-widest font-bold hover:bg-zinc-200 transition-colors flex items-center cursor-pointer"
+              className="h-9 px-3.5 bg-white text-black rounded-md text-[11px] uppercase tracking-[0.14em] font-semibold hover:bg-zinc-200 transition-colors flex items-center cursor-pointer"
             >
               Details
             </Link>
@@ -611,7 +618,7 @@ function ServiceDashboard({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-px bg-[#1a1a1a] border border-[#1a1a1a] rounded-[6px] overflow-hidden">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-4 border-b border-white/[0.08] pb-7 sm:flex sm:items-end sm:gap-12">
         <MetricCard label="Deployments" value={String(deployments.length)} />
         <MetricCard label="Success Rate" value={`${successRate}%`} />
         <MetricCard
@@ -623,16 +630,16 @@ function ServiceDashboard({
       </div>
 
       <TelemetrySection
-        title="Service Observability"
+        title="Runtime"
         scope={service.project.repo_name}
         telemetry={telemetry}
         timeRange={timeRange}
         onTimeRangeChange={onTimeRangeChange}
       />
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-6">
-        <Panel title="Deployment Behaviour" meta="This service">
-          <BarTrend data={trend} />
+      <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-7">
+        <Panel title="Deployment Outcomes" meta="This service">
+          <DeploymentOutcomes deployments={deployments} />
         </Panel>
         <Panel title="Runtime Contract" meta="Configured service settings">
           <div className="grid grid-cols-2 gap-3">
@@ -650,7 +657,7 @@ function ServiceDashboard({
         </Panel>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-7">
         <Panel title="Deployment History" meta="Newest first">
           <DeploymentList deployments={deployments.slice(0, 8)} services={[service]} />
         </Panel>
@@ -675,36 +682,32 @@ function TelemetrySection({
   timeRange: TimeRange;
   onTimeRangeChange: (range: TimeRange) => void;
 }) {
-  const usingCloudWatch = telemetry.source === "cloudwatch";
+  const hasMetrics = telemetry.points.length > 0;
+  const timeZone = getBrowserTimeZone();
 
   return (
-    <section className="border border-[#1a1a1a] rounded-[6px] bg-[#030303] overflow-hidden">
-      <div className="px-5 py-4 border-b border-[#111] flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <section className="border-y border-white/[0.08]">
+      <div className="py-4 border-b border-white/[0.08] flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h3 className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-bold">
+            <h3 className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-semibold">
               {title}
             </h3>
-            <span
-              className={`text-[9px] uppercase tracking-[0.16em] font-mono ${
-                usingCloudWatch ? "text-[#3fba78]" : "text-[#facc15]"
-              }`}
-            >
-              {usingCloudWatch ? "CloudWatch" : "Preview telemetry"}
-            </span>
+            <StatusText tone={hasMetrics ? "success" : "muted"}>
+              CloudWatch
+            </StatusText>
           </div>
           <p className="text-[11px] text-zinc-700 mt-1">
             {scope} ·{" "}
-            {usingCloudWatch
-              ? "live AWS metrics from ECS and the application load balancer."
-              : telemetry.reason ||
-                "derived from deployment signals until runtime metrics are connected."}
+            {hasMetrics
+              ? `live CloudWatch metrics, shown in ${timeZone}.`
+              : telemetry.reason}
           </p>
         </div>
         <RangeControl value={timeRange} onChange={onTimeRangeChange} />
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-5 gap-px bg-[#151515]">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-4 border-b border-white/[0.08] py-5 sm:grid-cols-3 xl:grid-cols-5">
         <MetricCard
           label="Requests"
           value={formatCompactNumber(telemetry.summary.requests)}
@@ -736,22 +739,26 @@ function TelemetrySection({
         />
       </div>
 
-      <div className="p-5 grid grid-cols-1 2xl:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 gap-7 py-7 2xl:grid-cols-2">
         <LineChart
           title="Traffic"
           meta="Requests"
           data={telemetry.points}
           metric="requests"
-          color="#7dd3fc"
+          color="#6ea8fe"
           formatter={formatCompactNumber}
+          timeRange={timeRange}
+          emptyReason={telemetry.reason}
         />
         <LineChart
           title="Latency"
           meta="P95 response time"
           data={telemetry.points}
           metric="latency"
-          color="#c084fc"
+          color="#9ca3af"
           formatter={(value) => `${Math.round(value)}ms`}
+          timeRange={timeRange}
+          emptyReason={telemetry.reason}
         />
         <LineChart
           title="Errors"
@@ -760,8 +767,14 @@ function TelemetrySection({
           metric="errors"
           color="#d05252"
           formatter={(value) => `${value.toFixed(2)}%`}
+          timeRange={timeRange}
+          emptyReason={telemetry.reason}
         />
-        <ResourceChart data={telemetry.points} />
+        <ResourceChart
+          data={telemetry.points}
+          timeRange={timeRange}
+          emptyReason={telemetry.reason}
+        />
       </div>
     </section>
   );
@@ -775,15 +788,15 @@ function RangeControl({
   onChange: (range: TimeRange) => void;
 }) {
   return (
-    <div className="inline-flex items-center gap-1 border border-[#1a1a1a] bg-black p-1 rounded-[4px] w-fit">
+    <div className="inline-flex items-center gap-1 rounded-md border border-white/[0.11] bg-transparent p-1 w-fit">
       {TIME_RANGES.map((range) => (
         <button
           key={range.value}
           onClick={() => onChange(range.value)}
-          className={`h-7 px-3 rounded-[3px] text-[9px] uppercase tracking-[0.18em] font-bold transition-all cursor-pointer ${
+          className={`h-7 px-3 rounded text-[9px] uppercase tracking-[0.18em] font-semibold transition-all cursor-pointer ${
             value === range.value
               ? "bg-white text-black"
-              : "text-zinc-600 hover:text-white hover:bg-white/[0.04]"
+              : "text-zinc-600 hover:text-white hover:bg-white/[0.045]"
           }`}
         >
           {range.label}
@@ -800,6 +813,8 @@ function LineChart({
   metric,
   color,
   formatter,
+  timeRange,
+  emptyReason,
 }: {
   title: string;
   meta: string;
@@ -807,142 +822,281 @@ function LineChart({
   metric: keyof Pick<TelemetryPoint, "requests" | "errors" | "latency" | "cpu" | "memory">;
   color: string;
   formatter: (value: number) => string;
+  timeRange: TimeRange;
+  emptyReason?: string;
 }) {
   const values = data.map((point) => Number(point[metric]));
+  const hasData = values.length > 0;
   const max = Math.max(...values, 1);
   const min = Math.min(...values, 0);
   const latest = values[values.length - 1] || 0;
   const previous = values[values.length - 2] || latest;
   const delta = latest - previous;
-  const { linePath, areaPath } = chartPaths(values, min, max);
+  const yTicks = chartTicks(min, max, formatter);
+  const xTicks = axisTickIndexes(data.length);
+  const { linePath, areaPath } = chartPaths(values, yTicks.min, yTicks.max);
 
   return (
-    <div className="border border-[#111] bg-[#050505] rounded-[4px] p-4 min-w-0">
+    <div className="min-w-0 border-t border-white/[0.08] pt-4">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500 font-bold">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500 font-semibold">
             {title}
           </p>
           <p className="text-[10px] text-zinc-700 mt-1">{meta}</p>
         </div>
         <div className="text-right">
           <p className="font-mono text-xl text-white tracking-tight">
-            {formatter(latest)}
+            {hasData ? formatter(latest) : "—"}
           </p>
           <p
             className={`font-mono text-[10px] mt-1 ${
               delta > 0 ? "text-[#3fba78]" : delta < 0 ? "text-[#d05252]" : "text-zinc-700"
             }`}
           >
-            {delta === 0 ? "flat" : `${delta > 0 ? "+" : ""}${formatter(delta)}`}
+            {hasData
+              ? delta === 0
+                ? "flat"
+                : `${delta > 0 ? "+" : ""}${formatter(delta)}`
+              : "no data"}
           </p>
         </div>
       </div>
 
-      <svg viewBox="0 0 720 240" className="w-full h-56 overflow-visible">
-        <defs>
-          <linearGradient id={`fill-${metric}-${title}`} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.24" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[0, 1, 2, 3].map((item) => (
-          <line
-            key={item}
-            x1="42"
-            x2="704"
-            y1={26 + item * 52}
-            y2={26 + item * 52}
-            stroke="#151515"
-            strokeWidth="1"
-          />
-        ))}
-        <path d={areaPath} fill={`url(#fill-${metric}-${title})`} />
-        <path d={linePath} fill="none" stroke={color} strokeWidth="2.5" />
-        {data.map((point, index) => {
-          if (index !== 0 && index !== data.length - 1 && index % 4 !== 0) {
-            return null;
-          }
-          const x = 42 + (index / Math.max(data.length - 1, 1)) * 662;
-          return (
-            <text
-              key={`${point.label}-${index}`}
-              x={x}
-              y="226"
-              textAnchor={index === 0 ? "start" : index === data.length - 1 ? "end" : "middle"}
-              fill="#3f3f46"
-              fontSize="10"
-              fontFamily="monospace"
+      {!hasData ? (
+        <EmptyChart reason={emptyReason} />
+      ) : (
+        <svg viewBox="0 0 760 280" className="w-full h-64 overflow-visible">
+          <defs>
+            <linearGradient
+              id={`fill-${metric}-${title}`}
+              x1="0"
+              x2="0"
+              y1="0"
+              y2="1"
             >
-              {point.label}
-            </text>
-          );
-        })}
-      </svg>
+              <stop offset="0%" stopColor={color} stopOpacity="0.14" />
+              <stop offset="100%" stopColor={color} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <ChartGrid
+            xTicks={xTicks}
+            xTotal={data.length}
+            yTicks={yTicks.values}
+            yMin={yTicks.min}
+            yMax={yTicks.max}
+          />
+          <path d={areaPath} fill={`url(#fill-${metric}-${title})`} />
+          <path d={linePath} fill="none" stroke={color} strokeWidth="1.45" />
+          {yTicks.values.map((tick) => {
+            const y = chartY(tick, yTicks.min, yTicks.max);
+            return (
+              <text
+                key={`y-${tick}`}
+                x="42"
+                y={y + 4}
+                textAnchor="end"
+                fill="#3f3f46"
+                fontSize="10"
+                fontFamily="monospace"
+              >
+                {yTicks.format(tick)}
+              </text>
+            );
+          })}
+          {xTicks.map((index) => {
+            const point = data[index];
+            const x = chartX(index, data.length);
+            return (
+              <text
+                key={`${point.label}-${index}`}
+                x={x}
+                y="262"
+                textAnchor={
+                  index === 0
+                    ? "start"
+                    : index === data.length - 1
+                      ? "end"
+                      : "middle"
+                }
+                fill="#3f3f46"
+                fontSize="10"
+                fontFamily="monospace"
+              >
+                {formatPointTime(point, timeRange)}
+              </text>
+            );
+          })}
+        </svg>
+      )}
     </div>
   );
 }
 
-function ResourceChart({ data }: { data: TelemetryPoint[] }) {
+function ResourceChart({
+  data,
+  timeRange,
+  emptyReason,
+}: {
+  data: TelemetryPoint[];
+  timeRange: TimeRange;
+  emptyReason?: string;
+}) {
+  const xTicks = axisTickIndexes(data.length);
   return (
-    <div className="border border-[#111] bg-[#050505] rounded-[4px] p-4 min-w-0">
+    <div className="min-w-0 border-t border-white/[0.08] pt-4">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500 font-bold">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500 font-semibold">
             Resources
           </p>
           <p className="text-[10px] text-zinc-700 mt-1">CPU and memory pressure</p>
         </div>
         <div className="flex items-center gap-4 font-mono text-[10px]">
-          <span className="text-[#3fba78]">CPU</span>
-          <span className="text-[#facc15]">MEM</span>
+          <span className="text-[#6ea8fe]">CPU</span>
+          <span className="text-zinc-500">MEM</span>
         </div>
       </div>
-      <svg viewBox="0 0 720 240" className="w-full h-56 overflow-visible">
-        {[0, 1, 2, 3].map((item) => (
-          <line
+      {data.length === 0 ? (
+        <EmptyChart reason={emptyReason} />
+      ) : (
+        <svg viewBox="0 0 760 280" className="w-full h-64 overflow-visible">
+          <ChartGrid
+            xTicks={xTicks}
+            xTotal={data.length}
+            yTicks={[0, 25, 50, 75, 100]}
+            yMin={0}
+            yMax={100}
+          />
+          {[0, 25, 50, 75, 100].map((tick) => {
+            const y = chartY(tick, 0, 100);
+            return (
+              <text
+                key={`resource-y-${tick}`}
+                x="42"
+                y={y + 4}
+                textAnchor="end"
+                fill="#3f3f46"
+                fontSize="10"
+                fontFamily="monospace"
+              >
+                {tick}%
+              </text>
+            );
+          })}
+          <path
+            d={chartPaths(data.map((point) => point.memory), 0, 100).linePath}
+            fill="none"
+            stroke="#71717a"
+            strokeWidth="1.45"
+          />
+          <path
+            d={chartPaths(data.map((point) => point.cpu), 0, 100).linePath}
+            fill="none"
+            stroke="#6ea8fe"
+            strokeWidth="1.45"
+          />
+          {xTicks.map((index) => {
+            const point = data[index];
+            const x = chartX(index, data.length);
+            return (
+              <text
+                key={`${point.label}-${index}`}
+                x={x}
+                y="262"
+                textAnchor={
+                  index === 0
+                    ? "start"
+                    : index === data.length - 1
+                      ? "end"
+                      : "middle"
+                }
+                fill="#3f3f46"
+                fontSize="10"
+                fontFamily="monospace"
+              >
+                {formatPointTime(point, timeRange)}
+              </text>
+            );
+          })}
+        </svg>
+      )}
+    </div>
+  );
+}
+
+function EmptyChart({ reason }: { reason?: string }) {
+  return (
+    <div className="relative flex h-64 items-center justify-center overflow-hidden">
+      <div className="absolute inset-0">
+        {Array.from({ length: 7 }).map((_, item) => (
+          <div
             key={item}
-            x1="42"
-            x2="704"
-            y1={26 + item * 52}
-            y2={26 + item * 52}
-            stroke="#151515"
-            strokeWidth="1"
+            className="absolute left-0 right-0 border-t border-white/[0.055]"
+            style={{ top: `${10 + item * 13}%` }}
           />
         ))}
-        <path
-          d={chartPaths(data.map((point) => point.memory), 0, 100).linePath}
-          fill="none"
-          stroke="#facc15"
-          strokeWidth="2.25"
-        />
-        <path
-          d={chartPaths(data.map((point) => point.cpu), 0, 100).linePath}
-          fill="none"
-          stroke="#3fba78"
-          strokeWidth="2.25"
-        />
-        {data.map((point, index) => {
-          if (index !== 0 && index !== data.length - 1 && index % 4 !== 0) {
-            return null;
-          }
-          const x = 42 + (index / Math.max(data.length - 1, 1)) * 662;
-          return (
-            <text
-              key={`${point.label}-${index}`}
-              x={x}
-              y="226"
-              textAnchor={index === 0 ? "start" : index === data.length - 1 ? "end" : "middle"}
-              fill="#3f3f46"
-              fontSize="10"
-              fontFamily="monospace"
-            >
-              {point.label}
-            </text>
-          );
-        })}
-      </svg>
+        {Array.from({ length: 9 }).map((_, item) => (
+          <div
+            key={`v-${item}`}
+            className="absolute bottom-8 top-4 border-l border-white/[0.035]"
+            style={{ left: `${8 + item * 11}%` }}
+          />
+        ))}
+      </div>
+      <p className="relative max-w-xs text-center text-[11px] leading-5 text-zinc-700">
+        {reason || "No metrics in this time range."}
+      </p>
     </div>
+  );
+}
+
+function ChartGrid({
+  xTicks,
+  xTotal,
+  yTicks,
+  yMin,
+  yMax,
+}: {
+  xTicks: number[];
+  xTotal: number;
+  yTicks: number[];
+  yMin: number;
+  yMax: number;
+}) {
+  return (
+    <>
+      {yTicks.map((tick) => (
+        <line
+          key={`horizontal-${tick}`}
+          x1={CHART_LEFT}
+          x2={760 - CHART_RIGHT}
+          y1={chartY(tick, yMin, yMax)}
+          y2={chartY(tick, yMin, yMax)}
+          stroke="#1d1d1f"
+          strokeWidth="0.8"
+        />
+      ))}
+      {xTicks.map((index) => (
+        <line
+          key={`vertical-${index}`}
+          x1={chartX(index, xTotal)}
+          x2={chartX(index, xTotal)}
+          y1={CHART_TOP}
+          y2={CHART_BOTTOM}
+          stroke="#151517"
+          strokeWidth="0.65"
+        />
+      ))}
+      <line
+        x1={CHART_LEFT}
+        x2={760 - CHART_RIGHT}
+        y1={CHART_BOTTOM}
+        y2={CHART_BOTTOM}
+        stroke="#2a2a2d"
+        strokeWidth="0.8"
+      />
+    </>
   );
 }
 
@@ -959,20 +1113,20 @@ function MetricCard({
 }) {
   const color =
     accent === "green"
-      ? "text-[#3fba78]"
+      ? "text-[#5cc98f]"
       : accent === "red"
-        ? "text-[#d05252]"
+        ? "text-[#d86666]"
         : accent === "amber"
-          ? "text-[#facc15]"
+          ? "text-[#d8ad4f]"
           : "text-white";
 
   return (
-    <div className="bg-[#080808] px-5 py-4 min-w-0">
-      <p className="text-[9px] uppercase tracking-[0.15em] text-[#444] mb-1.5">
+    <div className="min-w-0">
+      <p className="mb-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600">
         {label}
       </p>
       <p
-        className={`text-2xl font-medium tracking-tight truncate ${color} ${
+        className={`text-xl font-medium tracking-tight truncate ${color} ${
           mono ? "font-mono" : ""
         }`}
       >
@@ -992,9 +1146,9 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="border border-[#1a1a1a] rounded-[6px] bg-[#030303] overflow-hidden">
-      <div className="px-5 py-4 border-b border-[#111] flex items-center justify-between gap-4">
-        <h3 className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-bold">
+    <section className="border-y border-white/[0.08]">
+      <div className="py-4 border-b border-white/[0.08] flex items-center justify-between gap-4">
+        <h3 className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-semibold">
           {title}
         </h3>
         {meta && (
@@ -1003,45 +1157,66 @@ function Panel({
           </span>
         )}
       </div>
-      <div className="p-5">{children}</div>
+      <div className="py-5">{children}</div>
     </section>
   );
 }
 
-function BarTrend({ data }: { data: { label: string; total: number; failed: number }[] }) {
-  const max = Math.max(...data.map((item) => item.total), 1);
+function DeploymentOutcomes({ deployments }: { deployments: Deployment[] }) {
+  const outcomes = deploymentOutcomes(deployments);
+  const latest = [...deployments].sort(
+    (a, b) => dateValue(b.created_at) - dateValue(a.created_at),
+  )[0];
+
+  if (deployments.length === 0) {
+    return <EmptyInline text="No deployments yet" />;
+  }
 
   return (
-    <div className="h-56 flex items-end gap-3">
-      {data.map((item) => {
-        const height = Math.max((item.total / max) * 100, item.total ? 12 : 3);
-        const failedHeight = item.total ? (item.failed / item.total) * 100 : 0;
-        return (
-          <div key={item.label} className="flex-1 h-full flex flex-col justify-end min-w-0">
-            <div className="relative h-full flex items-end">
-              <div
-                className="w-full bg-[#151515] border border-[#202020] rounded-t-[3px] overflow-hidden"
-                style={{ height: `${height}%` }}
-              >
-                <div
-                  className="w-full bg-[#5a1d1d]"
-                  style={{ height: `${failedHeight}%` }}
-                />
-              </div>
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-4">
+        <MetricCard label="Live" value={String(outcomes.live)} accent="green" />
+        <MetricCard
+          label="Active"
+          value={String(outcomes.active)}
+          accent={outcomes.active > 0 ? "amber" : undefined}
+        />
+        <MetricCard
+          label="Failed"
+          value={String(outcomes.failed)}
+          accent={outcomes.failed > 0 ? "red" : undefined}
+        />
+        <MetricCard label="Canceled" value={String(outcomes.canceled)} />
+      </div>
+      <div className="border-t border-white/[0.055] pt-4">
+        <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-700">
+          Latest deployment
+        </p>
+        {latest ? (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="truncate text-sm text-zinc-300">
+                {latest.commit_message ||
+                  latest.commit_sha?.slice(0, 7) ||
+                  latest.id.slice(0, 8)}
+              </p>
+              <p className="mt-1 font-mono text-[10px] text-zinc-700">
+                {formatRelativeTime(latest.created_at)} · {latest.branch}
+              </p>
             </div>
-            <div className="text-[9px] text-zinc-700 font-mono mt-3 text-center truncate">
-              {item.label}
-            </div>
+            <HealthText health={getHealth(latest.status)} />
           </div>
-        );
-      })}
+        ) : (
+          <p className="text-sm text-zinc-700">No deployment history.</p>
+        )}
+      </div>
     </div>
   );
 }
 
 function ServiceHealthRow({ service }: { service: ServiceInsight }) {
   return (
-    <div className="flex items-center justify-between gap-4 border border-[#111] bg-[#050505] rounded-[3px] px-4 py-3">
+    <div className="flex items-center justify-between gap-4 border-b border-white/[0.055] py-3 last:border-b-0">
       <div className="min-w-0">
         <Link
           href={`/projects/${service.project.id}`}
@@ -1079,7 +1254,7 @@ function DeploymentList({
         return (
           <div
             key={deployment.id}
-            className="border border-[#111] bg-[#050505] rounded-[3px] px-4 py-3"
+            className="border-b border-white/[0.055] py-3 last:border-b-0"
           >
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
@@ -1115,7 +1290,7 @@ function ActivityList({ activity }: { activity: ActivityEvent[] }) {
       {activity.map((event) => (
         <div
           key={event.id}
-          className="border border-[#111] bg-[#050505] rounded-[3px] px-4 py-3"
+          className="border-b border-white/[0.055] py-3 last:border-b-0"
         >
           <p className="text-[13px] text-zinc-300 leading-relaxed">
             {event.message}
@@ -1132,8 +1307,8 @@ function ActivityList({ activity }: { activity: ActivityEvent[] }) {
 
 function MiniInfo({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border border-[#111] bg-[#050505] rounded-[3px] px-4 py-3 min-w-0">
-      <p className="text-[9px] uppercase tracking-[0.18em] text-[#444] font-bold mb-1.5">
+    <div className="min-w-0 border-b border-white/[0.055] py-3">
+      <p className="text-[9px] uppercase tracking-[0.18em] text-zinc-700 font-bold mb-1.5">
         {label}
       </p>
       <p className="text-[13px] text-zinc-300 truncate">{value}</p>
@@ -1187,6 +1362,7 @@ function normalizeProjectMetrics(data: unknown): ProjectMetrics {
   const raw = data as Partial<ProjectMetrics> | null;
   const points = Array.isArray(raw?.points)
     ? raw.points.map((point) => ({
+        timestamp: typeof point.timestamp === "string" ? point.timestamp : undefined,
         label: String(point.label || ""),
         requests: Number(point.requests || 0),
         errors: Number(point.errors || 0),
@@ -1273,156 +1449,62 @@ function summarizeTelemetryPoints(points: TelemetryPoint[]): TelemetrySummary {
   };
 }
 
-function buildTelemetry(
-  services: ServiceInsight[],
-  deployments: Deployment[],
-  range: TimeRange,
-): { points: TelemetryPoint[]; summary: TelemetrySummary } {
-  const buckets = range === "24h" ? 24 : range === "7d" ? 14 : 30;
-  const labelEvery = range === "24h" ? 6 : range === "7d" ? 2 : 5;
-  const serviceWeight = Math.max(services.length, 1);
-  const liveWeight = Math.max(
-    services.filter((service) => service.health.kind === "healthy").length,
-    1,
-  );
-  const failedWeight = deployments.filter((deployment) =>
-    FAILED_STATUSES.has(deployment.status.toLowerCase()),
-  ).length;
-  const activeWeight = services.filter((service) => service.health.kind === "active")
-    .length;
-  const seed =
-    services.reduce((sum, service) => sum + hashCode(service.project.id), 0) +
-    deployments.reduce((sum, deployment) => sum + hashCode(deployment.id), 0);
-
-  const points = Array.from({ length: buckets }).map((_, index) => {
-    const wave = Math.sin((index + seed % 11) / 2.7);
-    const secondWave = Math.cos((index + seed % 7) / 4.1);
-    const deploymentBoost = deployments.filter((deployment) =>
-      isDeploymentInBucket(deployment, index, buckets, range),
-    ).length;
-    const baseRequests = 160 * serviceWeight + 95 * liveWeight;
-    const requests = Math.max(
-      12,
-      Math.round(baseRequests + wave * 52 + secondWave * 28 + deploymentBoost * 180),
-    );
-    const errors = clamp(
-      0.18 + failedWeight * 0.42 + activeWeight * 0.16 + Math.max(wave, 0) * 0.34,
-      0.05,
-      8.5,
-    );
-    const latency = Math.round(
-      clamp(112 + serviceWeight * 18 + deploymentBoost * 28 + secondWave * 34, 64, 820),
-    );
-    const cpu = Math.round(
-      clamp(22 + serviceWeight * 5 + activeWeight * 10 + wave * 12 + deploymentBoost * 8, 8, 96),
-    );
-    const memory = Math.round(
-      clamp(36 + serviceWeight * 4 + secondWave * 9 + deploymentBoost * 5, 18, 94),
-    );
-
-    return {
-      label: telemetryLabel(index, buckets, range, labelEvery),
-      requests,
-      errors,
-      latency,
-      cpu,
-      memory,
-    };
+function chartPaths(values: number[], min: number, max: number) {
+  const safeMax = max === min ? max + 1 : max;
+  const coordinates = values.map((value, index) => {
+    return `${chartX(index, values.length).toFixed(2)},${chartY(value, min, safeMax).toFixed(2)}`;
   });
+  const linePath = coordinates
+    .map((point, index) => `${index === 0 ? "M" : "L"}${point}`)
+    .join(" ");
+  const areaPath = `${linePath} L${CHART_LEFT + CHART_WIDTH},${CHART_BOTTOM} L${CHART_LEFT},${CHART_BOTTOM} Z`;
 
-  const totals = points.reduce(
-    (acc, point) => {
-      acc.requests += point.requests;
-      acc.errorRate += point.errors;
-      acc.latency += point.latency;
-      acc.cpu += point.cpu;
-      acc.memory += point.memory;
-      return acc;
-    },
-    { requests: 0, errorRate: 0, latency: 0, cpu: 0, memory: 0 },
+  return { linePath, areaPath };
+}
+
+function chartX(index: number, total: number) {
+  return CHART_LEFT + (index / Math.max(total - 1, 1)) * CHART_WIDTH;
+}
+
+function chartY(value: number, min: number, max: number) {
+  const safeMax = max === min ? max + 1 : max;
+  const ratio = (value - min) / Math.max(safeMax - min, 1);
+  return CHART_BOTTOM - ratio * (CHART_BOTTOM - CHART_TOP);
+}
+
+function chartTicks(
+  min: number,
+  max: number,
+  formatter: (value: number) => string,
+) {
+  const safeMin = Math.min(0, min);
+  const safeMax = max <= safeMin ? safeMin + 1 : max;
+  const step = (safeMax - safeMin) / 4;
+  const values = Array.from({ length: 5 }).map((_, index) =>
+    Number((safeMin + step * index).toFixed(2)),
   );
 
   return {
-    points,
-    summary: {
-      requests: totals.requests,
-      errorRate: totals.errorRate / points.length,
-      latency: totals.latency / points.length,
-      cpu: totals.cpu / points.length,
-      memory: totals.memory / points.length,
-    },
+    min: safeMin,
+    max: safeMax,
+    values,
+    format: formatter,
   };
 }
 
-function isDeploymentInBucket(
-  deployment: Deployment,
-  index: number,
-  buckets: number,
-  range: TimeRange,
-) {
-  const now = new Date();
-  const created = new Date(deployment.created_at);
-  if (Number.isNaN(created.getTime())) return false;
+function axisTickIndexes(total: number) {
+  if (total <= 0) return [];
+  if (total <= 6) return Array.from({ length: total }).map((_, index) => index);
 
-  if (range === "24h") {
-    const diffHours = Math.floor((now.getTime() - created.getTime()) / 3600000);
-    return diffHours >= 0 && buckets - 1 - diffHours === index;
+  const desired = total > 24 ? 7 : 6;
+  const indexes = new Set<number>();
+  const step = (total - 1) / Math.max(desired - 1, 1);
+  for (let index = 0; index < desired; index += 1) {
+    indexes.add(Math.round(index * step));
   }
-
-  const diffDays = Math.floor((now.getTime() - created.getTime()) / 86400000);
-  if (range === "7d") {
-    return diffDays >= 0 && buckets - 1 - Math.floor(diffDays * 2) === index;
-  }
-  return diffDays >= 0 && buckets - 1 - diffDays === index;
-}
-
-function telemetryLabel(
-  index: number,
-  buckets: number,
-  range: TimeRange,
-  labelEvery: number,
-) {
-  if (index !== 0 && index !== buckets - 1 && index % labelEvery !== 0) {
-    return "";
-  }
-
-  const date = new Date();
-  if (range === "24h") {
-    date.setHours(date.getHours() - (buckets - 1 - index));
-    return date.toLocaleTimeString("en-US", { hour: "numeric" });
-  }
-
-  if (range === "7d") {
-    date.setDate(date.getDate() - Math.floor((buckets - 1 - index) / 2));
-    return date.toLocaleDateString("en-US", { weekday: "short" });
-  }
-
-  date.setDate(date.getDate() - (buckets - 1 - index));
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function chartPaths(values: number[], min: number, max: number) {
-  const chartLeft = 42;
-  const chartTop = 18;
-  const chartWidth = 662;
-  const chartHeight = 184;
-  const safeMax = max === min ? max + 1 : max;
-
-  const points = values.map((value, index) => {
-    const x = chartLeft + (index / Math.max(values.length - 1, 1)) * chartWidth;
-    const y =
-      chartTop +
-      chartHeight -
-      ((value - min) / Math.max(safeMax - min, 1)) * chartHeight;
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
-  });
-
-  const linePath = points
-    .map((point, index) => `${index === 0 ? "M" : "L"}${point}`)
-    .join(" ");
-  const areaPath = `${linePath} L${chartLeft + chartWidth},${chartTop + chartHeight} L${chartLeft},${chartTop + chartHeight} Z`;
-
-  return { linePath, areaPath };
+  indexes.add(0);
+  indexes.add(total - 1);
+  return Array.from(indexes).sort((a, b) => a - b);
 }
 
 function getOverview(services: ServiceInsight[], deployments: Deployment[]) {
@@ -1453,23 +1535,18 @@ function calculateSuccessRate(deployments: Deployment[]) {
   return Math.round((live / finished.length) * 100);
 }
 
-function deploymentTrend(deployments: Deployment[]) {
-  const now = new Date();
-  return Array.from({ length: 7 }).map((_, index) => {
-    const day = new Date(now);
-    day.setDate(now.getDate() - (6 - index));
-    const dayKey = day.toISOString().slice(0, 10);
-    const items = deployments.filter(
-      (deployment) => deployment.created_at.slice(0, 10) === dayKey,
-    );
-    return {
-      label: day.toLocaleDateString("en-US", { weekday: "short" }),
-      total: items.length,
-      failed: items.filter((deployment) =>
-        FAILED_STATUSES.has(deployment.status.toLowerCase()),
-      ).length,
-    };
-  });
+function deploymentOutcomes(deployments: Deployment[]) {
+  return deployments.reduce(
+    (acc, deployment) => {
+      const status = deployment.status.toLowerCase();
+      if (status === "live") acc.live += 1;
+      else if (ACTIVE_STATUSES.has(status)) acc.active += 1;
+      else if (FAILED_STATUSES.has(status)) acc.failed += 1;
+      else if (CANCELED_STATUSES.has(status)) acc.canceled += 1;
+      return acc;
+    },
+    { live: 0, active: 0, failed: 0, canceled: 0 },
+  );
 }
 
 function getHealth(status?: string | null): HealthState {
@@ -1533,17 +1610,31 @@ function formatCompactNumber(value: number) {
   }).format(value);
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
+function formatPointTime(point: TelemetryPoint, range: TimeRange) {
+  if (!point.timestamp) return point.label || "—";
+  const date = new Date(point.timestamp);
+  if (Number.isNaN(date.getTime())) return point.label || "—";
+
+  if (range === "24h") {
+    return date.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getBrowserTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "local time";
 }
 
 function average(values: number[]) {
   if (values.length === 0) return 0;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function hashCode(value: string) {
-  return value.split("").reduce((hash, char) => {
-    return (hash * 31 + char.charCodeAt(0)) % 100000;
-  }, 7);
 }

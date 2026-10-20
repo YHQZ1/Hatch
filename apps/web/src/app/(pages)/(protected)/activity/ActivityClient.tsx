@@ -4,6 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PageLoadingState } from "../../../components/LoadingState";
 import { apiFetch, redirectIfUnauthorized } from "@/app/lib/api";
+import {
+  AppShell,
+  Button,
+  EmptyStateBlock,
+  MetricCard,
+  PageTitle,
+  Panel,
+} from "../../../components/ui";
 
 interface ActivityEvent {
   id: string;
@@ -84,6 +92,8 @@ export default function ActivityClient() {
       total: events.length,
       creates: events.filter((event) => activityKind(event.type) === "create")
         .length,
+      deploys: events.filter((event) => activityKind(event.type) === "deploy")
+        .length,
       deletes: events.filter((event) => activityKind(event.type) === "delete")
         .length,
     };
@@ -92,39 +102,46 @@ export default function ActivityClient() {
   if (!mounted) return <PageLoadingState />;
 
   return (
-    <div className="w-full min-h-screen bg-black text-white">
-      <main className="w-full px-5 sm:px-6 lg:px-10 py-6 lg:py-8">
-        <ActivityHeader
-          lastSyncedAt={lastSyncedAt}
-          refreshing={refreshing}
-          onRefresh={() => loadData({ background: true })}
-        />
+    <AppShell>
+      <ActivityHeader
+        lastSyncedAt={lastSyncedAt}
+        refreshing={refreshing}
+        onRefresh={() => loadData({ background: true })}
+      />
 
-        {!loading && events.length > 0 && (
-          <div className="grid grid-cols-3 gap-px bg-[#1a1a1a] border border-[#1a1a1a] rounded-[6px] mb-6 overflow-hidden">
-            <StatCard label="Events" value={stats.total.toString()} />
-            <StatCard label="Created" value={stats.creates.toString()} />
-            <StatCard label="Deleted" value={stats.deletes.toString()} />
-          </div>
-        )}
-
-        <div className="w-full border border-[#1a1a1a] rounded-[6px] overflow-hidden bg-[#030303] shadow-[0_20px_80px_rgba(0,0,0,0.35)]">
-          {(events.length > 0 || loading) && <ActivityTableHeader />}
-
-          {loading ? (
-            <ActivitySkeleton />
-          ) : events.length > 0 ? (
-            <div>
-              {events.map((event) => (
-                <ActivityRow key={event.id} event={event} />
-              ))}
-            </div>
-          ) : (
-            <EmptyState />
-          )}
+      {!loading && events.length > 0 && (
+        <div className="mb-7 grid grid-cols-2 gap-x-8 gap-y-4 border-b border-white/[0.08] pb-7 sm:flex sm:items-end sm:gap-12">
+          <MetricCard label="Events" value={stats.total.toString()} />
+          <MetricCard
+            label="Deploys"
+            value={stats.deploys.toString()}
+            tone="warning"
+          />
+          <MetricCard
+            label="Created"
+            value={stats.creates.toString()}
+            tone="success"
+          />
+          <MetricCard label="Deleted" value={stats.deletes.toString()} tone="danger" />
         </div>
-      </main>
-    </div>
+      )}
+
+      <Panel className="w-full">
+        {(events.length > 0 || loading) && <ActivityTableHeader />}
+
+        {loading ? (
+          <ActivitySkeleton />
+        ) : events.length > 0 ? (
+          <div>
+            {events.map((event) => (
+              <ActivityRow key={event.id} event={event} />
+            ))}
+          </div>
+        ) : (
+          <EmptyState />
+        )}
+      </Panel>
+    </AppShell>
   );
 }
 
@@ -138,45 +155,37 @@ function ActivityHeader({
   onRefresh: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between mb-8">
-      <div>
-        <h1 className="text-4xl md:text-5xl font-medium tracking-tight text-white">
-          Activity
-        </h1>
-        <p className="text-[12px] text-zinc-600 mt-2 tracking-wide max-w-xl">
-          Real-time audit trail of project, deployment, and infrastructure
-          events.
-        </p>
-      </div>
-
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="text-left sm:text-right">
-          <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-[#333] font-bold">
-            {refreshing ? "Refreshing" : "Last synced"}
-          </p>
-          <p className="text-[11px] text-zinc-600 mt-1">
-            {lastSyncedAt ? formatRelativeTime(lastSyncedAt.toISOString()) : "—"}
-          </p>
-        </div>
-        <button
-          onClick={onRefresh}
-          disabled={refreshing}
-          className="h-9 px-4 border border-[#1a1a1a] rounded-[3px] text-[10px] uppercase tracking-widest font-bold text-zinc-400 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-        >
-          {refreshing ? "Syncing" : "Refresh"}
-        </button>
-      </div>
-    </div>
+    <PageTitle
+      title="Activity"
+      description="A live audit trail for project changes, deployments, and infrastructure events."
+      actions={
+        <>
+          <div className="mr-1 min-w-24 text-left sm:text-right">
+            <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-zinc-700 font-bold">
+              {refreshing ? "Refreshing" : "Last synced"}
+            </p>
+            <p className="mt-1 text-[11px] text-zinc-600">
+              {lastSyncedAt
+                ? formatRelativeTime(lastSyncedAt.toISOString())
+                : "—"}
+            </p>
+          </div>
+          <Button onClick={onRefresh} disabled={refreshing}>
+            {refreshing ? "Syncing" : "Refresh"}
+          </Button>
+        </>
+      }
+    />
   );
 }
 
 function ActivityTableHeader() {
   return (
-    <div className="hidden lg:grid grid-cols-[0.8fr_0.8fr_2.6fr_0.8fr] px-5 bg-[#050505] border-b border-[#1a1a1a]">
+    <div className="hidden lg:grid grid-cols-[0.75fr_0.8fr_2.7fr_0.75fr] border-b border-white/[0.08] px-1">
       {["Time", "Type", "Event", "Reference"].map((header, index) => (
         <div
           key={header}
-          className={`py-3 text-[9px] uppercase tracking-[0.18em] text-[#3a3a3a] font-bold ${
+          className={`py-3 text-[9px] uppercase tracking-[0.18em] text-zinc-700 font-bold ${
             index === 3 ? "text-right" : ""
           }`}
         >
@@ -192,8 +201,8 @@ function ActivityRow({ event }: { event: ActivityEvent }) {
   const meta = activityMeta(kind);
 
   return (
-    <article className="border-b border-[#111] last:border-b-0 hover:bg-white/[0.018] transition-colors">
-      <div className="hidden lg:grid grid-cols-[0.8fr_0.8fr_2.6fr_0.8fr] px-5 py-4 items-center">
+    <article className="border-b border-white/[0.055] last:border-b-0 hover:bg-white/[0.018] transition-colors">
+      <div className="hidden lg:grid grid-cols-[0.75fr_0.8fr_2.7fr_0.75fr] px-1 py-4 items-center">
         <TimeCell date={event.created_at} />
         <TypeCell type={event.type} meta={meta} />
         <div className="min-w-0">
@@ -257,24 +266,13 @@ function TimeCell({ date }: { date: string }) {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-[#080808] px-5 py-4 min-w-0">
-      <p className="text-[9px] uppercase tracking-[0.15em] text-[#444] mb-1.5">
-        {label}
-      </p>
-      <p className="text-2xl font-medium tracking-tight text-white">{value}</p>
-    </div>
-  );
-}
-
 function ActivitySkeleton() {
   return (
     <div>
       {Array.from({ length: 5 }).map((_, index) => (
         <div
           key={index}
-          className="grid lg:grid-cols-[0.8fr_0.8fr_2.6fr_0.8fr] px-5 py-4 border-b border-[#111] items-center last:border-b-0 gap-4"
+          className="grid lg:grid-cols-[0.75fr_0.8fr_2.7fr_0.75fr] px-1 py-4 border-b border-white/[0.055] items-center last:border-b-0 gap-4"
           style={{ opacity: 1 - index * 0.13 }}
         >
           <div className="h-2 w-16 bg-zinc-900/70 rounded-full animate-pulse" />
@@ -289,18 +287,10 @@ function ActivitySkeleton() {
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-20 sm:py-24 border-t border-[#1a1a1a] px-6 text-center">
-      <div className="w-11 h-11 border border-[#222] rounded-[4px] flex items-center justify-center mb-6 bg-[#080808]">
-        <span className="h-2 w-2 rounded-full bg-zinc-600" />
-      </div>
-      <p className="text-[10px] text-zinc-500 font-mono uppercase tracking-[0.35em] mb-3">
-        No activity recorded
-      </p>
-      <p className="text-sm text-zinc-700 max-w-md leading-relaxed">
-        Create a service, trigger a deployment, or change infrastructure to
-        start building an audit trail.
-      </p>
-    </div>
+    <EmptyStateBlock
+      title="No activity recorded"
+      description="Create a service, trigger a deployment, or change infrastructure to start building an audit trail."
+    />
   );
 }
 

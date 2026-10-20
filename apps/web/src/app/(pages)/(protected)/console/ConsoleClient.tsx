@@ -15,6 +15,16 @@ import {
   NoticeToast,
   type NoticePayload,
 } from "../../../components/NoticeToast";
+import {
+  AppShell,
+  Button,
+  EmptyStateBlock,
+  MetricCard,
+  Modal,
+  PageTitle,
+  Panel,
+  StatusText,
+} from "../../../components/ui";
 
 interface Project {
   id: string;
@@ -233,6 +243,8 @@ export default function ConsoleClient() {
     };
   }, [rows]);
 
+  const pulse = useMemo(() => getConsolePulse(rows), [rows]);
+
   const handleDeleteQueued = (project: Project) => {
     setProjects((prev) =>
       prev.map((item) => (item.id === project.id ? project : item)),
@@ -243,54 +255,59 @@ export default function ConsoleClient() {
   if (!mounted) return <PageLoadingState />;
 
   return (
-    <div className="w-full min-h-screen bg-black text-white">
+    <AppShell>
       <NoticeToast notice={notice} onDismiss={() => setNotice(null)} />
-      <main className="w-full px-5 sm:px-6 lg:px-10 py-6 lg:py-8">
-        <ConsoleHeader
-          lastSyncedAt={lastSyncedAt}
-          refreshing={refreshing}
-          onRefresh={() => loadData({ background: true })}
-        />
+      <ConsoleHeader
+        lastSyncedAt={lastSyncedAt}
+        refreshing={refreshing}
+        onRefresh={() => loadData({ background: true })}
+      />
 
-        {!loading && hasProjects && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-[#1a1a1a] border border-[#1a1a1a] rounded-[6px] mb-6 overflow-hidden">
-            <StatCard label="Services" value={stats.total.toString()} />
-            <StatCard label="Live" value={stats.live.toString()} accent="live" />
-            <StatCard
+      {!loading && hasProjects && (
+        <>
+          <div className="mb-7 grid grid-cols-2 gap-x-8 gap-y-4 border-b border-white/[0.08] pb-7 sm:flex sm:items-end sm:gap-12">
+            <MetricCard label="Services" value={stats.total.toString()} />
+            <MetricCard
+              label="Live"
+              value={stats.live.toString()}
+              tone="success"
+            />
+            <MetricCard
               label="Building"
               value={stats.active.toString()}
-              accent="active"
+              tone="warning"
             />
-            <StatCard
+            <MetricCard
               label="Failed"
               value={stats.failed.toString()}
-              accent="failed"
+              tone="danger"
             />
           </div>
+          <ConsolePulse pulse={pulse} />
+        </>
+      )}
+
+      <Panel className="w-full">
+        {(hasProjects || loading) && <TableHeader />}
+
+        {loading ? (
+          <ServiceSkeleton />
+        ) : !hasProjects ? (
+          <EmptyState />
+        ) : (
+          <div>
+            {rows.map((row) => (
+              <ProjectRow
+                key={row.project.id}
+                row={row}
+                onNotice={setNotice}
+                onDeleteQueued={handleDeleteQueued}
+              />
+            ))}
+          </div>
         )}
-
-        <div className="w-full border border-[#1a1a1a] rounded-[6px] overflow-hidden bg-[#030303] shadow-[0_20px_80px_rgba(0,0,0,0.35)]">
-          {(hasProjects || loading) && <TableHeader />}
-
-          {loading ? (
-            <ServiceSkeleton />
-          ) : !hasProjects ? (
-            <EmptyState />
-          ) : (
-            <div>
-              {rows.map((row) => (
-                <ProjectRow
-                  key={row.project.id}
-                  row={row}
-                  onNotice={setNotice}
-                  onDeleteQueued={handleDeleteQueued}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </main>
-    </div>
+      </Panel>
+    </AppShell>
   );
 }
 
@@ -304,47 +321,36 @@ function ConsoleHeader({
   onRefresh: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between mb-8">
-      <div>
-        <h1 className="text-4xl md:text-5xl font-medium tracking-tight text-white">
-          Services
-        </h1>
-        <p className="text-[12px] text-zinc-600 mt-2 tracking-wide max-w-xl">
-          Deploy, inspect, and route the workloads running through your Hatch
-          control plane.
-        </p>
-      </div>
-
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="text-left sm:text-right">
-          <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-[#333] font-bold">
-            {refreshing ? "Refreshing" : "Last synced"}
-          </p>
-          <p className="text-[11px] text-zinc-600 mt-1">
-            {lastSyncedAt ? formatRelativeTime(lastSyncedAt.toISOString()) : "—"}
-          </p>
-        </div>
-        <button
-          onClick={onRefresh}
-          disabled={refreshing}
-          className="h-9 px-4 border border-[#1a1a1a] rounded-[3px] text-[10px] uppercase tracking-widest font-bold text-zinc-400 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-        >
-          {refreshing ? "Syncing" : "Refresh"}
-        </button>
-        <Link
-          href="/new"
-          className="h-9 px-4 bg-white text-black rounded-[3px] text-[10px] uppercase tracking-widest font-bold hover:bg-zinc-200 transition-colors flex items-center justify-center cursor-pointer"
-        >
-          + New Service
-        </Link>
-      </div>
-    </div>
+    <PageTitle
+      title="Services"
+      description="Deploy, inspect, and route every workload running through your Hatch control plane."
+      actions={
+        <>
+          <div className="mr-1 min-w-24 text-left sm:text-right">
+            <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-zinc-700 font-bold">
+              {refreshing ? "Refreshing" : "Last synced"}
+            </p>
+            <p className="mt-1 text-[11px] text-zinc-600">
+              {lastSyncedAt
+                ? formatRelativeTime(lastSyncedAt.toISOString())
+                : "—"}
+            </p>
+          </div>
+          <Button onClick={onRefresh} disabled={refreshing}>
+            {refreshing ? "Syncing" : "Refresh"}
+          </Button>
+          <Button href="/new" variant="primary">
+            + New Service
+          </Button>
+        </>
+      }
+    />
   );
 }
 
 function TableHeader() {
   return (
-    <div className="hidden lg:grid grid-cols-[2fr_1.45fr_0.9fr_1.1fr_0.75fr_0.75fr_190px] px-5 bg-[#050505] border-b border-[#1a1a1a]">
+    <div className="hidden lg:grid grid-cols-[2fr_1.45fr_0.9fr_1.1fr_0.75fr_0.75fr_230px] border-b border-white/[0.08] px-1">
       {[
         "Service",
         "Repository",
@@ -352,11 +358,11 @@ function TableHeader() {
         "Latest Commit",
         "Branch",
         "Updated",
-        "Actions",
+        "Manage",
       ].map((header, index) => (
         <div
           key={header}
-          className={`py-3 text-[9px] uppercase tracking-[0.18em] text-[#3a3a3a] font-bold ${
+          className={`py-3 text-[9px] uppercase tracking-[0.18em] text-zinc-700 font-bold ${
             index === 6 ? "text-right" : ""
           }`}
         >
@@ -367,13 +373,105 @@ function TableHeader() {
   );
 }
 
+function ConsolePulse({
+  pulse,
+}: {
+  pulse: {
+    latest: ServiceRow | null;
+    attention: ServiceRow[];
+    active: ServiceRow[];
+    autoDeployCount: number;
+  };
+}) {
+  const latestName = pulse.latest?.project.repo_name ?? "No deployments";
+  const latestMeta = pulse.latest
+    ? `${pulse.latest.status.label} · ${formatRelativeTime(pulse.latest.updatedAtRaw)}`
+    : "Waiting for first deploy";
+  const attentionLabel =
+    pulse.attention.length === 0
+      ? "All clear"
+      : `${pulse.attention.length} service${pulse.attention.length === 1 ? "" : "s"}`;
+  const activeLabel =
+    pulse.active.length === 0
+      ? "Idle"
+      : `${pulse.active.length} running`;
+
+  return (
+    <section className="mb-8 grid gap-y-5 border-b border-white/[0.08] pb-7 md:grid-cols-[1.3fr_0.9fr_0.8fr_0.8fr] md:divide-x md:divide-white/[0.07]">
+      <PulseItem
+        label="Latest deployment"
+        value={latestName}
+        detail={latestMeta}
+      />
+      <PulseItem
+        label="Needs attention"
+        value={attentionLabel}
+        detail={
+          pulse.attention[0]
+            ? pulse.attention[0].project.repo_name
+            : "No failed services"
+        }
+        tone={pulse.attention.length > 0 ? "danger" : "muted"}
+      />
+      <PulseItem
+        label="Active work"
+        value={activeLabel}
+        detail={
+          pulse.active[0]
+            ? pulse.active[0].project.repo_name
+            : "No builds in progress"
+        }
+        tone={pulse.active.length > 0 ? "warning" : "muted"}
+      />
+      <PulseItem
+        label="Auto-deploy"
+        value={`${pulse.autoDeployCount} enabled`}
+        detail="GitHub push triggers"
+      />
+    </section>
+  );
+}
+
+function PulseItem({
+  label,
+  value,
+  detail,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: PulseTone;
+}) {
+  const valueColor = {
+    default: "text-zinc-100",
+    warning: "text-[#d8ad4f]",
+    danger: "text-[#d86666]",
+    muted: "text-zinc-500",
+  } satisfies Record<PulseTone, string>;
+
+  return (
+    <div className="min-w-0 md:px-5 first:md:pl-0">
+      <p className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.22em] text-zinc-700">
+        {label}
+      </p>
+      <p className={`truncate text-sm font-medium ${valueColor[tone]}`}>
+        {value}
+      </p>
+      <p className="mt-1 truncate text-[11px] text-zinc-600">{detail}</p>
+    </div>
+  );
+}
+
+type PulseTone = "default" | "warning" | "danger" | "muted";
+
 function ServiceSkeleton() {
   return (
     <div>
       {Array.from({ length: 4 }).map((_, index) => (
         <div
           key={index}
-          className="grid lg:grid-cols-[2fr_1.45fr_0.9fr_1.1fr_0.75fr_0.75fr_190px] px-5 py-4 border-b border-[#111] items-center last:border-b-0 gap-4"
+          className="grid lg:grid-cols-[2fr_1.45fr_0.9fr_1.1fr_0.75fr_0.75fr_230px] px-1 py-4 border-b border-white/[0.055] items-center last:border-b-0 gap-4"
           style={{ opacity: 1 - index * 0.14 }}
         >
           <div className="flex items-center gap-3">
@@ -395,36 +493,6 @@ function ServiceSkeleton() {
   );
 }
 
-function StatCard({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: "live" | "active" | "failed";
-}) {
-  const valueColor =
-    accent === "live"
-      ? "text-[#3fba78]"
-      : accent === "active"
-        ? "text-[#facc15]"
-        : accent === "failed"
-          ? "text-[#d05252]"
-          : "text-white";
-
-  return (
-    <div className="bg-[#080808] px-5 py-4 min-w-0">
-      <p className="text-[9px] uppercase tracking-[0.15em] text-[#444] mb-1.5">
-        {label}
-      </p>
-      <p className={`text-2xl font-medium tracking-tight ${valueColor}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
 function ProjectRow({
   row,
   onNotice,
@@ -434,7 +502,7 @@ function ProjectRow({
   onNotice: (notice: NoticePayload | null) => void;
   onDeleteQueued: (project: Project) => void;
 }) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const { project, lastDeployment, status, liveUrl, repoSlug } = row;
   const branch = lastDeployment?.branch ?? project.branch;
@@ -444,9 +512,8 @@ function ProjectRow({
     e.preventDefault();
     e.stopPropagation();
 
-    if (!retryingCleanup && !confirmDelete) {
-      setConfirmDelete(true);
-      window.setTimeout(() => setConfirmDelete(false), 4500);
+    if (!retryingCleanup && !deleteModalOpen) {
+      setDeleteModalOpen(true);
       return;
     }
 
@@ -466,10 +533,10 @@ function ProjectRow({
           : `${project.repo_name} will disappear after cloud cleanup finishes.`,
       });
       setDeleting(false);
-      setConfirmDelete(false);
+      setDeleteModalOpen(false);
     } else {
       setDeleting(false);
-      setConfirmDelete(false);
+      setDeleteModalOpen(false);
       onNotice({
         type: "error",
         title: "Delete failed",
@@ -482,8 +549,8 @@ function ProjectRow({
   };
 
   return (
-    <article className="group border-b border-[#111] last:border-b-0 hover:bg-white/[0.018] transition-colors">
-      <div className="hidden lg:grid grid-cols-[2fr_1.45fr_0.9fr_1.1fr_0.75fr_0.75fr_190px] px-5 py-4 items-center">
+    <article className="group border-b border-white/[0.055] last:border-b-0 transition-colors hover:bg-white/[0.018]">
+      <div className="hidden lg:grid grid-cols-[2fr_1.45fr_0.9fr_1.1fr_0.75fr_0.75fr_230px] px-1 py-4 items-center">
         <ServiceIdentity project={project} liveUrl={liveUrl} />
         <RepositoryCell repoUrl={project.repo_url} repoSlug={repoSlug} />
         <StatusBadge status={status} />
@@ -493,13 +560,12 @@ function ProjectRow({
         <RowActions
           project={project}
           liveUrl={liveUrl}
-          confirmDelete={confirmDelete}
           deleting={deleting}
           onDelete={handleDelete}
         />
       </div>
 
-      <div className="lg:hidden p-5">
+      <div className="lg:hidden py-5">
         <div className="flex items-start justify-between gap-4">
           <ServiceIdentity project={project} liveUrl={liveUrl} />
           <StatusBadge status={status} />
@@ -525,13 +591,19 @@ function ProjectRow({
           <RowActions
             project={project}
             liveUrl={liveUrl}
-            confirmDelete={confirmDelete}
             deleting={deleting}
             onDelete={handleDelete}
             mobile
           />
         </div>
       </div>
+      <DeleteProjectModal
+        project={project}
+        open={deleteModalOpen}
+        deleting={deleting}
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={handleDelete}
+      />
     </article>
   );
 }
@@ -545,13 +617,13 @@ function ServiceIdentity({
 }) {
   return (
     <div className="flex items-center gap-3 min-w-0">
-      <div className="w-8 h-8 flex items-center justify-center bg-[#0d0d0d] border border-[#222] rounded-[4px] flex-shrink-0">
+      <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
         <svg
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
           strokeWidth="1.5"
-          className="w-3.5 h-3.5 text-zinc-500"
+          className="w-4 h-4 text-zinc-500"
         >
           <path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
         </svg>
@@ -615,35 +687,24 @@ function StatusBadge({
 }: {
   status: StatusMeta;
 }) {
-  const text = {
-    live: "text-[#3fba78]",
-    active: "text-[#facc15]",
-    failed: "text-[#d05252]",
-    canceled: "text-zinc-500",
-    deleting: "text-[#b8872f]",
-    suspended: "text-zinc-500",
-    idle: "text-zinc-700",
-  } satisfies Record<StatusKind, string>;
-
-  const dot = {
-    live: "bg-[#2f9d63] shadow-[0_0_8px_rgba(47,157,99,0.35)]",
-    active: "bg-[#facc15] animate-pulse",
-    failed: "bg-[#b83a3a]",
-    canceled: "bg-zinc-500",
-    deleting: "bg-[#b8872f] animate-pulse",
-    suspended: "bg-zinc-600",
-    idle: "bg-zinc-800",
-  } satisfies Record<StatusKind, string>;
+  const tone = {
+    live: "success",
+    active: "warning",
+    failed: "danger",
+    canceled: "muted",
+    deleting: "warning",
+    suspended: "muted",
+    idle: "muted",
+  } satisfies Record<StatusKind, "success" | "warning" | "danger" | "muted">;
 
   return (
-    <div className="w-fit max-w-full flex items-center gap-2">
-      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot[status.kind]}`} />
-      <span
-        className={`text-[10px] uppercase tracking-widest font-bold truncate ${text[status.kind]}`}
-      >
-        {status.label}
-      </span>
-    </div>
+    <StatusText
+      tone={tone[status.kind]}
+      pulse={status.kind === "active" || status.kind === "deleting"}
+      className="max-w-full"
+    >
+      {status.label}
+    </StatusText>
   );
 }
 
@@ -681,55 +742,41 @@ function TextCell({ value, mono = false }: { value: string; mono?: boolean }) {
 function RowActions({
   project,
   liveUrl,
-  confirmDelete,
   deleting,
   onDelete,
   mobile = false,
 }: {
   project: Project;
   liveUrl: string | null;
-  confirmDelete: boolean;
   deleting: boolean;
   onDelete: (e: React.MouseEvent) => void;
   mobile?: boolean;
 }) {
   const projectDeleting = project.status === "deleting";
   const projectDeleteFailed = project.status === "delete_failed";
+
   return (
     <div
-      className={`flex items-center justify-end gap-2 ${mobile ? "flex-wrap" : ""}`}
+      className={`flex items-center justify-end gap-3 ${mobile ? "flex-wrap" : ""}`}
     >
       {liveUrl && (
-        <a
-          href={liveUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="h-7 px-2.5 border border-[#222] rounded-[3px] text-[9px] uppercase tracking-widest font-bold text-zinc-400 hover:text-white hover:border-zinc-500 transition-all cursor-pointer flex items-center"
-        >
+        <ActionAnchor href={liveUrl} external>
           Open
-        </a>
+        </ActionAnchor>
       )}
-      <Link
-        href={`/projects/${project.id}`}
-        className="h-7 px-2.5 border border-[#222] rounded-[3px] text-[9px] uppercase tracking-widest font-bold text-zinc-400 hover:text-white hover:border-zinc-500 transition-all flex items-center cursor-pointer"
-      >
+      <ActionAnchor href={`/projects/${project.id}`}>
         Details
-      </Link>
-      <Link
-        href={`/projects/${project.id}/settings`}
-        className="hidden sm:flex h-7 px-2.5 border border-[#222] rounded-[3px] text-[9px] uppercase tracking-widest font-bold text-zinc-500 hover:text-white hover:border-zinc-500 transition-all items-center cursor-pointer"
-      >
+      </ActionAnchor>
+      <ActionAnchor href={`/projects/${project.id}/settings`} className="hidden sm:inline">
         Settings
-      </Link>
+      </ActionAnchor>
       <button
         onClick={onDelete}
         disabled={deleting || projectDeleting}
-        className={`h-7 px-2.5 border rounded-[3px] text-[9px] uppercase tracking-widest font-bold transition-all cursor-pointer disabled:cursor-not-allowed ${
+        className={`text-[10px] font-medium transition-colors cursor-pointer disabled:cursor-not-allowed ${
           projectDeleteFailed
-            ? "text-[#d88a8a] border-[#4a2020] bg-[#120606] hover:border-[#7a2a2a]"
-            : confirmDelete
-            ? "text-[#d05252] border-[#5a1d1d] bg-[#1a0808] hover:border-[#7a2a2a]"
-            : "text-zinc-700 border-[#1a1a1a] hover:text-[#d05252] hover:border-[#5a1d1d]"
+            ? "text-[#d86666] hover:text-[#ef8b8b]"
+            : "text-zinc-700 hover:text-[#d86666]"
         } disabled:opacity-50`}
       >
         {projectDeleting
@@ -738,18 +785,123 @@ function RowActions({
             ? "..."
             : projectDeleteFailed
               ? "Retry"
-              : confirmDelete
-                ? "Confirm"
-                : "Del"}
+              : "Delete"}
       </button>
     </div>
   );
 }
 
+function DeleteProjectModal({
+  project,
+  open,
+  deleting,
+  onClose,
+  onConfirm,
+}: {
+  project: Project;
+  open: boolean;
+  deleting: boolean;
+  onClose: () => void;
+  onConfirm: (e: React.MouseEvent) => void;
+}) {
+  const [confirmation, setConfirmation] = useState("");
+  const canDelete = confirmation === project.repo_name;
+
+  const handleClose = () => {
+    setConfirmation("");
+    onClose();
+  };
+
+  const handleConfirm = (event: React.MouseEvent) => {
+    setConfirmation("");
+    onConfirm(event);
+  };
+
+  return (
+    <Modal
+      open={open}
+      title={`Delete ${project.repo_name}?`}
+      description="Hatch will queue cloud cleanup and remove this service after the AWS resources are gone."
+      onClose={deleting ? () => {} : handleClose}
+    >
+      <div className="border-y border-white/[0.08] py-3">
+        <p className="font-mono text-[11px] text-zinc-500 truncate">
+          {project.repo_url}
+        </p>
+        <p className="mt-2 text-sm leading-6 text-zinc-600">
+          Existing deployment URLs will stop serving once cleanup completes.
+          This action cannot be undone from the console.
+        </p>
+      </div>
+      <label className="mt-4 block">
+        <span className="block text-[11px] leading-5 text-zinc-500">
+          Type{" "}
+          <span className="font-mono text-zinc-300">{project.repo_name}</span>{" "}
+          to confirm.
+        </span>
+        <input
+          value={confirmation}
+          onChange={(event) => setConfirmation(event.target.value)}
+          disabled={deleting}
+          autoFocus
+          className="mt-2 h-10 w-full rounded-lg border border-white/[0.09] bg-black/30 px-3 font-mono text-sm text-white outline-none transition-colors placeholder:text-zinc-800 focus:border-white/25 disabled:cursor-not-allowed disabled:opacity-50"
+          placeholder={project.repo_name}
+        />
+      </label>
+      <div className="mt-5 flex items-center justify-end gap-3">
+        <button
+          type="button"
+          onClick={handleClose}
+          disabled={deleting}
+          className="text-[11px] font-medium text-zinc-500 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleConfirm}
+          disabled={deleting || !canDelete}
+          className="h-9 px-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#d86666] transition-colors hover:text-[#ef8b8b] disabled:cursor-not-allowed disabled:text-zinc-700 cursor-pointer"
+        >
+          {deleting ? "Deleting" : "Delete service"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function ActionAnchor({
+  href,
+  children,
+  external = false,
+  className,
+}: {
+  href: string;
+  children: React.ReactNode;
+  external?: boolean;
+  className?: string;
+}) {
+  const classes = `text-[10px] font-medium text-zinc-500 transition-colors hover:text-white cursor-pointer ${className ?? ""}`;
+
+  if (external) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={classes}>
+        {children}
+      </a>
+    );
+  }
+
+  return (
+    <Link href={href} className={classes}>
+      {children}
+    </Link>
+  );
+}
+
 function MobileMeta({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border border-[#111] rounded-[3px] bg-[#050505] px-3 py-2 min-w-0">
-      <p className="text-[9px] uppercase tracking-[0.2em] text-[#333] font-bold mb-1">
+    <div className="min-w-0 border-b border-white/[0.06] pb-2">
+      <p className="text-[9px] uppercase tracking-[0.2em] text-zinc-700 font-bold mb-1">
         {label}
       </p>
       <p className="text-[11px] text-zinc-500 truncate">{value}</p>
@@ -759,32 +911,15 @@ function MobileMeta({ label, value }: { label: string; value: string }) {
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-20 sm:py-24 border-t border-[#1a1a1a] px-6 text-center">
-      <div className="w-11 h-11 border border-[#222] rounded-[4px] flex items-center justify-center mb-6 bg-[#080808]">
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.2"
-          className="w-5 h-5 text-zinc-600"
-        >
-          <path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-        </svg>
-      </div>
-      <p className="text-[10px] text-zinc-500 font-mono uppercase tracking-[0.35em] mb-3">
-        No services yet
-      </p>
-      <p className="text-sm text-zinc-700 max-w-md leading-relaxed mb-7">
-        Import a GitHub repository with a Dockerfile. Hatch will create the
-        project, queue the first deployment, and assign a production URL.
-      </p>
-      <Link
-        href="/new"
-        className="text-[10px] bg-white text-black px-8 py-3 rounded-[3px] uppercase font-bold tracking-widest hover:bg-zinc-200 transition-all"
-      >
-        Deploy your first service
-      </Link>
-    </div>
+    <EmptyStateBlock
+      title="No services yet"
+      description="Import a GitHub repository with a Dockerfile. Hatch will create the project, queue the first deployment, and assign a production URL."
+      action={
+        <Button href="/new" variant="primary">
+          Deploy your first service
+        </Button>
+      }
+    />
   );
 }
 
@@ -861,6 +996,15 @@ function formatCommit(deployment?: Deployment): {
   return {
     short: sha.slice(0, 7),
     message,
+  };
+}
+
+function getConsolePulse(rows: ServiceRow[]) {
+  return {
+    latest: rows[0] ?? null,
+    attention: rows.filter((row) => row.status.kind === "failed"),
+    active: rows.filter((row) => row.status.kind === "active"),
+    autoDeployCount: rows.filter((row) => row.project.auto_deploy).length,
   };
 }
 

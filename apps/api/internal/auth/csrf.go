@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
 	"strings"
@@ -29,7 +30,9 @@ func CSRFMiddleware() gin.HandlerFunc {
 		}
 
 		headerToken := strings.TrimSpace(c.GetHeader(CSRFHeaderName))
-		if headerToken == "" || headerToken != cookieToken {
+		if headerToken == "" ||
+			len(headerToken) != len(cookieToken) ||
+			subtle.ConstantTimeCompare([]byte(headerToken), []byte(cookieToken)) != 1 {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid csrf token"})
 			return
 		}

@@ -1,8 +1,25 @@
-node_modules
+# Build context for the Go images (built from the repo root:
+#   docker build -f apps/api/Dockerfile .).
+# Patterns without a leading **/ only match at the root.
+
+# Secrets and local config: never send them to the Docker daemon.
+**/.env
+**/.env.*
+!**/.env.example
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfvars
+
+# VCS, tooling, and OS files
 .git
-.next
-dist
-build
-*.log
-.env
-infra/.terraform
+.github
+**/.DS_Store
+**/*.log
+
+# Not needed by the Go builds
+**/node_modules
+**/.next
+**/.terraform
+docs
+infra
+apps/web
