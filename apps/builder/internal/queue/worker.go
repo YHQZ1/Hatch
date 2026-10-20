@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/YHQZ1/hatch/apps/builder/internal/docker"
@@ -58,6 +59,9 @@ type Worker struct {
 	timeout     time.Duration
 	consumerTag string
 	mu          sync.Mutex
+	stopped     atomic.Bool
+	stopCh      chan struct{}
+	stopOnce    sync.Once
 }
 
 func NewWorker(url, redis, registry, repo, region, databaseURL, encryptionKey string, buildTimeout time.Duration) *Worker {
@@ -70,7 +74,14 @@ func NewWorker(url, redis, registry, repo, region, databaseURL, encryptionKey st
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	if err := db.Ping(); err != nil {
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(30 * time.Minute)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
 
@@ -80,6 +91,7 @@ func NewWorker(url, redis, registry, repo, region, databaseURL, encryptionKey st
 		db:       db,
 		secrets:  secretCodec,
 		timeout:  buildTimeout,
+		stopCh:   make(chan struct{}),
 	}
 
 	worker.builder = docker.NewBuilder(registry, repo, region, streamer, worker.setStage)
@@ -88,37 +100,38 @@ func NewWorker(url, redis, registry, repo, region, databaseURL, encryptionKey st
 }
 
 func (w *Worker) Start() error {
-	var err error
-	w.conn, err = amqp.Dial(w.url)
-	if err != nil {
-		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
-	}
+	backoff := time.Second
+	for {
+		if w.stopped.Load() {
+			return nil
+		}
 
-	w.ch, err = w.conn.Channel()
-	if err != nil {
-		return fmt.Errorf("failed to open channel: %w", err)
-	}
-	if err := w.ch.Confirm(false); err != nil {
-		return fmt.Errorf("failed to enable RabbitMQ publisher confirms: %w", err)
-	}
-	if err := w.ch.Qos(1, 0, false); err != nil {
-		return fmt.Errorf("failed to configure build queue qos: %w", err)
-	}
-	w.confirms = w.ch.NotifyPublish(make(chan amqp.Confirmation, 1))
+		err := w.runOnce()
+		if w.stopped.Load() {
+			return nil
+		}
+		if err != nil {
+			log.Printf("Builder worker disconnected: %v", err)
+		}
 
-	_, err = w.ch.QueueDeclare("hatch.build.jobs", true, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to declare build queue: %w", err)
+		if w.channel() != nil {
+			backoff = time.Second
+		}
+		select {
+		case <-w.stopCh:
+			return nil
+		case <-time.After(backoff):
+		}
+		if backoff < 30*time.Second {
+			backoff *= 2
+		}
 	}
+}
 
-	_, err = w.ch.QueueDeclare("hatch.deploy.jobs", true, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to declare deploy queue: %w", err)
+func (w *Worker) runOnce() error {
+	if err := w.connect(); err != nil {
+		return err
 	}
-
-	w.mu.Lock()
-	w.consumerTag = "hatch-builder"
-	w.mu.Unlock()
 
 	msgs, err := w.ch.Consume("hatch.build.jobs", w.consumerTag, false, false, false, false, nil)
 	if err != nil {
@@ -130,29 +143,142 @@ func (w *Worker) Start() error {
 	for m := range msgs {
 		var job BuildJobEvent
 		if err := json.Unmarshal(m.Body, &job); err != nil {
-			m.Nack(false, false)
+			log.Printf("Dropping malformed build job: %v", err)
+			if err := m.Nack(false, false); err != nil {
+				log.Printf("Failed to nack malformed build job: %v", err)
+			}
+			continue
+		}
+
+		if err := validateBuildJob(job); err != nil {
+			log.Printf("Dropping invalid build job %q: %v", job.DeploymentID, err)
+			if job.DeploymentID != "" {
+				w.streamer.Publish(context.Background(), job.DeploymentID, fmt.Sprintf("Build job rejected: %v", err))
+				w.markDeploymentFailed(context.Background(), job.DeploymentID, "builder_validation", err)
+			}
+			if err := m.Ack(false); err != nil {
+				return fmt.Errorf("failed to ack invalid build job: %w", err)
+			}
 			continue
 		}
 
 		w.process(job)
-		m.Ack(false)
+		if err := m.Ack(false); err != nil {
+			return fmt.Errorf("failed to ack build job: %w", err)
+		}
 	}
+
+	return fmt.Errorf("build consumer channel closed")
+}
+
+func (w *Worker) connect() error {
+	w.closeRabbit()
+
+	conn, err := amqp.DialConfig(w.url, amqp.Config{
+		Dial:      amqp.DefaultDial(5 * time.Second),
+		Heartbeat: 10 * time.Second,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
+	}
+
+	ch, err := conn.Channel()
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("failed to open channel: %w", err)
+	}
+	if err := ch.Confirm(false); err != nil {
+		_ = ch.Close()
+		_ = conn.Close()
+		return fmt.Errorf("failed to enable RabbitMQ publisher confirms: %w", err)
+	}
+	if err := ch.Qos(1, 0, false); err != nil {
+		_ = ch.Close()
+		_ = conn.Close()
+		return fmt.Errorf("failed to configure build queue qos: %w", err)
+	}
+
+	for _, queueName := range []string{"hatch.build.jobs", "hatch.deploy.jobs"} {
+		if _, err := ch.QueueDeclare(queueName, true, false, false, false, nil); err != nil {
+			_ = ch.Close()
+			_ = conn.Close()
+			return fmt.Errorf("failed to declare queue %s: %w", queueName, err)
+		}
+	}
+
+	w.mu.Lock()
+	w.conn = conn
+	w.ch = ch
+	w.confirms = ch.NotifyPublish(make(chan amqp.Confirmation, 1))
+	w.consumerTag = fmt.Sprintf("hatch-builder-%d", time.Now().UnixNano())
+	w.mu.Unlock()
 
 	return nil
 }
 
 func (w *Worker) Stop() {
+	w.stopped.Store(true)
+	w.stopOnce.Do(func() {
+		close(w.stopCh)
+	})
+
 	w.mu.Lock()
 	ch := w.ch
 	tag := w.consumerTag
+	conn := w.conn
 	w.mu.Unlock()
 
-	if ch == nil || tag == "" {
-		return
+	if ch != nil && tag != "" {
+		if err := ch.Cancel(tag, false); err != nil && !errors.Is(err, amqp.ErrClosed) {
+			log.Printf("Failed to cancel builder consumer: %v", err)
+		}
 	}
-	if err := ch.Cancel(tag, false); err != nil && !errors.Is(err, amqp.ErrClosed) {
-		log.Printf("Failed to cancel builder consumer: %v", err)
+	if conn != nil {
+		_ = conn.Close()
 	}
+}
+
+func (w *Worker) closeRabbit() {
+	w.mu.Lock()
+	ch := w.ch
+	conn := w.conn
+	w.ch = nil
+	w.conn = nil
+	w.confirms = nil
+	w.consumerTag = ""
+	w.mu.Unlock()
+
+	if ch != nil {
+		_ = ch.Close()
+	}
+	if conn != nil {
+		_ = conn.Close()
+	}
+}
+
+func validateBuildJob(job BuildJobEvent) error {
+	if strings.TrimSpace(job.DeploymentID) == "" {
+		return fmt.Errorf("deployment_id is required")
+	}
+	if strings.TrimSpace(job.RepoURL) == "" {
+		return fmt.Errorf("repo_url is required")
+	}
+	if job.Port <= 0 || job.Port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535")
+	}
+	if job.CPU <= 0 {
+		return fmt.Errorf("cpu must be greater than zero")
+	}
+	if job.MemoryMB <= 0 {
+		return fmt.Errorf("memory_mb must be greater than zero")
+	}
+	if len(job.DockerfilePath) > 512 {
+		return fmt.Errorf("dockerfile_path is too long")
+	}
+	if strings.Contains(job.DockerfilePath, "\x00") {
+		return fmt.Errorf("dockerfile_path contains invalid characters")
+	}
+	return nil
 }
 
 func (w *Worker) process(job BuildJobEvent) {
@@ -171,7 +297,7 @@ func (w *Worker) process(job BuildJobEvent) {
 		}
 	}()
 
-	buildPath := filepath.Join(os.TempDir(), "hatch-builds", id)
+	buildPath := filepath.Join(os.TempDir(), "hatch-builds", safePathSegment(id))
 	defer os.RemoveAll(buildPath)
 	defer w.clearStage(id)
 
@@ -284,7 +410,12 @@ func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) err
 func (w *Worker) publishDeployJob(ctx context.Context, body []byte) error {
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
-		err := w.ch.PublishWithContext(ctx, "", "hatch.deploy.jobs", true, false, amqp.Publishing{
+		ch := w.channel()
+		if ch == nil {
+			return fmt.Errorf("rabbitmq channel unavailable")
+		}
+
+		err := ch.PublishWithContext(ctx, "", "hatch.deploy.jobs", true, false, amqp.Publishing{
 			ContentType:  "application/json",
 			DeliveryMode: amqp.Persistent,
 			Body:         body,
@@ -312,11 +443,16 @@ func (w *Worker) publishDeployJob(ctx context.Context, body []byte) error {
 }
 
 func (w *Worker) waitForPublishConfirm(ctx context.Context, queueName string) error {
+	confirms := w.confirmations()
+	if confirms == nil {
+		return fmt.Errorf("rabbitmq confirmation channel closed")
+	}
+
 	timeout := time.NewTimer(10 * time.Second)
 	defer timeout.Stop()
 
 	select {
-	case confirm, ok := <-w.confirms:
+	case confirm, ok := <-confirms:
 		if !ok {
 			return fmt.Errorf("rabbitmq confirmation channel closed")
 		}
@@ -332,7 +468,12 @@ func (w *Worker) waitForPublishConfirm(ctx context.Context, queueName string) er
 }
 
 func isAmbiguousPublishError(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "timed out waiting for rabbitmq publish confirmation")
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "timed out waiting for rabbitmq publish confirmation") ||
+		strings.Contains(msg, "rabbitmq confirmation channel closed")
 }
 
 func (w *Worker) githubAccessToken(ctx context.Context, job BuildJobEvent) (string, error) {
@@ -466,12 +607,18 @@ func (w *Worker) publishCancellation(ctx context.Context, deploymentID string, e
 }
 
 func (w *Worker) isCanceled(ctx context.Context, deploymentID string) bool {
+	ctx, cancel := boundedContext(ctx, 2*time.Second)
+	defer cancel()
+
 	var status string
 	err := w.db.QueryRowContext(ctx, "SELECT status FROM deployments WHERE id = $1", deploymentID).Scan(&status)
 	return err == nil && status == "canceled"
 }
 
 func (w *Worker) markDeploymentFailed(ctx context.Context, deploymentID, stage string, cause error) {
+	ctx, cancel := boundedContext(ctx, 5*time.Second)
+	defer cancel()
+
 	_, err := w.db.ExecContext(
 		ctx,
 		`
@@ -491,6 +638,9 @@ func (w *Worker) markDeploymentFailed(ctx context.Context, deploymentID, stage s
 }
 
 func (w *Worker) updateDeploymentStatus(ctx context.Context, deploymentID, status string) {
+	ctx, cancel := boundedContext(ctx, 5*time.Second)
+	defer cancel()
+
 	_, err := w.db.ExecContext(
 		ctx,
 		`
@@ -508,6 +658,13 @@ func (w *Worker) updateDeploymentStatus(ctx context.Context, deploymentID, statu
 	}
 }
 
+func boundedContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if _, ok := parent.Deadline(); ok {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, timeout)
+}
+
 func shortDeploymentID(id string) string {
 	if len(id) <= 8 {
 		return id
@@ -515,14 +672,43 @@ func shortDeploymentID(id string) string {
 	return id[:8]
 }
 
+func safePathSegment(value string) string {
+	cleaned := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r
+		case r >= '0' && r <= '9':
+			return r
+		case r == '-', r == '_', r == '.':
+			return r
+		default:
+			return '-'
+		}
+	}, strings.TrimSpace(value))
+	cleaned = strings.Trim(cleaned, ".-")
+	if cleaned == "" {
+		return fmt.Sprintf("deployment-%d", time.Now().UnixNano())
+	}
+	return cleaned
+}
+
+func (w *Worker) channel() *amqp.Channel {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.ch
+}
+
+func (w *Worker) confirmations() <-chan amqp.Confirmation {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.confirms
+}
+
 func (w *Worker) Close() {
 	if w.db != nil {
 		w.db.Close()
 	}
-	if w.ch != nil {
-		w.ch.Close()
-	}
-	if w.conn != nil {
-		w.conn.Close()
-	}
+	w.closeRabbit()
 }
