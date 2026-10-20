@@ -214,7 +214,7 @@ hatch/
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.26.4+
 - Node.js 20+
 - Docker + Docker Compose
 - AWS CLI configured with IAM credentials
@@ -247,9 +247,11 @@ GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 GITHUB_REDIRECT_URI=http://localhost:8080/auth/callback
 JWT_SECRET=
-DATABASE_URL=postgres://hatch:hatch@localhost:5432/hatch?sslmode=disable
+DATA_ENCRYPTION_KEY=
+DATABASE_URL=postgres://hatch:hatch@localhost:5433/hatch?sslmode=disable
 REDIS_URL=redis://localhost:6379
 RABBITMQ_URL=amqp://guest:guest@localhost:5672/
+WEBHOOK_BASE_URL=http://localhost:8080
 ```
 
 **`apps/builder/.env`**
@@ -260,6 +262,8 @@ REDIS_URL=redis://localhost:6379
 AWS_REGION=ap-south-1
 ECR_REGISTRY=<account-id>.dkr.ecr.ap-south-1.amazonaws.com
 ECR_REPOSITORY=hatch-builds
+DATABASE_URL=postgres://hatch:hatch@localhost:5433/hatch?sslmode=disable
+DATA_ENCRYPTION_KEY=
 ```
 
 **`apps/deployer/.env`**
@@ -276,7 +280,8 @@ SUBNET_B=
 ECS_SG_ID=
 TASK_EXECUTION_ROLE_ARN=
 ECR_REGISTRY=<account-id>.dkr.ecr.ap-south-1.amazonaws.com
-DATABASE_URL=postgres://hatch:hatch@localhost:5432/hatch?sslmode=disable
+DATABASE_URL=postgres://hatch:hatch@localhost:5433/hatch?sslmode=disable
+DATA_ENCRYPTION_KEY=
 ```
 
 ### 3. Start local infrastructure
@@ -289,7 +294,7 @@ make dev   # starts Postgres, Redis, RabbitMQ via Docker Compose
 
 ```bash
 migrate -path packages/db/migrations \
-  -database "postgres://hatch:hatch@localhost:5432/hatch?sslmode=disable" up
+  -database "postgres://hatch:hatch@localhost:5433/hatch?sslmode=disable" up
 ```
 
 ### 5. Run services
@@ -393,9 +398,9 @@ Each deployment gets its own Redis channel. The hub subscribes on WebSocket conn
 
 ```bash
 make dev      # docker compose up -d postgres redis rabbitmq
-make up       # docker compose up (full stack with built images)
+make up       # docker compose up (local infrastructure only)
 make down     # docker compose down
-make build    # docker compose build
+make build    # docker compose build (no-op until app services are added)
 make migrate  # run pending DB migrations
 ```
 
