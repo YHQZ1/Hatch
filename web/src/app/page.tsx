@@ -535,30 +535,30 @@ function Footer() {
             <span className="font-mono text-[10px] uppercase tracking-widest text-white mb-6">
               Docs
             </span>
-            <Link
-              href="/docs/quick-start"
+            <a
+              href="https://github.com/YHQZ1/Hatch/tree/main/docs"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
             >
-              Quick Start
-            </Link>
-            <Link
-              href="/docs/configuration"
+              Documentation
+            </a>
+            <a
+              href="https://github.com/YHQZ1/Hatch/blob/main/docs/03-architecture.md"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
             >
-              Configuration
-            </Link>
-            <Link
-              href="/docs/environment-variables"
-              className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
-            >
-              Environment Variables
-            </Link>
-            <Link
-              href="/docs/self-hosting"
+              Architecture
+            </a>
+            <a
+              href="https://github.com/YHQZ1/Hatch#running-locally"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-[#888] text-sm hover:text-white transition-colors block"
             >
-              Self-Hosting
-            </Link>
+              Run Locally
+            </a>
           </div>
           <div className="flex flex-col items-center">
             <span className="font-mono text-[10px] uppercase tracking-widest text-white mb-6">
@@ -587,18 +587,14 @@ function Footer() {
             <span className="font-mono text-[10px] uppercase tracking-widest text-white mb-6">
               Project
             </span>
-            <Link
-              href="/docs/roadmap"
+            <a
+              href="https://github.com/YHQZ1/Hatch/blob/main/docs/05-roadmap.md"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
             >
               Roadmap
-            </Link>
-            <Link
-              href="/docs/changelog"
-              className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
-            >
-              Changelog
-            </Link>
+            </a>
             <a
               href="https://github.com/YHQZ1/Hatch/issues"
               target="_blank"
