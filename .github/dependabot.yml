@@ -11,7 +11,7 @@ updates:
         update-types: [minor, patch]
 
   - package-ecosystem: npm
-    directory: /apps/web
+    directory: /web
     schedule:
       interval: weekly
     groups:
@@ -29,6 +29,6 @@ updates:
   - package-ecosystem: docker
     directories:
       - /
-      - /apps/web
+      - /web
     schedule:
       interval: weekly

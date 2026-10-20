@@ -22,4 +22,4 @@
 **/.terraform
 docs
 infra
-apps/web
+web

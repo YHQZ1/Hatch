@@ -39,10 +39,10 @@ coverage.html
 
 # ─── Next.js / Node ───────────────────────────────────────────────────────────
 node_modules/
-apps/web/.next/
-apps/web/out/
-apps/web/.turbo/
-apps/web/build/
+web/.next/
+web/out/
+web/.turbo/
+web/build/
 
 # npm / pnpm / yarn
 npm-debug.log*

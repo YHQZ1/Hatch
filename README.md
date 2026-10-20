@@ -95,7 +95,7 @@ callback URL `http://localhost:8080/auth/callback`.
 
 ```bash
 git clone https://github.com/YHQZ1/Hatch.git && cd Hatch
-(cd apps/web && npm install)
+(cd web && npm install)
 
 # Configuration: fill in the GitHub OAuth values, JWT_SECRET, and
 # DATA_ENCRYPTION_KEY. Every hatch subcommand reads this one file.
@@ -124,7 +124,7 @@ internal/runtime   ECS services and ALB routing
 internal/store     database access (sqlc) and migrations
 internal/config    configuration loading
 internal/secrets   encryption at rest
-apps/web           Next.js dashboard
+web/               Next.js dashboard
 infra/             Terraform for the old hosted model (to be removed)
 docs/              vision, architecture, roadmap, and decision records
 ```

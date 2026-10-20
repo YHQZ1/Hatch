@@ -3,7 +3,7 @@ module github.com/YHQZ1/hatch
 go 1.26.10
 
 // Keep Go tooling out of npm packages (some ship .go files).
-ignore ./apps/web/node_modules
+ignore ./web/node_modules
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.5

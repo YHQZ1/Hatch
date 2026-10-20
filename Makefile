@@ -26,7 +26,7 @@ stop-dev:
 	for pid in $$process_pids; do \
 		cwd="$$(lsof -a -p "$$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"; \
 		case "$$cwd" in \
-			"$$workspace"|"$$workspace/apps/web") \
+			"$$workspace"|"$$workspace/web") \
 				pids="$$pids $$pid"; \
 				;; \
 		esac; \
@@ -68,14 +68,14 @@ check-dev-ports:
 
 dev: infra stop-dev check-dev-ports
 	@test -f .env || { echo "Missing .env (copy .env.example)"; exit 1; }
-	@test -f apps/web/.env.development.local || cp apps/web/.env.example apps/web/.env.development.local
+	@test -f web/.env.development.local || cp web/.env.example web/.env.development.local
 	@set -e; \
 	rm -f "$(DEV_PID_FILE)"; \
 	trap '$(MAKE) --no-print-directory stop-dev >/dev/null 2>&1 || true; wait' INT TERM EXIT; \
 	go run ./cmd/hatch api & echo $$! >> "$(DEV_PID_FILE)"; \
 	go run ./cmd/hatch builder & echo $$! >> "$(DEV_PID_FILE)"; \
 	go run ./cmd/hatch deployer & echo $$! >> "$(DEV_PID_FILE)"; \
-	( cd apps/web && npm run dev ) & echo $$! >> "$(DEV_PID_FILE)"; \
+	( cd web && npm run dev ) & echo $$! >> "$(DEV_PID_FILE)"; \
 	wait
 
 build:
@@ -103,7 +103,7 @@ lint-go:
 	golangci-lint run ./...
 
 lint-web:
-	cd apps/web && npm run lint
+	cd web && npm run lint
 
 fmt:
 	gofmt -w cmd internal

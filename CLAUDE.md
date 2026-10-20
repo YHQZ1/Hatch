@@ -59,13 +59,13 @@ make migrate                    # apply migrations (needs golang-migrate)
 go run ./cmd/hatch help         # list subcommands
 
 make check                      # golangci-lint, ESLint, go test -race
-cd apps/web && npm run build    # web production build
+cd web && npm run build    # web production build
 ```
 
 Configuration for every subcommand is read from `.env` in the repository root
 (see `.env.example`).
 
-After building the web app, restore `apps/web/next-env.d.ts` if it changed
-(`git checkout -- apps/web/next-env.d.ts`); Next.js rewrites it.
+After building the web app, restore `web/next-env.d.ts` if it changed
+(`git checkout -- web/next-env.d.ts`); Next.js rewrites it.
 
 Update this section when Phase 1 changes the layout.
