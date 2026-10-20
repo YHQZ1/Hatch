@@ -396,11 +396,11 @@ func (w *Worker) handoff(ctx context.Context, job BuildJobEvent, uri string) err
 
 	body, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("Failed to marshal deploy job: %v", err)
+		return fmt.Errorf("marshal deploy job: %w", err)
 	}
 
 	if err := w.publishDeployJob(ctx, body); err != nil {
-		return fmt.Errorf("Orchestration handoff failed: %v", err)
+		return fmt.Errorf("hand off to deployer: %w", err)
 	}
 
 	w.streamer.Publish(ctx, job.DeploymentID, "Pipeline stage complete: Build and Push")

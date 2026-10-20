@@ -763,7 +763,7 @@ func validateGitHubDeployInputs(ctx context.Context, repoURL, branch, dockerfile
 		return err
 	}
 	if dockerfileStatus == http.StatusNotFound {
-		return fmt.Errorf("Dockerfile not found at %q on branch %q", dockerfilePath, branch)
+		return fmt.Errorf("no Dockerfile found at %q on branch %q", dockerfilePath, branch)
 	}
 	if dockerfileStatus < 200 || dockerfileStatus >= 300 {
 		return fmt.Errorf("github Dockerfile check failed with status %d: %s", dockerfileStatus, dockerfileBody)
@@ -771,7 +771,7 @@ func validateGitHubDeployInputs(ctx context.Context, repoURL, branch, dockerfile
 
 	var content githubContentMetadata
 	if err := json.Unmarshal([]byte(dockerfileBody), &content); err == nil && content.Type != "" && content.Type != "file" {
-		return fmt.Errorf("Dockerfile path %q is not a file", dockerfilePath)
+		return fmt.Errorf("the Dockerfile path %q is not a file", dockerfilePath)
 	}
 	return nil
 }

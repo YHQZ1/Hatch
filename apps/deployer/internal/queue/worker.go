@@ -314,8 +314,7 @@ func (w *Worker) handleServiceControlJobs(msgs <-chan amqp.Delivery) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		var desiredCount int32
-		successStatus := "active"
-		failedStatus := "resume_failed"
+		var successStatus, failedStatus string
 		switch job.Action {
 		case "suspend":
 			desiredCount = 0

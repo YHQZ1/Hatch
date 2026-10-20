@@ -3,7 +3,9 @@ SHELL := /bin/bash
 DEV_PID_FILE := .hatch-dev.pids
 DEV_PORTS := 3000 8080
 
-.PHONY: dev stop-dev check-dev-ports infra build up down migrate
+.PHONY: dev stop-dev check-dev-ports infra build up down migrate test lint lint-go lint-web fmt check
+
+GO_MODULES := apps/api apps/builder apps/deployer packages/config packages/db packages/secrets
 
 infra:
 	docker compose up -d postgres redis rabbitmq
@@ -91,3 +93,28 @@ down:
 migrate:
 	migrate -path packages/db/migrations \
 		-database "postgres://hatch:hatch@localhost:5433/hatch?sslmode=disable" up
+
+# Checks (CI runs `make check` and the web build)
+
+test:
+	@set -e; for m in $(GO_MODULES); do \
+		echo "==> go test $$m"; \
+		( cd $$m && go test -race ./... ); \
+	done
+
+lint: lint-go lint-web
+
+lint-go:
+	@command -v golangci-lint >/dev/null || { echo "golangci-lint not found: https://golangci-lint.run/welcome/install/"; exit 1; }
+	@set -e; for m in $(GO_MODULES); do \
+		echo "==> golangci-lint $$m"; \
+		( cd $$m && golangci-lint run ./... ); \
+	done
+
+lint-web:
+	cd apps/web && npm run lint
+
+fmt:
+	@set -e; for m in $(GO_MODULES); do gofmt -w $$m; done
+
+check: lint test
