@@ -22,6 +22,16 @@ JOIN projects ON projects.id = deployments.project_id
 WHERE deployments.project_id = $1 AND projects.user_id = $2
 ORDER BY deployments.created_at DESC;
 
+-- name: GetActiveDeploymentByProjectIDAndUserID :one
+SELECT deployments.*
+FROM deployments
+JOIN projects ON projects.id = deployments.project_id
+WHERE deployments.project_id = $1
+  AND projects.user_id = $2
+  AND deployments.status IN ('queued', 'building', 'deploying')
+ORDER BY deployments.created_at DESC
+LIMIT 1;
+
 -- name: UpdateDeploymentStatus :one
 UPDATE deployments SET status = $2 WHERE id = $1 RETURNING *;
 

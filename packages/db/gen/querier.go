@@ -23,6 +23,7 @@ type Querier interface {
 	DeleteProject(ctx context.Context, id uuid.UUID) error
 	DeleteProjectByIDAndUserID(ctx context.Context, arg DeleteProjectByIDAndUserIDParams) error
 	DeleteProjectEnvVarsByProject(ctx context.Context, projectID uuid.UUID) error
+	GetActiveDeploymentByProjectIDAndUserID(ctx context.Context, arg GetActiveDeploymentByProjectIDAndUserIDParams) (Deployment, error)
 	GetActivityLogsByUserID(ctx context.Context, userID uuid.UUID) ([]ActivityLog, error)
 	GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployment, error)
 	GetDeploymentByIDAndUserID(ctx context.Context, arg GetDeploymentByIDAndUserIDParams) (Deployment, error)

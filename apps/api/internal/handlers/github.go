@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -44,14 +45,15 @@ func NewGitHubHandler(rdb *redis.Client) *GitHubHandler {
 }
 
 func (h *GitHubHandler) ListRepos(c *gin.Context) {
-	token, exists := c.Get("access_token")
-	if !exists {
+	token, ok := accessTokenFromContext(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 		return
 	}
 
-	username, exists := c.Get("username")
-	if !exists {
+	usernameRaw, exists := c.Get("username")
+	username, ok := usernameRaw.(string)
+	if !exists || !ok || strings.TrimSpace(username) == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "username not found"})
 		return
 	}
@@ -68,31 +70,40 @@ func (h *GitHubHandler) ListRepos(c *gin.Context) {
 		}
 	}
 
-	url := "https://api.github.com/user/repos?sort=updated&per_page=100"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
-		return
-	}
-	req.Header.Set("Authorization", "Bearer "+token.(string))
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := outboundHTTPClient.Do(req)
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "github unreachable"})
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "github api error"})
-		return
-	}
-
 	var repos []Repo
-	if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse response"})
-		return
+	for page := 1; page <= 10; page++ {
+		endpoint := fmt.Sprintf(
+			"https://api.github.com/user/repos?sort=updated&per_page=100&page=%d",
+			page,
+		)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
+			return
+		}
+		setGitHubHeaders(req, token)
+
+		resp, err := outboundHTTPClient.Do(req)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "github unreachable"})
+			return
+		}
+
+		var pageRepos []Repo
+		decodeErr := json.NewDecoder(resp.Body).Decode(&pageRepos)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "github api error"})
+			return
+		}
+		if decodeErr != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to parse github response"})
+			return
+		}
+		repos = append(repos, pageRepos...)
+		if len(pageRepos) < 100 {
+			break
+		}
 	}
 
 	if repoData, err := json.Marshal(repos); err == nil {
@@ -103,18 +114,43 @@ func (h *GitHubHandler) ListRepos(c *gin.Context) {
 }
 
 func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
-	token, exists := c.Get("access_token")
-	if !exists {
+	token, ok := accessTokenFromContext(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 		return
 	}
 
-	owner := c.Param("owner")
-	repo := c.Param("repo")
-	path := c.DefaultQuery("path", "Dockerfile")
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+	owner, repo, err := parseRepoURL(
+		fmt.Sprintf("https://github.com/%s/%s", c.Param("owner"), c.Param("repo")),
+	)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repository"})
+		return
+	}
+	dockerfilePath, err := normalizeDockerfilePath(c.DefaultQuery("path", "Dockerfile"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if dockerfilePath == "" {
+		dockerfilePath = "Dockerfile"
+	}
+	branch := normalizeBranch(c.Query("branch"))
 	ctx := c.Request.Context()
 
-	cacheKey := fmt.Sprintf("github:dockerfile:v2:%s:%s:%s", owner, repo, path)
+	cacheKey := fmt.Sprintf(
+		"github:dockerfile:v3:%s:%s:%s:%s:%s",
+		userID,
+		owner,
+		repo,
+		branch,
+		dockerfilePath,
+	)
 	val, err := h.rdb.Get(ctx, cacheKey).Result()
 	if err == nil {
 		var cached dockerfileCheckResponse
@@ -128,14 +164,21 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 		}
 	}
 
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", owner, repo, path)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	endpoint := fmt.Sprintf(
+		"https://api.github.com/repos/%s/%s/contents/%s",
+		owner,
+		repo,
+		escapeGitHubPath(dockerfilePath),
+	)
+	if branch != "" {
+		endpoint += "?ref=" + url.QueryEscape(branch)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+token.(string))
-	req.Header.Set("Accept", "application/vnd.github+json")
+	setGitHubHeaders(req, token)
 
 	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
@@ -152,7 +195,11 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 		}
 
 		ports := parseDockerfileExposePorts(payload)
-		response := dockerfileCheckResponse{Exists: true, Ports: ports}
+		response := dockerfileCheckResponse{
+			Exists: true,
+			Ports:  ports,
+			Path:   dockerfilePath,
+		}
 		if encoded, err := json.Marshal(response); err == nil {
 			h.rdb.Set(ctx, cacheKey, encoded, 10*time.Minute)
 		}
@@ -161,11 +208,18 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 	}
 
 	if resp.StatusCode == http.StatusNotFound {
-		c.JSON(http.StatusNotFound, gin.H{"exists": false, "path": path})
+		c.JSON(http.StatusNotFound, gin.H{"exists": false, "path": dockerfilePath})
 		return
 	}
 
 	c.JSON(http.StatusBadGateway, gin.H{"exists": false, "error": "github api error"})
+}
+
+func setGitHubHeaders(req *http.Request, token string) {
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("User-Agent", "Hatch")
 }
 
 func parseDockerfileExposePorts(payload githubContentResponse) []int {

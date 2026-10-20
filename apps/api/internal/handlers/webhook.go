@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -62,6 +63,7 @@ func (h *WebhookHandler) buildDeploymentEnvSnapshot(ctx context.Context, q *dbpk
 
 type githubPushEvent struct {
 	Ref        string `json:"ref"`
+	Deleted    bool   `json:"deleted"`
 	Repository struct {
 		HTMLURL string `json:"html_url"`
 	} `json:"repository"`
@@ -71,16 +73,29 @@ type githubPushEvent struct {
 	} `json:"head_commit"`
 }
 
+const maxWebhookBodyBytes = 1 << 20
+
 func (h *WebhookHandler) HandlePush(c *gin.Context) {
-	// 1. Quick check for event type
 	if c.GetHeader("X-GitHub-Event") != "push" {
 		c.Status(http.StatusNoContent)
 		return
 	}
 
-	// 2. Read body once
+	signature := strings.TrimSpace(c.GetHeader("X-Hub-Signature-256"))
+	deliveryID := strings.TrimSpace(c.GetHeader("X-GitHub-Delivery"))
+	if signature == "" || deliveryID == "" || len(deliveryID) > 128 {
+		c.Status(http.StatusUnauthorized)
+		return
+	}
+
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxWebhookBodyBytes)
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			c.Status(http.StatusRequestEntityTooLarge)
+			return
+		}
 		c.Status(http.StatusBadRequest)
 		return
 	}
@@ -91,20 +106,23 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		return
 	}
 
-	// 3. NORMALIZATION: GitHub sends URLs with or without .git
-	// We trim it to match whatever is stored in your DB
-	repoURL := strings.TrimSuffix(payload.Repository.HTMLURL, ".git")
+	if payload.Deleted {
+		c.Status(http.StatusNoContent)
+		return
+	}
 
-	// 4. Look up projects. Multiple Hatch services may point at the same repo,
-	// so use the webhook signature to select the exact project/secret.
+	repoURL, err := normalizeGitHubRepoURL(payload.Repository.HTMLURL)
+	if err != nil {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
 	projects, err := h.queries.GetProjectsByRepoURL(c.Request.Context(), repoURL)
 	if err != nil {
-		// If project doesn't exist, we return 202 to avoid GitHub retries
 		c.Status(http.StatusAccepted)
 		return
 	}
 
-	signature := c.GetHeader("X-Hub-Signature-256")
 	project, ok := h.matchWebhookProject(projects, body, signature)
 	if !ok {
 		log.Printf("[SECURITY] No matching webhook signature for repo: %s", repoURL)
@@ -121,33 +139,49 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		return
 	}
 
-	// 6. Branch Check
 	targetRef := fmt.Sprintf("refs/heads/%s", project.Branch)
 	if payload.Ref != targetRef {
 		c.Status(http.StatusNoContent)
 		return
 	}
 
-	// 7. Get User Token
-	user, err := h.queries.GetUserByID(c.Request.Context(), project.UserID)
-	if err != nil {
-		c.Status(http.StatusInternalServerError)
-		return
-	}
-
-	// 8. Resource Naming (Subdomain)
 	resourceName := project.ID.String()[:8]
 	if project.Subdomain.Valid && project.Subdomain.String != "" {
 		resourceName = project.Subdomain.String
 	}
+	healthCheck := h.latestHealthCheck(c.Request.Context(), project.ID)
 
-	// 9. Database Entry
 	tx, err := h.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
 	defer tx.Rollback()
+
+	_, _ = tx.ExecContext(
+		c.Request.Context(),
+		"DELETE FROM webhook_deliveries WHERE project_id = $1 AND created_at < now() - interval '30 days'",
+		project.ID,
+	)
+	var storedDeliveryID string
+	err = tx.QueryRowContext(
+		c.Request.Context(),
+		`
+			INSERT INTO webhook_deliveries (project_id, delivery_id)
+			VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+			RETURNING delivery_id`,
+		project.ID,
+		deliveryID,
+	).Scan(&storedDeliveryID)
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusAccepted, gin.H{"status": "delivery already processed"})
+		return
+	}
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
 
 	qtx := h.queries.WithTx(tx)
 	deployment, err := qtx.CreateDeployment(c.Request.Context(), dbpkg.CreateDeploymentParams{
@@ -156,7 +190,7 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		Cpu:           defaultDeploymentCPU,
 		MemoryMb:      defaultDeploymentMemoryMB,
 		Port:          project.Port,
-		HealthCheck:   "/",
+		HealthCheck:   healthCheck,
 		Subdomain:     sql.NullString{String: resourceName, Valid: true},
 		CommitSha:     nullString(payload.HeadCommit.ID),
 		CommitMessage: nullString(firstCommitLine(payload.HeadCommit.Message)),
@@ -196,18 +230,17 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		return
 	}
 
-	// 10. Publish to Queue
 	if err := h.publisher.PublishBuildJob(c.Request.Context(), queue.BuildJobEvent{
 		DeploymentID:   deployment.ID.String(),
 		RepoURL:        project.RepoUrl,
 		Branch:         project.Branch,
 		DockerfilePath: project.DockerfilePath,
-		UserID:         user.ID.String(),
+		UserID:         project.UserID.String(),
 		Port:           int(project.Port),
 		Subdomain:      resourceName,
 		CPU:            defaultDeploymentCPU,
 		MemoryMB:       defaultDeploymentMemoryMB,
-		HealthCheck:    "/",
+		HealthCheck:    healthCheck,
 	}); err != nil {
 		_, _ = h.queries.MarkDeploymentFailed(c.Request.Context(), dbpkg.MarkDeploymentFailedParams{
 			ID:           deployment.ID,
@@ -222,6 +255,24 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		"status": "deploying",
 		"id":     deployment.ID,
 	})
+}
+
+func (h *WebhookHandler) latestHealthCheck(ctx context.Context, projectID uuid.UUID) string {
+	var healthCheck string
+	err := h.db.QueryRowContext(
+		ctx,
+		`
+			SELECT health_check
+			FROM deployments
+			WHERE project_id = $1
+			ORDER BY created_at DESC
+			LIMIT 1`,
+		projectID,
+	).Scan(&healthCheck)
+	if err != nil || strings.TrimSpace(healthCheck) == "" {
+		return "/"
+	}
+	return healthCheck
 }
 
 func (h *WebhookHandler) matchWebhookProject(projects []dbpkg.Project, body []byte, signature string) (dbpkg.Project, bool) {
