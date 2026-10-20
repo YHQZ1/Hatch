@@ -29,7 +29,6 @@ apps/deployer   Go worker: ECS task definition, target group, listener rule, ser
 packages/db     sqlc-generated queries and golang-migrate migrations
 packages/config Environment loading and validation for the API
 packages/secrets AES-256-GCM codec for values stored in Postgres
-packages/events Shared job payload types
 infra/          Terraform: networking, ECS, ALBs, ECR, RDS, ElastiCache, Amazon MQ, EC2 host
 ```
 

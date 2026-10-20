@@ -6,6 +6,5 @@ use (
 	./apps/deployer
 	./packages/config
 	./packages/db
-	./packages/events
 	./packages/secrets
 )
