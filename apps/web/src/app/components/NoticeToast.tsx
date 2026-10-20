@@ -15,30 +15,26 @@ export function NoticeToast({
 }) {
   if (!notice) return null;
 
-  const tone =
-    notice.type === "success"
-      ? "border-[#12301f] bg-[#07120c] text-[#86efac]"
-      : notice.type === "error"
-        ? "border-[#351313] bg-[#140909] text-[#fca5a5]"
-        : "border-[#1f2937] bg-[#090c12] text-[#93c5fd]";
-
-  const bodyTone =
-    notice.type === "success"
-      ? "text-[#4ade80]"
-      : notice.type === "error"
-        ? "text-[#f87171]"
-        : "text-[#60a5fa]";
+  const indicator =
+    notice.type === "error"
+      ? "bg-zinc-300"
+      : notice.type === "success"
+        ? "bg-zinc-500"
+        : "bg-zinc-600";
 
   return (
-    <div className="fixed right-6 top-20 z-50 max-w-md">
-      <div className={`border rounded-[3px] shadow-2xl ${tone}`}>
-        <div className="flex items-start gap-4 px-4 py-3">
+    <div className="fixed inset-x-0 bottom-6 z-50 flex justify-center px-4 pointer-events-none">
+      <div className="hatch-toast-enter pointer-events-auto w-full max-w-md overflow-hidden rounded-xl border border-white/[0.1] bg-[#090909]/95 text-zinc-200 shadow-2xl backdrop-blur-xl">
+        <div className="flex items-start gap-3 px-4 py-3.5">
+          <span
+            className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${indicator}`}
+          />
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em]">
+            <p className="text-[11px] font-medium text-zinc-100">
               {notice.title}
             </p>
             {notice.message && (
-              <p className={`mt-1 text-[12px] leading-relaxed ${bodyTone}`}>
+              <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
                 {notice.message}
               </p>
             )}
@@ -46,7 +42,7 @@ export function NoticeToast({
           <button
             type="button"
             onClick={onDismiss}
-            className="text-[10px] font-bold uppercase tracking-[0.18em] text-current/60 hover:text-current transition-colors cursor-pointer"
+            className="text-[11px] font-medium text-zinc-600 hover:text-white transition-colors cursor-pointer"
           >
             Close
           </button>

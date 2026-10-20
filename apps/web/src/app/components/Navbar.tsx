@@ -5,6 +5,7 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { apiFetch, logout } from "@/app/lib/api";
+import { Button, cn } from "./ui";
 
 export default function Navbar() {
   const router = useRouter();
@@ -44,16 +45,13 @@ export default function Navbar() {
   };
 
   return (
-    <nav className="sticky top-0 z-50 w-full border-b border-[#1a1a1a] bg-black/80 backdrop-blur-md">
-      {/* Increased height to h-16 for better scale */}
-      <div className="w-full px-6 lg:px-10 flex items-center justify-between h-16">
-        {/* LEFT SECTION */}
+    <nav className="sticky top-0 z-50 w-full border-b border-white/[0.07] bg-black/70 backdrop-blur-xl">
+      <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-10 flex items-center justify-between h-16">
         <div className="flex items-center h-full gap-10">
           <Link
             href="/console"
             className="flex items-center gap-3.5 group cursor-pointer"
           >
-            {/* Slightly larger logo container */}
             <div className="w-8 h-8 flex items-center justify-center">
               <img
                 src="https://cdn.simpleicons.org/habr/FFFFFF"
@@ -61,14 +59,12 @@ export default function Navbar() {
                 className="w-full h-full"
               />
             </div>
-            {/* Increased font size to text-xl */}
             <span className="font-bold tracking-tighter text-xl uppercase text-white">
               Hatch
             </span>
           </Link>
 
-          {/* MAIN NAV - Scaled gap and text size */}
-          <div className="hidden md:flex items-center h-full gap-6">
+          <div className="hidden md:flex items-center h-full gap-1">
             <NavLink href="/console" active={pathname === "/console"}>
               Console
             </NavLink>
@@ -84,18 +80,13 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* RIGHT SECTION */}
-        <div className="flex items-center h-full gap-6 relative" ref={menuRef}>
-          {/* Scaled Button: h-9 instead of h-8 */}
-          <Link
-            href="/new"
-            className="h-9 px-4 border border-zinc-800 text-white hover:bg-white hover:text-black transition-all flex items-center gap-2 font-bold text-[11px] uppercase tracking-tight rounded-[2px] cursor-pointer"
-          >
+        <div className="flex items-center h-full gap-3 sm:gap-5 relative" ref={menuRef}>
+          <Button href="/new" variant="primary" className="hidden sm:inline-flex">
             <span className="text-sm">+</span>
             New
-          </Link>
+          </Button>
 
-          <div className="h-5 w-px bg-[#1a1a1a]" />
+          <div className="hidden sm:block h-5 w-px bg-white/[0.08]" />
 
           <button
             onClick={() => setMenuOpen(!menuOpen)}
@@ -109,13 +100,12 @@ export default function Navbar() {
             </div>
             {user?.avatar && (
               <div className="relative">
-                {/* Bumped avatar size to w-8 */}
                 <img
                   src={user.avatar}
-                  className={`w-8 h-8 rounded-sm border transition-all duration-200 ${
+                  className={`w-8 h-8 rounded-md border transition-all duration-200 ${
                     menuOpen
                       ? "border-white"
-                      : "border-zinc-800 group-hover:border-zinc-500"
+                      : "border-white/[0.1] group-hover:border-white/35"
                   }`}
                   alt="Profile"
                 />
@@ -123,10 +113,9 @@ export default function Navbar() {
             )}
           </button>
 
-          {/* DROPDOWN MENU */}
           {menuOpen && (
-            <div className="absolute right-0 top-[calc(100%+8px)] w-56 bg-[#0a0a0a] border border-[#1a1a1a] shadow-2xl py-2 z-[60] rounded-[2px] overflow-hidden">
-              <div className="px-5 py-4 border-b border-[#1a1a1a] mb-1">
+            <div className="absolute right-0 top-[calc(100%+10px)] w-60 bg-[#090909]/95 border border-white/[0.08] shadow-2xl py-2 z-[60] rounded-xl overflow-hidden backdrop-blur-xl">
+              <div className="px-5 py-4 border-b border-white/[0.07] mb-1">
                 <p className="text-[13px] font-semibold text-white truncate">
                   {user?.username}
                 </p>
@@ -140,7 +129,7 @@ export default function Navbar() {
                 onClick={() => setMenuOpen(false)}
               />
 
-              <div className="h-px bg-[#1a1a1a] my-1" />
+              <div className="h-px bg-white/[0.07] my-1" />
 
               <button
                 onClick={handleSignOut}
@@ -168,14 +157,14 @@ function NavLink({
   return (
     <Link
       href={href}
-      className={`h-full flex items-center px-1 transition-colors duration-200 relative text-[16px] font-medium cursor-pointer tracking-tight ${
-        active ? "text-white" : "text-zinc-500 hover:text-white"
-      }`}
+      className={cn(
+        "relative flex h-9 items-center px-3 text-sm font-medium tracking-tight transition-colors cursor-pointer",
+        active
+          ? "text-white after:absolute after:inset-x-3 after:bottom-0 after:h-px after:bg-white"
+          : "text-zinc-500 hover:text-white",
+      )}
     >
       {children}
-      {active && (
-        <span className="absolute bottom-[-1px] left-0 right-0 h-[2px] bg-white" />
-      )}
     </Link>
   );
 }
@@ -193,7 +182,7 @@ function DropdownLink({
     <Link
       href={href}
       onClick={onClick}
-      className="flex items-center px-5 py-2.5 text-[12px] text-zinc-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer font-medium"
+      className="flex items-center px-5 py-2.5 text-[12px] text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer font-medium"
     >
       {label}
     </Link>

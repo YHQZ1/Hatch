@@ -6,6 +6,17 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { PageLoadingState } from "../../../../components/LoadingState";
 import {
+  AppShell,
+  Button,
+  PageTitle,
+  StatusText,
+  cn,
+} from "../../../../components/ui";
+import {
+  NoticeToast,
+  type NoticePayload,
+} from "../../../../components/NoticeToast";
+import {
   apiFetch,
   consumeFlashNotice,
   deploymentUrl,
@@ -31,6 +42,8 @@ interface Deployment {
   project_id: string;
   branch: string;
   status: string;
+  commit_sha?: string | null;
+  commit_message?: string | null;
   cpu: number;
   memory_mb: number;
   port: number;
@@ -46,12 +59,6 @@ interface LogLine {
   text: string;
   type: "info" | "success" | "error" | "muted" | "system";
   timestamp: string;
-}
-
-interface ProjectNotice {
-  type: "success" | "error" | "info";
-  title: string;
-  message?: string;
 }
 
 const CACHE_KEY_PREFIX = "hatch_project_";
@@ -73,7 +80,7 @@ export default function ProjectDetail() {
   const [copied, setCopied] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState<ProjectNotice | null>(null);
+  const [notice, setNotice] = useState<NoticePayload | null>(null);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -91,7 +98,7 @@ export default function ProjectDetail() {
     setMounted(true);
     const flash = consumeFlashNotice();
     if (flash) {
-      setNotice(flash as ProjectNotice);
+      setNotice(flash as NoticePayload);
     }
 
     const cacheKey = `${CACHE_KEY_PREFIX}${projectId}`;
@@ -375,353 +382,547 @@ export default function ProjectDetail() {
   );
   const liveUrl = isLive ? deploymentUrl(activeDeployment?.url) : null;
 
+  const selectedRepoLabel =
+    project?.repo_url.replace("https://github.com/", "") ?? "Repository";
+  const statusTone = getStatusTone(activeDeployment?.status);
+
   return (
-    <div className="flex h-[calc(100vh-64px)] bg-black text-zinc-400 overflow-hidden">
-      <ProjectToast notice={notice} onDismiss={() => setNotice(null)} />
-      {/* SIDEBAR */}
-      <aside className="w-[320px] border-r border-[#1a1a1a] flex flex-col bg-[#030303] shrink-0">
-        {/* Project header */}
-        <div className="px-5 pt-2 pb-5 border-b border-[#1a1a1a] space-y-4">
-          <Link
-            href="/console"
-            className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-zinc-700 hover:text-zinc-400 transition-colors font-bold group"
-          >
-            <span className="group-hover:-translate-x-0.5 transition-transform inline-block">
-              ←
-            </span>
-            Back to Console
-          </Link>
-          <div>
-            <div className="min-w-0">
-              <h1 className="text-[16px] font-semibold text-white tracking-tight truncate leading-tight">
-                {loading ? "Loading..." : project?.repo_name}
-              </h1>
-              <p className="text-[10px] font-mono text-zinc-700 mt-1 truncate">
-                {project?.repo_url.replace("https://github.com/", "") ?? ""}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Live URL + status strip */}
-        {activeDeployment && (
-          <div className="px-5 py-5 border-b border-[#1a1a1a] space-y-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-[8px] font-bold uppercase tracking-[0.22em] text-zinc-800 mb-2">
-                  Current run
-                </p>
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDotColor(activeDeployment.status)} ${isBuilding ? "animate-pulse" : ""}`}
-                  />
-                  <span
-                    className={`text-[10px] font-bold uppercase tracking-widest ${statusTextColor(activeDeployment.status)}`}
-                  >
-                    {activeDeployment.status}
-                  </span>
-                </div>
-              </div>
-              <span className="font-mono text-[9px] text-zinc-700">
-                {activeDeployment.id.slice(0, 8)}
-              </span>
-            </div>
-
+    <AppShell
+      className="xl:h-[calc(100vh-64px)] xl:overflow-hidden"
+      contentClassName="xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:py-5"
+    >
+      <NoticeToast notice={notice} onDismiss={() => setNotice(null)} />
+      <PageTitle
+        eyebrow="Service"
+        title={loading ? "Loading..." : project?.repo_name || "Service"}
+        description={selectedRepoLabel}
+        className="xl:mb-5 xl:pb-5"
+        actions={
+          <>
+            <Button variant="ghost" href="/console">
+              Back
+            </Button>
             {liveUrl && (
-              <a
-                href={liveUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block border border-[#181818] bg-white/[0.015] px-3 py-2.5 group hover:border-zinc-700 transition-colors"
-              >
-                <span className="block text-[8px] font-bold uppercase tracking-[0.2em] text-zinc-800 mb-1">
-                  Live URL
-                </span>
-                <span className="block text-[11px] font-mono text-zinc-500 group-hover:text-white transition-colors truncate">
-                  {liveUrl.replace(/^https?:\/\//, "")}
-                </span>
-              </a>
+              <Button href={liveUrl} variant="secondary">
+                Open
+              </Button>
             )}
-
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-              <SidebarStat label="Branch" value={activeDeployment.branch} />
-              <SidebarStat label="Port" value={String(activeDeployment.port)} />
-              <SidebarStat
-                label="Dockerfile"
-                value={project?.dockerfile_path || "Dockerfile"}
-              />
-              <SidebarStat
-                label="Health"
-                value={activeDeployment.health_check || "/"}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="px-5 py-4 border-b border-[#1a1a1a] space-y-2.5">
-          <p className="text-[8px] font-bold uppercase tracking-[0.22em] text-zinc-800">
-            Actions
-          </p>
-          <button
-            onClick={handleDeploy}
-            disabled={deploying || canceling}
-            className="w-full bg-white text-black text-[9px] font-bold uppercase tracking-[0.15em] py-2.5 rounded-[2px] hover:bg-zinc-200 transition-colors disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
-          >
-            {deploying ? "Deploying..." : "Deploy Manually"}
-          </button>
-          {isCancelable && (
-            <button
-              onClick={handleCancelDeployment}
-              disabled={canceling}
-              className="w-full border border-[#2a1515] text-[#c56b6b] text-[9px] font-bold uppercase tracking-[0.15em] py-2.5 rounded-[2px] hover:border-[#5a2525] hover:text-[#d88a8a] transition-colors disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+            <Button href={`/projects/${projectId}/settings`} variant="secondary">
+              Settings
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleDeploy}
+              disabled={deploying || canceling}
             >
-              {canceling ? "Canceling..." : "Cancel Deployment"}
-            </button>
-          )}
-          <Link
-            href={`/projects/${projectId}/settings`}
-            className="block w-full border border-[#181818] text-center text-[9px] font-bold uppercase tracking-[0.15em] text-zinc-600 py-2.5 rounded-[2px] hover:border-zinc-700 hover:text-zinc-300 transition-colors cursor-pointer"
-          >
-            Service Settings
-          </Link>
-          {project?.auto_deploy && (
-            <p className="text-[8px] text-zinc-800 uppercase tracking-widest text-center font-mono">
-              auto-deploy enabled
-            </p>
-          )}
-        </div>
+              {deploying ? "Deploying..." : "Deploy"}
+            </Button>
+          </>
+        }
+      />
 
-        {/* Deployment history */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="px-5 py-3 flex items-center justify-between">
-            <span className="text-[9px] font-bold font-mono text-zinc-800 uppercase tracking-[0.25em]">
-              History
-            </span>
-            <span className="text-[9px] font-mono text-zinc-800">
-              {deployments.length}
-            </span>
-          </div>
-          <div>
-            {loading ? (
-              <div className="px-5 space-y-3 py-2">
-                {[...Array(3)].map((_, i) => (
-                  <div
-                    key={i}
-                    className="space-y-1.5"
-                    style={{ opacity: 1 - i * 0.25 }}
-                  >
-                    <div className="h-2 w-16 bg-zinc-900 rounded-full animate-pulse" />
-                    <div className="h-2 w-28 bg-zinc-900/60 rounded-full animate-pulse" />
-                  </div>
-                ))}
-              </div>
-            ) : deployments.length === 0 ? (
-              <p className="px-5 text-[10px] text-zinc-800 font-mono py-3">
-                No deployments yet
-              </p>
-            ) : (
-              deployments.map((dep, idx) => {
-                const isActive = activeDeployment?.id === dep.id;
-                const depIsBuilding = [
-                  "building",
-                  "deploying",
-                  "queued",
-                ].includes(dep.status.toLowerCase());
+      <div className="mb-6 grid grid-cols-2 overflow-hidden rounded-md border border-white/[0.09] bg-[#080808] sm:grid-cols-4 xl:mb-5 xl:shrink-0">
+        <ServiceMetric
+          label="Status"
+          value={activeDeployment?.status || "Idle"}
+          tone={statusTone}
+          status
+          pulse={isBuilding}
+        />
+        <ServiceMetric
+          label="Branch"
+          value={activeDeployment?.branch || project?.branch || "-"}
+          mono
+        />
+        <ServiceMetric
+          label="Last updated"
+          value={
+            activeDeployment
+              ? formatRelativeTime(
+                  activeDeployment.deployed_at ||
+                    activeDeployment.created_at,
+                )
+              : "Never"
+          }
+        />
+        <ServiceMetric
+          label="Deployments"
+          value={String(deployments.length)}
+        />
+      </div>
 
-                return (
-                  <button
-                    key={dep.id}
-                    onClick={() => setActiveDeployment(dep)}
-                    className={`w-full text-left px-5 py-3 border-b border-[#111] transition-colors relative ${isActive ? "bg-white/[0.03]" : "hover:bg-white/[0.015]"}`}
-                  >
-                    {isActive && (
-                      <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-white" />
-                    )}
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <div
-                          className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDotColor(dep.status)} ${depIsBuilding ? "animate-pulse" : ""}`}
-                        />
-                        <span
-                          className={`text-[9px] font-bold uppercase tracking-widest ${statusTextColor(dep.status)}`}
-                        >
-                          {dep.status}
-                        </span>
-                        {idx === 0 && (
-                          <span className="text-[7px] uppercase tracking-widest text-zinc-800 border border-zinc-900 px-1 py-px rounded-sm">
-                            latest
-                          </span>
-                        )}
-                      </div>
-                      <span className="font-mono text-[9px] text-zinc-700">
-                        {formatRelativeTime(dep.created_at)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between pl-3">
-                      <span className="font-mono text-[9px] text-zinc-700">
-                        {dep.id.slice(0, 8)}
-                      </span>
-                      <Link
-                        href={`/projects/${projectId}/deployments/${dep.id}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-[8px] uppercase tracking-widest text-zinc-700 hover:text-white transition-colors"
-                      >
-                        Details →
-                      </Link>
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </aside>
+      <main className="grid grid-cols-1 gap-5 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_370px]">
+        <section className="min-w-0 xl:min-h-0">
+          <LogPanel
+            activeDeployment={activeDeployment}
+            logs={logs}
+            isBuilding={isBuilding}
+            copied={copied}
+            onCopyLogs={handleCopyLogs}
+            logsEndRef={logsEndRef}
+          />
+        </section>
 
-      {/* MAIN LOG PANEL */}
-      <main className="flex-1 flex flex-col bg-black overflow-hidden">
-        {/* Log header */}
-        <div className="px-7 py-4 border-b border-[#1a1a1a] flex items-center justify-between bg-[#030303] shrink-0">
-          <div className="min-w-0">
-            <div className="flex items-center gap-3">
-              <h2 className="text-[13px] font-semibold text-zinc-200 tracking-tight">
-                Build log
-              </h2>
-              {activeDeployment && (
-                <span
-                  className={`text-[9px] font-bold uppercase tracking-[0.18em] ${statusTextColor(activeDeployment.status)}`}
-                >
-                  {activeDeployment.status}
-                </span>
-              )}
-            </div>
-            <div className="mt-1 flex items-center gap-4">
-              <span className="text-[9px] font-mono text-zinc-800 uppercase tracking-widest">
-                {activeDeployment
-                  ? `deploy/${activeDeployment.id.slice(0, 8)}`
-                  : "No deployment"}
-              </span>
-              {logs.length > 0 && (
-                <span className="text-[9px] font-mono text-zinc-800">
-                  {logs.length} lines
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            {isBuilding && (
-              <div className="flex items-center gap-1.5">
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="w-1 h-1 rounded-full bg-[#b8872f] animate-pulse"
-                    style={{ animationDelay: `${i * 150}ms` }}
-                  />
-                ))}
-              </div>
-            )}
-            <button
-              onClick={handleCopyLogs}
-              disabled={logs.length === 0}
-              className="text-[9px] font-bold text-zinc-700 hover:text-zinc-300 uppercase tracking-[0.15em] transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              {copied ? "Copied" : "Copy logs"}
-            </button>
-          </div>
-        </div>
+        <aside className="min-w-0 space-y-5 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+          <CurrentRunPanel
+            activeDeployment={activeDeployment}
+            project={project}
+            liveUrl={liveUrl}
+            isBuilding={isBuilding}
+            isCancelable={isCancelable}
+            canceling={canceling}
+            onCancel={handleCancelDeployment}
+          />
 
-        {/* Log body */}
-        <div className="flex-1 overflow-y-auto px-7 py-6 font-mono bg-black">
-          {logs.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center gap-3">
-              <p className="text-[9px] font-bold uppercase tracking-[0.4em] text-zinc-800">
-                {isBuilding ? "Waiting for output..." : "No log output"}
-              </p>
-              {!isBuilding && activeDeployment && (
-                <p className="text-[9px] font-mono text-zinc-800">
-                  Logs may not be available for older deployments
-                </p>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-px">
-              {logs.map((log, i) => (
-                <div
-                  key={i}
-                  className="grid grid-cols-[68px_minmax(0,1fr)] gap-5 rounded-[2px] px-2 py-1 hover:bg-white/[0.02]"
-                >
-                  <span className="text-[9px] text-zinc-800 pt-px select-none tabular-nums">
-                    {log.timestamp}
-                  </span>
-                  <p
-                    className={`text-[11px] leading-relaxed break-words ${getLogTypeColor(log.type)}`}
-                  >
-                    {renderLogText(log.text)}
-                  </p>
-                </div>
-              ))}
-              <div ref={logsEndRef} />
-            </div>
-          )}
-        </div>
+          <ActionPanel
+            project={project}
+            projectId={projectId}
+            deploying={deploying}
+            canceling={canceling}
+            onDeploy={handleDeploy}
+          />
+
+          <HistoryPanel
+            loading={loading}
+            deployments={deployments}
+            activeDeployment={activeDeployment}
+            projectId={projectId}
+            onSelectDeployment={setActiveDeployment}
+          />
+        </aside>
       </main>
-    </div>
+    </AppShell>
   );
 }
 
-function SidebarStat({ label, value }: { label: string; value: string }) {
+function CurrentRunPanel({
+  activeDeployment,
+  project,
+  liveUrl,
+  isBuilding,
+  isCancelable,
+  canceling,
+  onCancel,
+}: {
+  activeDeployment: Deployment | null;
+  project: Project | null;
+  liveUrl: string | null;
+  isBuilding: boolean;
+  isCancelable: boolean;
+  canceling: boolean;
+  onCancel: () => void;
+}) {
   return (
-    <div>
-      <p className="text-[8px] uppercase tracking-[0.18em] text-zinc-800 mb-0.5 font-bold">
+    <Panel
+      title="Current deployment"
+      meta={activeDeployment?.id.slice(0, 8) || "none"}
+    >
+      {activeDeployment ? (
+        <div>
+          <div className="flex items-center justify-between gap-4">
+            <StatusText
+              tone={getStatusTone(activeDeployment.status)}
+              pulse={isBuilding}
+            >
+              {activeDeployment.status}
+            </StatusText>
+            {isCancelable && (
+              <Button variant="danger" onClick={onCancel} disabled={canceling}>
+                {canceling ? "Canceling" : "Cancel"}
+              </Button>
+            )}
+          </div>
+
+          {liveUrl && (
+            <a
+              href={liveUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 flex min-w-0 items-center justify-between gap-3 rounded-md border border-white/[0.09] bg-black/40 px-3 py-2.5 text-[11px] text-zinc-400 transition-colors hover:border-white/20 hover:text-white"
+            >
+              <span className="truncate font-mono">
+                {liveUrl.replace(/^https?:\/\//, "")}
+              </span>
+              <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-zinc-700">
+                Open
+              </span>
+            </a>
+          )}
+
+          <div className="mt-5 divide-y divide-white/[0.065] border-y border-white/[0.065]">
+            <DetailRow label="Branch" value={activeDeployment.branch} mono />
+            <DetailRow label="Port" value={String(activeDeployment.port)} />
+            <DetailRow
+              label="Dockerfile"
+              value={project?.dockerfile_path || "Dockerfile"}
+              mono
+            />
+            <DetailRow
+              label="Health check"
+              value={activeDeployment.health_check || "/"}
+              mono
+            />
+            <DetailRow
+              label="Created"
+              value={formatRelativeTime(activeDeployment.created_at)}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="py-2">
+          <p className="text-sm leading-6 text-zinc-600">
+            No deployments have been created for this service yet.
+          </p>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function ActionPanel({
+  project,
+  projectId,
+  deploying,
+  canceling,
+  onDeploy,
+}: {
+  project: Project | null;
+  projectId: string;
+  deploying: boolean;
+  canceling: boolean;
+  onDeploy: () => void;
+}) {
+  return (
+    <Panel
+      title="Quick actions"
+      meta={project?.auto_deploy ? "auto-deploy on" : "manual"}
+    >
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          variant="primary"
+          onClick={onDeploy}
+          disabled={deploying || canceling}
+          className="w-full"
+        >
+          {deploying ? "Deploying" : "Deploy"}
+        </Button>
+        <Button
+          href={`/projects/${projectId}/settings`}
+          variant="secondary"
+          className="w-full"
+        >
+          Configure
+        </Button>
+      </div>
+    </Panel>
+  );
+}
+
+function HistoryPanel({
+  loading,
+  deployments,
+  activeDeployment,
+  projectId,
+  onSelectDeployment,
+}: {
+  loading: boolean;
+  deployments: Deployment[];
+  activeDeployment: Deployment | null;
+  projectId: string;
+  onSelectDeployment: (deployment: Deployment) => void;
+}) {
+  return (
+    <Panel title="Deployment history" meta={`${deployments.length} runs`}>
+      {loading ? (
+        <div className="space-y-4 py-1">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="space-y-2 opacity-70">
+              <div className="h-2 w-20 animate-pulse rounded-full bg-zinc-900" />
+              <div className="h-2 w-32 animate-pulse rounded-full bg-zinc-900/70" />
+            </div>
+          ))}
+        </div>
+      ) : deployments.length === 0 ? (
+        <p className="py-2 text-sm text-zinc-700">No deployments yet.</p>
+      ) : (
+        <div className="-mx-4 max-h-[330px] overflow-y-auto">
+          {deployments.map((deployment, index) => {
+            const isActive = activeDeployment?.id === deployment.id;
+            const isRunning = ["building", "deploying", "queued"].includes(
+              deployment.status.toLowerCase(),
+            );
+
+            return (
+              <div
+                key={deployment.id}
+                className={cn(
+                  "group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-white/[0.055] px-4 py-3 transition-colors first:border-t-0",
+                  isActive
+                    ? "bg-white/[0.045]"
+                    : "hover:bg-white/[0.025]",
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => onSelectDeployment(deployment)}
+                  className="min-w-0 cursor-pointer text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    <StatusText
+                      tone={getStatusTone(deployment.status)}
+                      pulse={isRunning}
+                    >
+                      {deployment.status}
+                    </StatusText>
+                    {index === 0 && (
+                      <span className="font-mono text-[8px] uppercase tracking-[0.14em] text-zinc-700">
+                        latest
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1.5 flex min-w-0 items-center gap-2 font-mono text-[10px] text-zinc-700">
+                    <span>{deployment.id.slice(0, 8)}</span>
+                    <span className="text-zinc-800">/</span>
+                    <span className="truncate">{deployment.branch}</span>
+                    <span className="ml-auto shrink-0">
+                      {formatRelativeTime(deployment.created_at)}
+                    </span>
+                  </div>
+                  {deployment.commit_message && (
+                    <p className="mt-1 truncate text-[10px] text-zinc-700">
+                      {deployment.commit_message}
+                    </p>
+                  )}
+                </button>
+                <Link
+                  href={`/projects/${projectId}/deployments/${deployment.id}`}
+                  className="font-mono text-[9px] uppercase tracking-[0.14em] text-zinc-700 transition-colors group-hover:text-zinc-500 hover:!text-white"
+                >
+                  View
+                </Link>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function Panel({
+  title,
+  meta,
+  children,
+}: {
+  title: string;
+  meta?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="overflow-hidden rounded-md border border-white/[0.09] bg-[#080808]">
+      <div className="flex min-h-12 items-center justify-between gap-4 border-b border-white/[0.08] px-4">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+          {title}
+        </h3>
+        {meta && (
+          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-zinc-700">
+            {meta}
+          </span>
+        )}
+      </div>
+      <div className="px-4 py-4">{children}</div>
+    </section>
+  );
+}
+
+function ServiceMetric({
+  label,
+  value,
+  tone = "default",
+  mono = false,
+  status = false,
+  pulse = false,
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "success" | "warning" | "danger" | "muted";
+  mono?: boolean;
+  status?: boolean;
+  pulse?: boolean;
+}) {
+  const color = {
+    default: "text-zinc-200",
+    success: "text-[#5cc98f]",
+    warning: "text-[#d8ad4f]",
+    danger: "text-[#d86666]",
+    muted: "text-zinc-500",
+  } satisfies Record<typeof tone, string>;
+
+  return (
+    <div className="min-w-0 border-b border-r border-white/[0.07] px-4 py-4 even:border-r-0 [&:nth-child(3)]:border-b-0 [&:nth-child(4)]:border-b-0 sm:border-b-0 sm:even:border-r sm:last:border-r-0">
+      <p className="mb-2 text-[9px] font-semibold uppercase tracking-[0.17em] text-zinc-700">
         {label}
       </p>
-      <p className="text-[10px] font-mono text-zinc-500">{value}</p>
+      {status ? (
+        <StatusText tone={tone} pulse={pulse}>
+          {value}
+        </StatusText>
+      ) : (
+        <p
+          className={cn(
+            "truncate text-[13px] font-medium",
+            mono && "font-mono text-[12px]",
+            color[tone],
+          )}
+        >
+          {value}
+        </p>
+      )}
     </div>
   );
 }
 
-function ProjectToast({
-  notice,
-  onDismiss,
+function DetailRow({
+  label,
+  value,
+  mono = false,
 }: {
-  notice: ProjectNotice | null;
-  onDismiss: () => void;
+  label: string;
+  value: string;
+  mono?: boolean;
 }) {
-  if (!notice) return null;
-
-  const color =
-    notice.type === "success"
-      ? "text-[#74c69d]"
-      : notice.type === "error"
-        ? "text-[#c56b6b]"
-        : "text-zinc-300";
-
   return (
-    <div className="fixed right-5 top-[76px] z-50 w-[320px] border border-[#242424] bg-[#050505] px-4 py-3 shadow-2xl">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p
-            className={`text-[10px] font-bold uppercase tracking-[0.18em] ${color}`}
-          >
-            {notice.title}
-          </p>
-          {notice.message && (
-            <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-500">
-              {notice.message}
-            </p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="text-[13px] leading-none text-zinc-700 hover:text-zinc-300 transition-colors cursor-pointer"
-          aria-label="Dismiss notification"
-        >
-          x
-        </button>
-      </div>
+    <div className="flex min-h-10 items-center justify-between gap-5">
+      <span className="text-[11px] text-zinc-600">{label}</span>
+      <span
+        className={cn(
+          "max-w-[62%] truncate text-right text-[11px] text-zinc-300",
+          mono && "font-mono",
+        )}
+      >
+        {value}
+      </span>
     </div>
   );
+}
+
+function LogPanel({
+  activeDeployment,
+  logs,
+  isBuilding,
+  copied,
+  onCopyLogs,
+  logsEndRef,
+}: {
+  activeDeployment: Deployment | null;
+  logs: LogLine[];
+  isBuilding: boolean;
+  copied: boolean;
+  onCopyLogs: () => void;
+  logsEndRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <section className="overflow-hidden rounded-md border border-white/[0.09] bg-[#070707] xl:flex xl:h-full xl:min-h-0 xl:flex-col">
+      <div className="flex flex-col gap-4 border-b border-white/[0.08] px-5 py-4 sm:flex-row sm:items-center sm:justify-between xl:shrink-0">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-medium text-white">
+              Deployment logs
+            </h2>
+            {activeDeployment && (
+              <StatusText
+                tone={getStatusTone(activeDeployment.status)}
+                pulse={isBuilding}
+              >
+                {activeDeployment.status}
+              </StatusText>
+            )}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-700">
+              {activeDeployment
+                ? `deploy/${activeDeployment.id.slice(0, 8)}`
+                : "No deployment"}
+            </span>
+            <span className="font-mono text-[10px] text-zinc-700">
+              {logs.length} line{logs.length === 1 ? "" : "s"}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {isBuilding && <ActivityDots />}
+          <Button
+            variant="ghost"
+            onClick={onCopyLogs}
+            disabled={logs.length === 0}
+          >
+            {copied ? "Copied" : "Copy Logs"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="h-[580px] min-h-[420px] overflow-y-auto px-3 py-4 font-mono xl:h-auto xl:min-h-0 xl:flex-1">
+        {logs.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.28em] text-zinc-700">
+              {isBuilding ? "Waiting for output" : "No log output"}
+            </p>
+            {!isBuilding && activeDeployment && (
+              <p className="text-xs text-zinc-700">
+                Logs may not be available for older deployments.
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-px">
+            {logs.map((log, index) => (
+              <div
+                key={`${log.timestamp}-${index}`}
+                className="grid grid-cols-[70px_minmax(0,1fr)] gap-4 rounded-md px-2 py-1.5 transition-colors hover:bg-white/[0.025]"
+              >
+                <span className="select-none pt-px text-[10px] tabular-nums text-zinc-800">
+                  {log.timestamp}
+                </span>
+                <p
+                  className={`break-words text-[12px] leading-relaxed ${getLogTypeColor(log.type)}`}
+                >
+                  {renderLogText(log.text)}
+                </p>
+              </div>
+            ))}
+            <div ref={logsEndRef} />
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ActivityDots() {
+  return (
+    <div className="flex items-center gap-1.5" aria-hidden="true">
+      {[0, 1, 2].map((index) => (
+        <span
+          key={index}
+          className="h-1 w-1 rounded-full bg-[#d8ad4f] animate-pulse"
+          style={{ animationDelay: `${index * 150}ms` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function getStatusTone(
+  status?: string | null,
+): "default" | "success" | "warning" | "danger" | "muted" {
+  const value = status?.toLowerCase();
+  if (value === "live") return "success";
+  if (value && ["building", "deploying", "queued"].includes(value)) {
+    return "warning";
+  }
+  if (value && ["failed", "error"].includes(value)) return "danger";
+  if (value === "canceled") return "muted";
+  return "default";
 }
 
 function statusFromLogLine(line: string): string | null {
@@ -772,23 +973,6 @@ function statusFromLogLine(line: string): string | null {
 function deploymentUrlFromLogLine(line: string): string | null {
   if (!line.toLowerCase().includes("deployment live at")) return null;
   return line.match(/https?:\/\/[^\s]+/)?.[0] ?? null;
-}
-
-function statusDotColor(status: string): string {
-  const s = status.toLowerCase();
-  if (s === "live") return "bg-[#74c69d]";
-  if (["building", "deploying", "queued"].includes(s)) return "bg-[#b8872f]";
-  if (s === "failed" || s === "error") return "bg-[#c56b6b]";
-  return "bg-zinc-800";
-}
-
-function statusTextColor(status: string): string {
-  const s = status.toLowerCase();
-  if (s === "live") return "text-[#74c69d]";
-  if (["building", "deploying", "queued"].includes(s)) return "text-[#b8872f]";
-  if (s === "failed" || s === "error") return "text-[#c56b6b]";
-  if (s === "canceled") return "text-zinc-500";
-  return "text-zinc-700";
 }
 
 function formatRelativeTime(dateStr: string): string {
