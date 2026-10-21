@@ -39,7 +39,6 @@ func runDeployer() {
 		SubnetB:              mustGetEnv("SUBNET_B"),
 		ECSSgID:              mustGetEnv("ECS_SG_ID"),
 		TaskExecutionRoleARN: mustGetEnv("TASK_EXECUTION_ROLE_ARN"),
-		ECRRegistry:          mustGetEnv("ECR_REGISTRY"),
 		DatabaseURL:          mustGetEnv("DATABASE_URL"),
 		BaseDomain:           mustGetEnv("BASE_DOMAIN"),
 		DataEncryptionKey:    getEnv("DATA_ENCRYPTION_KEY", ""),
