@@ -20,6 +20,7 @@ import (
 
 	"github.com/YHQZ1/hatch/internal/api/queue"
 	"github.com/YHQZ1/hatch/internal/secrets"
+	"github.com/YHQZ1/hatch/internal/store"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -169,7 +170,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 	})
 
 	if err != nil {
-		if strings.Contains(err.Error(), "unique constraint") {
+		if store.IsUniqueViolation(err) {
 			c.JSON(http.StatusConflict, gin.H{"error": "subdomain already in use"})
 			return
 		}

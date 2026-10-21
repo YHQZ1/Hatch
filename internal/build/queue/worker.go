@@ -18,7 +18,7 @@ import (
 	gitpkg "github.com/YHQZ1/hatch/internal/build/git"
 	"github.com/YHQZ1/hatch/internal/build/logs"
 	"github.com/YHQZ1/hatch/internal/secrets"
-	_ "github.com/lib/pq"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -70,7 +70,7 @@ func NewWorker(url, redis, registry, repo, region, databaseURL, encryptionKey st
 	if err != nil {
 		log.Fatalf("Failed to initialize secret codec: %v", err)
 	}
-	db, err := sql.Open("postgres", databaseURL)
+	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}

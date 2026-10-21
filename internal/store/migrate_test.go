@@ -40,7 +40,7 @@ func TestMigrateAppliesEveryMigrationAndIsRepeatable(t *testing.T) {
 		}
 	}
 
-	db, err := sql.Open("postgres", url)
+	db, err := sql.Open("pgx", url)
 	if err != nil {
 		t.Fatal(err)
 	}
