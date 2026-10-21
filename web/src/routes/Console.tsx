@@ -1,5 +1,4 @@
 import {
-  type UseQueryResult,
   useQueries,
   useQuery,
   useQueryClient,
@@ -24,6 +23,7 @@ import {
   ACTIVE_DEPLOYMENT_STATUSES as ACTIVE_STATUSES,
   NO_DEPLOYMENTS,
   NO_PROJECTS,
+  combineResults,
   projectDeploymentsQuery,
   projectsQuery,
 } from "@/lib/queries";
@@ -62,23 +62,13 @@ const LOAD_FAILED_NOTICE: NoticePayload = {
   message: "We couldn't load the latest service list.",
 };
 
-/** The deployments of each project, in the order the projects were given. */
-function combineDeployments(results: UseQueryResult<Deployment[]>[]) {
-  return {
-    byIndex: results.map((result) => result.data),
-    pending: results.some((result) => result.isPending),
-    fetching: results.some((result) => result.isFetching),
-    updatedAt: Math.max(0, ...results.map((result) => result.dataUpdatedAt)),
-  };
-}
-
 export default function ConsoleClient() {
   const queryClient = useQueryClient();
   const projectsResult = useQuery(projectsQuery());
   const projects = projectsResult.data ?? NO_PROJECTS;
   const deploymentResults = useQueries({
     queries: projects.map((project) => projectDeploymentsQuery(project.id)),
-    combine: combineDeployments,
+    combine: combineResults<Deployment[]>,
   });
   const [notice, setNotice] = useState<NoticePayload | null>(null);
   const [loadErrorDismissedAt, setLoadErrorDismissedAt] = useState(0);
@@ -86,10 +76,10 @@ export default function ConsoleClient() {
   const deployments = useMemo(() => {
     const byProject: Record<string, Deployment[]> = {};
     projects.forEach((project, index) => {
-      byProject[project.id] = deploymentResults.byIndex[index] ?? NO_DEPLOYMENTS;
+      byProject[project.id] = deploymentResults.data[index] ?? NO_DEPLOYMENTS;
     });
     return byProject;
-  }, [projects, deploymentResults.byIndex]);
+  }, [projects, deploymentResults.data]);
 
   const loading = projectsResult.isPending || deploymentResults.pending;
   const refreshing =

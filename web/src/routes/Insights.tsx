@@ -1,52 +1,24 @@
-import { Link, useNavigate } from "react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { PageLoadingState } from "@/components/LoadingState";
 import {
-  apiFetch,
-  deploymentUrl,
-  readApiError,
-  redirectIfUnauthorized,
-} from "@/lib/api";
+  queryOptions,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { Link } from "react-router";
+import { AppShell, Button, PageTitle, StatusText } from "@/components/ui";
+import { apiJson, deploymentUrl } from "@/lib/api";
 import {
-  AppShell,
-  Button,
-  PageTitle,
-  StatusText,
-} from "@/components/ui";
-
-interface Project {
-  id: string;
-  repo_name: string;
-  repo_url: string;
-  branch: string;
-  subdomain: string | null;
-  port: number;
-  auto_deploy: boolean;
-  created_at: string;
-}
-
-interface Deployment {
-  id: string;
-  project_id: string;
-  status: string;
-  branch: string;
-  commit_sha?: string | null;
-  commit_message?: string | null;
-  cpu: number;
-  memory_mb: number;
-  port: number;
-  url: string | null;
-  subdomain: string | null;
-  created_at: string;
-  deployed_at: string | null;
-}
-
-interface ActivityEvent {
-  id: string;
-  type: string;
-  message: string;
-  created_at: string;
-}
+  ACTIVE_DEPLOYMENT_STATUSES as ACTIVE_STATUSES,
+  NO_ACTIVITY,
+  NO_DEPLOYMENTS,
+  NO_PROJECTS,
+  activityQuery,
+  combineResults,
+  projectDeploymentsQuery,
+  projectsQuery,
+} from "@/lib/queries";
+import type { ActivityEvent, Deployment, Project } from "@/lib/types";
 
 interface ServiceInsight {
   project: Project;
@@ -98,9 +70,6 @@ interface TelemetryResult {
   reason: string;
 }
 
-const CACHE_KEY = "hatch_insights_cache";
-const CACHE_TTL = 60 * 1000;
-const ACTIVE_STATUSES = new Set(["queued", "building", "deploying"]);
 const FAILED_STATUSES = new Set(["failed", "error"]);
 const CANCELED_STATUSES = new Set(["canceled", "cancelled"]);
 const TIME_RANGES: { label: string; value: TimeRange }[] = [
@@ -114,164 +83,73 @@ const CHART_TOP = 18;
 const CHART_BOTTOM = 244;
 const CHART_WIDTH = 760 - CHART_LEFT - CHART_RIGHT;
 
+/** CloudWatch metrics for one project; failures leave it without metrics. */
+const projectMetricsQuery = (projectId: string, range: TimeRange) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "metrics", range],
+    queryFn: async () =>
+      normalizeProjectMetrics(
+        await apiJson<unknown>(`/api/projects/${projectId}/metrics?range=${range}`),
+      ),
+    retry: false,
+  });
+
 export default function InsightsClient() {
-  const navigate = useNavigate();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [deploymentsByProject, setDeploymentsByProject] = useState<
-    Record<string, Deployment[]>
-  >({});
-  const [metricsByProject, setMetricsByProject] = useState<
-    Record<string, ProjectMetrics>
-  >({});
-  const [activity, setActivity] = useState<ActivityEvent[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState("all");
+  const queryClient = useQueryClient();
+  const [requestedProjectId, setSelectedProjectId] = useState("all");
   const [timeRange, setTimeRange] = useState<TimeRange>("24h");
-  const [mounted, setMounted] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
 
-  const loadData = useCallback(
-    async ({ background = false }: { background?: boolean } = {}) => {
-      if (background) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+  const projectsResult = useQuery(projectsQuery());
+  const projects = projectsResult.data ?? NO_PROJECTS;
+  const activityResult = useQuery(activityQuery());
+  const activity = activityResult.data ?? NO_ACTIVITY;
+  const deploymentResults = useQueries({
+    queries: projects.map((project) => projectDeploymentsQuery(project.id)),
+    combine: combineResults<Deployment[]>,
+  });
+  const metricResults = useQueries({
+    queries: projects.map((project) => projectMetricsQuery(project.id, timeRange)),
+    combine: combineResults<ProjectMetrics>,
+  });
 
-      try {
-        const [projectsRes, activityRes] = await Promise.all([
-          apiFetch("/api/projects"),
-          apiFetch("/api/activity"),
-        ]);
+  const deploymentsByProject = useMemo(() => {
+    const byProject: Record<string, Deployment[]> = {};
+    projects.forEach((project, index) => {
+      byProject[project.id] = deploymentResults.data[index] ?? NO_DEPLOYMENTS;
+    });
+    return byProject;
+  }, [projects, deploymentResults.data]);
 
-        if (
-          redirectIfUnauthorized(projectsRes, navigate) ||
-          redirectIfUnauthorized(activityRes, navigate)
-        ) {
-          return;
-        }
+  const metricsByProject = useMemo(() => {
+    const byProject: Record<string, ProjectMetrics> = {};
+    projects.forEach((project, index) => {
+      const metrics = metricResults.data[index];
+      if (metrics) byProject[project.id] = metrics;
+    });
+    return byProject;
+  }, [projects, metricResults.data]);
 
-        if (!projectsRes.ok) {
-          throw new Error(
-            await readApiError(projectsRes, "Failed to fetch projects"),
-          );
-        }
-
-        const projectsData = await projectsRes.json();
-        const projectsList: Project[] = Array.isArray(projectsData)
-          ? projectsData
-          : [];
-
-        const deploymentResults = await Promise.all(
-          projectsList.map(async (project) => {
-            const res = await apiFetch(`/api/projects/${project.id}/deployments`);
-            if (redirectIfUnauthorized(res, navigate) || !res.ok) {
-              return { id: project.id, data: [] as Deployment[] };
-            }
-            const data = await res.json();
-            return {
-              id: project.id,
-              data: Array.isArray(data) ? data : ([] as Deployment[]),
-            };
-          }),
-        );
-
-        const metricResults = await Promise.all(
-          projectsList.map(async (project) => {
-            const res = await apiFetch(
-              `/api/projects/${project.id}/metrics?range=${timeRange}`,
-            );
-            if (redirectIfUnauthorized(res, navigate) || !res.ok) {
-              return { id: project.id, data: null as ProjectMetrics | null };
-            }
-            const data = await res.json();
-            return {
-              id: project.id,
-              data: normalizeProjectMetrics(data),
-            };
-          }),
-        );
-
-        const deploymentMap = deploymentResults.reduce(
-          (acc, item) => {
-            acc[item.id] = item.data;
-            return acc;
-          },
-          {} as Record<string, Deployment[]>,
-        );
-        const metricsMap = metricResults.reduce(
-          (acc, item) => {
-            if (item.data) acc[item.id] = item.data;
-            return acc;
-          },
-          {} as Record<string, ProjectMetrics>,
-        );
-
-        const activityData = activityRes.ok ? await activityRes.json() : [];
-        const activityList: ActivityEvent[] = Array.isArray(activityData)
-          ? activityData
-          : [];
-
-        setProjects(projectsList);
-        setDeploymentsByProject(deploymentMap);
-        setMetricsByProject(metricsMap);
-        setActivity(activityList);
-        setLastSyncedAt(new Date());
-
-        if (
-          selectedProjectId !== "all" &&
-          !projectsList.some((project) => project.id === selectedProjectId)
-        ) {
-          setSelectedProjectId("all");
-        }
-
-        localStorage.setItem(
-          CACHE_KEY,
-          JSON.stringify({
-            projects: projectsList,
-            deploymentsByProject: deploymentMap,
-            metricsByProject: metricsMap,
-            activity: activityList,
-            timeRange,
-            timestamp: Date.now(),
-          }),
-        );
-      } catch {
-        // Keep cached insight data visible if a background refresh fails.
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [navigate, selectedProjectId, timeRange],
-  );
-
-  useEffect(() => {
-    setMounted(true);
-
-    const cached = localStorage.getItem(CACHE_KEY);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        const cacheAge = Date.now() - (parsed.timestamp || 0);
-        if (cacheAge < CACHE_TTL && parsed.timeRange === timeRange) {
-          setProjects(parsed.projects || []);
-          setDeploymentsByProject(parsed.deploymentsByProject || {});
-          setMetricsByProject(parsed.metricsByProject || {});
-          setActivity(parsed.activity || []);
-          setLastSyncedAt(new Date(parsed.timestamp));
-          setLoading(false);
-          loadData({ background: true });
-          return;
-        }
-      } catch {
-        // A corrupt cache entry is ignored.
-      }
-    }
-
-    loadData();
-  }, [loadData, timeRange]);
+  const loading =
+    projectsResult.isPending ||
+    activityResult.isPending ||
+    deploymentResults.pending ||
+    metricResults.pending;
+  const refreshing =
+    !loading &&
+    (projectsResult.isFetching ||
+      activityResult.isFetching ||
+      deploymentResults.fetching ||
+      metricResults.fetching);
+  const lastSyncedAt = projectsResult.dataUpdatedAt
+    ? new Date(
+        Math.max(
+          projectsResult.dataUpdatedAt,
+          activityResult.dataUpdatedAt,
+          deploymentResults.updatedAt,
+          metricResults.updatedAt,
+        ),
+      )
+    : null;
 
   const services = useMemo<ServiceInsight[]>(() => {
     return projects.map((project) => {
@@ -297,14 +175,16 @@ export default function InsightsClient() {
     services,
   ]);
 
+  // A selected project that no longer exists falls back to "all".
   const selectedService = useMemo(
     () =>
-      selectedProjectId === "all"
+      requestedProjectId === "all"
         ? null
-        : services.find((service) => service.project.id === selectedProjectId) ||
+        : services.find((service) => service.project.id === requestedProjectId) ||
           null,
-    [selectedProjectId, services],
+    [requestedProjectId, services],
   );
+  const selectedProjectId = selectedService?.project.id ?? "all";
 
   const telemetry = useMemo<TelemetryResult>(() => {
     if (selectedService) {
@@ -344,24 +224,17 @@ export default function InsightsClient() {
     };
   }, [metricsByProject, selectedService, services]);
 
-  const activeDeployments = services.some((service) =>
-    ACTIVE_STATUSES.has(service.latest?.status?.toLowerCase() || ""),
-  );
-
-  useEffect(() => {
-    if (!activeDeployments) return;
-    const interval = window.setInterval(() => loadData({ background: true }), 8000);
-    return () => window.clearInterval(interval);
-  }, [activeDeployments, loadData]);
-
-  if (!mounted) return <PageLoadingState />;
-
   return (
     <AppShell>
       <InsightsHeader
         lastSyncedAt={lastSyncedAt}
         refreshing={refreshing}
-        onRefresh={() => loadData({ background: true })}
+        onRefresh={() =>
+          void Promise.all([
+            queryClient.invalidateQueries({ queryKey: projectsQuery().queryKey }),
+            queryClient.invalidateQueries({ queryKey: activityQuery().queryKey }),
+          ])
+        }
       />
 
       {loading ? (

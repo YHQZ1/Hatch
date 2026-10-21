@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { apiJson } from "@/lib/api";
+import { NO_ACTIVITY, activityQuery } from "@/lib/queries";
+import type { ActivityEvent } from "@/lib/types";
 import {
   AppShell,
   Button,
@@ -10,27 +11,11 @@ import {
   Panel,
 } from "@/components/ui";
 
-interface ActivityEvent {
-  id: string;
-  type: string;
-  message: string;
-  created_at: string;
-}
-
 type ActivityKind = "create" | "delete" | "deploy" | "system";
 
-const NO_EVENTS: ActivityEvent[] = [];
-
-const asList = (data: ActivityEvent[] | null) =>
-  Array.isArray(data) ? data : NO_EVENTS;
-
 export default function ActivityClient() {
-  const activity = useQuery({
-    queryKey: ["activity"],
-    queryFn: () => apiJson<ActivityEvent[] | null>("/api/activity"),
-    select: asList,
-  });
-  const events = activity.data ?? NO_EVENTS;
+  const activity = useQuery(activityQuery());
+  const events = activity.data ?? NO_ACTIVITY;
   const loading = activity.isPending;
   const lastSyncedAt = activity.dataUpdatedAt
     ? new Date(activity.dataUpdatedAt)

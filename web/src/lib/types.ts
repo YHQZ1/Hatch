@@ -16,6 +16,14 @@ export interface Project {
   created_at: string;
 }
 
+export interface ActivityEvent {
+  id: string;
+  user_id: string;
+  type: string;
+  message: string;
+  created_at: string;
+}
+
 export interface Deployment {
   id: string;
   project_id: string;

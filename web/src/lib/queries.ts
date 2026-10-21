@@ -1,6 +1,6 @@
-import { queryOptions } from "@tanstack/react-query";
+import { type UseQueryResult, queryOptions } from "@tanstack/react-query";
 import { apiJson } from "./api";
-import type { Deployment, Project } from "./types";
+import type { ActivityEvent, Deployment, Project } from "./types";
 
 /** How often to re-check things that are changing on their own. */
 const POLL_MS = 8000;
@@ -20,10 +20,32 @@ const PROJECT_TRANSITION_STATUSES = new Set([
 
 export const NO_PROJECTS: Project[] = [];
 export const NO_DEPLOYMENTS: Deployment[] = [];
+export const NO_ACTIVITY: ActivityEvent[] = [];
 
 // The API answers null for an empty list.
 const list = <T>(data: T[] | null, empty: T[]): T[] =>
   Array.isArray(data) ? data : empty;
+
+/**
+ * Combines the results of a useQueries call over a list: each query's data in
+ * order, and whether any is still loading for the first time or fetching.
+ */
+export function combineResults<T>(results: UseQueryResult<T>[]) {
+  return {
+    data: results.map((result) => result.data),
+    pending: results.some((result) => result.isPending),
+    fetching: results.some((result) => result.isFetching),
+    updatedAt: Math.max(0, ...results.map((result) => result.dataUpdatedAt)),
+  };
+}
+
+/** The user's activity feed, newest first. */
+export const activityQuery = () =>
+  queryOptions({
+    queryKey: ["activity"],
+    queryFn: async () =>
+      list(await apiJson<ActivityEvent[] | null>("/api/activity"), NO_ACTIVITY),
+  });
 
 /** All of the user's projects; polls while one is changing state. */
 export const projectsQuery = () =>
