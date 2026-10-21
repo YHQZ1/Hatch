@@ -60,15 +60,19 @@ jobs:
       - name: Lint
         run: make lint-go
 
+      # Tests that need Postgres create and drop their own databases here.
       - name: Test
         run: make test
+        env:
+          HATCH_TEST_DATABASE_URL: postgres://hatch:hatch@localhost:5432/postgres?sslmode=disable
 
-      - name: Apply all migrations to Postgres 18
-        run: >-
-          go run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1
-          -path internal/store/migrations
-          -database "postgres://hatch:hatch@localhost:5432/hatch?sslmode=disable"
-          up
+      # Runs twice: the second run must find nothing to do.
+      - name: Apply all migrations to Postgres 18 with hatch migrate
+        run: |
+          go run ./cmd/hatch migrate
+          go run ./cmd/hatch migrate
+        env:
+          DATABASE_URL: postgres://hatch:hatch@localhost:5432/hatch?sslmode=disable
 
       - name: Check for known vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...

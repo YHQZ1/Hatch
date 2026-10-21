@@ -63,9 +63,9 @@ Read, in order:
 
 ```bash
 make infra                      # Postgres, Redis, RabbitMQ via Docker Compose
-make dev                        # infra + hatch api, builder, deployer + Vite dev server
-make migrate                    # apply migrations (needs golang-migrate)
-go run ./cmd/hatch help         # list subcommands
+make dev                        # infra + hatch serve + Vite dev server
+make migrate                    # apply migrations (hatch migrate, embedded in the binary)
+go run ./cmd/hatch help         # serve, worker, migrate, version
 make build                      # bin/hatch, version stamped from git
 
 make web                        # build the web UI into web/dist (embedded by go build)
@@ -73,7 +73,11 @@ make check                      # golangci-lint, ESLint, go test -race, web test
 cd web && pnpm lint && pnpm build   # web checks (pnpm, version pinned in package.json)
 ```
 
-Configuration for every subcommand is read from `.env` in the repository root
-(see `.env.example`).
+Configuration for every command is read from `.env` in the repository root
+(see `.env.example`). Tests that need Postgres are skipped unless
+`HATCH_TEST_DATABASE_URL` is set to a Postgres URL whose role may create
+databases (each test makes and drops its own), for example
+`postgres://hatch:hatch@localhost:5433/postgres?sslmode=disable` with
+`make infra` running; CI always sets it.
 
 Update this section when Phase 1 changes the layout.
