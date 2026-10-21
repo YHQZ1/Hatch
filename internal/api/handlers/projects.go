@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path"
@@ -196,14 +196,14 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 	if userToken != "" {
 		hookID, err := h.registerGitHubWebhook(c.Request.Context(), repoURL, userToken, secret)
 		if err != nil {
-			log.Printf("failed to register GitHub webhook for project %s: %v", project.ID, err)
+			slog.ErrorContext(c.Request.Context(), "failed to register the GitHub webhook", "project_id", project.ID, "error", err)
 			if updateErr := h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
 				ID:              project.ID,
 				WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
 				GithubWebhookID: sql.NullInt64{},
 				AutoDeploy:      false,
 			}); updateErr != nil {
-				log.Printf("failed to disable auto-deploy after webhook registration error for project %s: %v", project.ID, updateErr)
+				slog.ErrorContext(c.Request.Context(), "failed to disable auto-deploy after a webhook registration error", "project_id", project.ID, "error", updateErr)
 			}
 			project.AutoDeploy = false
 		} else {
@@ -213,12 +213,12 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 				GithubWebhookID: sql.NullInt64{Int64: hookID, Valid: true},
 				AutoDeploy:      true,
 			}); updateErr != nil {
-				log.Printf("failed to save GitHub webhook state for project %s: %v", project.ID, updateErr)
+				slog.ErrorContext(c.Request.Context(), "failed to save the GitHub webhook state", "project_id", project.ID, "error", updateErr)
 				if deleteErr := h.deleteGitHubWebhook(c.Request.Context(), repoURL, userToken, hookID); deleteErr != nil {
-					log.Printf("failed to remove orphaned GitHub webhook %d for project %s: %v", hookID, project.ID, deleteErr)
+					slog.ErrorContext(c.Request.Context(), "failed to remove an orphaned GitHub webhook", "hook_id", hookID, "project_id", project.ID, "error", deleteErr)
 				}
 				if clearErr := h.queries.ClearProjectWebhook(c.Request.Context(), project.ID); clearErr != nil {
-					log.Printf("failed to clear webhook state for project %s: %v", project.ID, clearErr)
+					slog.ErrorContext(c.Request.Context(), "failed to clear the webhook state", "project_id", project.ID, "error", clearErr)
 				}
 				project.AutoDeploy = false
 			} else {
@@ -554,7 +554,7 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 	if tokenRaw, ok := c.Get("access_token"); ok && project.GithubWebhookID.Valid {
 		if token, ok := tokenRaw.(string); ok && token != "" {
 			if err := h.deleteGitHubWebhook(c.Request.Context(), project.RepoUrl, token, project.GithubWebhookID.Int64); err != nil {
-				log.Printf("failed to delete GitHub webhook for project %s: %v", project.ID, err)
+				slog.WarnContext(c.Request.Context(), "failed to delete the GitHub webhook", "project_id", project.ID, "error", err)
 			}
 		}
 	}

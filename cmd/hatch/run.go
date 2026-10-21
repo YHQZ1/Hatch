@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os/signal"
 	"syscall"
 
@@ -90,10 +90,10 @@ func superviseWorker(ctx context.Context, name string, w worker) error {
 
 	select {
 	case <-ctx.Done():
-		log.Printf("Shutting down %s...", name)
+		slog.Info("component stopping", "component", name)
 		w.Stop()
 		if err := <-errCh; err != nil {
-			log.Printf("%s stopped with error: %v", name, err)
+			slog.Error("component stopped with an error", "component", name, "error", err)
 		}
 		return nil
 	case err := <-errCh:
@@ -114,7 +114,7 @@ func builderComponent(cfg *config.Config) component {
 			cfg.BuildTimeout,
 		)
 		defer w.Close()
-		log.Printf("Hatch Builder started (Region: %s)", cfg.AWSRegion)
+		slog.Info("component started", "component", "builder", "region", cfg.AWSRegion)
 		return superviseWorker(ctx, "builder", w)
 	}}
 }
@@ -138,7 +138,7 @@ func deployerComponent(cfg *config.Config) component {
 			DataEncryptionKey:    cfg.DataEncryptionKey,
 		})
 		defer w.Close()
-		log.Printf("Hatch Deployer started (Region: %s, Cluster: %s)", cfg.AWSRegion, cfg.ECSClusterName)
+		slog.Info("component started", "component", "deployer", "region", cfg.AWSRegion, "cluster", cfg.ECSClusterName)
 		return superviseWorker(ctx, "deployer", w)
 	}}
 }

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
@@ -31,7 +32,7 @@ func TestMatchWebhookProjectVerifiesEncryptedSecret(t *testing.T) {
 		WebhookSecret: sql.NullString{String: storedSecret, Valid: true},
 	}
 
-	matched, ok := handler.matchWebhookProject([]dbpkg.Project{project}, body, signatureFor(body, plainSecret))
+	matched, ok := handler.matchWebhookProject(context.Background(), []dbpkg.Project{project}, body, signatureFor(body, plainSecret))
 	if !ok {
 		t.Fatal("expected encrypted webhook secret to match")
 	}
@@ -52,7 +53,7 @@ func TestMatchWebhookProjectRejectsUnsignedWebhook(t *testing.T) {
 		WebhookSecret: sql.NullString{String: "webhook-secret", Valid: true},
 	}
 
-	if _, ok := handler.matchWebhookProject([]dbpkg.Project{project}, []byte("{}"), ""); ok {
+	if _, ok := handler.matchWebhookProject(context.Background(), []dbpkg.Project{project}, []byte("{}"), ""); ok {
 		t.Fatal("expected unsigned webhook to be rejected")
 	}
 }

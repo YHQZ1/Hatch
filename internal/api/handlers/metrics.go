@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
-	"log"
+	"log/slog"
 	"math"
 	"net/http"
 	"sort"
@@ -125,7 +125,7 @@ func (h *MetricsHandler) GetProjectMetrics(c *gin.Context) {
 
 	points, err := h.fetchProjectMetrics(c.Request.Context(), deployment, parseMetricRange(c.Query("range")))
 	if err != nil {
-		log.Printf("CloudWatch metrics unavailable for project %s: %v", projectID, err)
+		slog.WarnContext(c.Request.Context(), "CloudWatch metrics unavailable", "project_id", projectID, "error", err)
 		c.JSON(http.StatusOK, projectMetricsResponse{
 			Source:    "cloudwatch",
 			Available: false,

@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -123,9 +123,9 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		return
 	}
 
-	project, ok := h.matchWebhookProject(projects, body, signature)
+	project, ok := h.matchWebhookProject(c.Request.Context(), projects, body, signature)
 	if !ok {
-		log.Printf("[SECURITY] No matching webhook signature for repo: %s", repoURL)
+		slog.WarnContext(c.Request.Context(), "no webhook signature matched", "alert", "security", "repo_url", repoURL)
 		c.Status(http.StatusUnauthorized)
 		return
 	}
@@ -275,12 +275,12 @@ func (h *WebhookHandler) latestHealthCheck(ctx context.Context, projectID uuid.U
 	return healthCheck
 }
 
-func (h *WebhookHandler) matchWebhookProject(projects []dbpkg.Project, body []byte, signature string) (dbpkg.Project, bool) {
+func (h *WebhookHandler) matchWebhookProject(ctx context.Context, projects []dbpkg.Project, body []byte, signature string) (dbpkg.Project, bool) {
 	for _, project := range projects {
 		if project.WebhookSecret.Valid && project.WebhookSecret.String != "" {
 			secret, err := h.secrets.Decrypt(project.WebhookSecret.String)
 			if err != nil {
-				log.Printf("[SECURITY] failed to decrypt webhook secret for project %s: %v", project.ID, err)
+				slog.ErrorContext(ctx, "failed to decrypt a webhook secret", "alert", "security", "project_id", project.ID, "error", err)
 				continue
 			}
 			if verifySignature(body, secret, signature) {

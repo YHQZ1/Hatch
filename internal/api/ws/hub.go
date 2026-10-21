@@ -3,7 +3,7 @@ package ws
 import (
 	"context"
 	"database/sql"
-	"log"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -32,10 +32,10 @@ const (
 	maxLogHistoryLines   = 5000
 )
 
-func NewHub(url, jwtSecret string, allowedOrigins []string, db *sql.DB) *Hub {
+func NewHub(url, jwtSecret string, allowedOrigins []string, db *sql.DB) (*Hub, error) {
 	opt, err := redis.ParseURL(url)
 	if err != nil {
-		log.Fatalf("Failed to parse Redis URL: %v", err)
+		return nil, fmt.Errorf("parse REDIS_URL: %w", err)
 	}
 	originSet := make(map[string]struct{}, len(allowedOrigins))
 	for _, origin := range allowedOrigins {
@@ -48,7 +48,7 @@ func NewHub(url, jwtSecret string, allowedOrigins []string, db *sql.DB) *Hub {
 		queries:       dbpkg.New(db),
 		jwtSecret:     jwtSecret,
 		allowedOrigin: originSet,
-	}
+	}, nil
 }
 
 func (h *Hub) Close() error {

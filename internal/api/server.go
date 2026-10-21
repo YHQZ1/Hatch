@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -26,9 +26,9 @@ import (
 // Run serves the web UI and the API until ctx is canceled, then shuts down
 // gracefully. It returns an error if it cannot start or the server fails.
 func Run(ctx context.Context, cfg *config.Config) error {
-	if cfg.Environment == "production" {
-		gin.SetMode(gin.ReleaseMode)
-	}
+	// Hatch logs requests itself (middleware.AccessLog), so Gin's own debug
+	// output, such as the route table, would only be noise.
+	gin.SetMode(gin.ReleaseMode)
 
 	db, err := store.Connect(cfg.DatabaseURL)
 	if err != nil {
@@ -51,10 +51,14 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 	rdb := redis.NewClient(opt)
 	defer rdb.Close()
-	hub := wsHub.NewHub(cfg.RedisURL, cfg.JWTSecret, cfg.CORSAllowedOrigins, db)
+	hub, err := wsHub.NewHub(cfg.RedisURL, cfg.JWTSecret, cfg.CORSAllowedOrigins, db)
+	if err != nil {
+		return err
+	}
 	defer hub.Close()
 
-	r := gin.Default()
+	r := gin.New()
+	r.Use(middleware.RequestID(), middleware.AccessLog(), middleware.Recovery())
 
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     cfg.CORSAllowedOrigins,
@@ -65,7 +69,6 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		MaxAge:           86400,
 	}))
 	r.Use(middleware.BodyLimit(4 << 20))
-	r.Use(middleware.StatTracker())
 
 	authHandler := auth.NewHandler(
 		cfg.GitHubClientID,
@@ -179,7 +182,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 	serverErrors := make(chan error, 1)
 	go func() {
-		log.Printf("Hatch API starting on :%s", cfg.Port)
+		slog.Info("API listening", "addr", server.Addr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrors <- err
 		}
@@ -193,13 +196,13 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	log.Println("Shutting down API...")
+	slog.Info("API shutting down")
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("API graceful shutdown failed: %v", err)
+		slog.Error("API graceful shutdown failed", "error", err)
 		if closeErr := server.Close(); closeErr != nil {
-			log.Printf("API forced shutdown failed: %v", closeErr)
+			slog.Error("API forced shutdown failed", "error", closeErr)
 		}
 	}
-	log.Println("API exited")
+	slog.Info("API stopped")
 	return nil
 }

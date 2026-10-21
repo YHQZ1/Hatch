@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -47,7 +47,7 @@ type Publisher struct {
 func NewPublisher(url string) *Publisher {
 	conn, ch, confirms, err := connect(url)
 	if err != nil {
-		log.Printf("RabbitMQ publisher is starting disconnected: %v", err)
+		slog.Warn("RabbitMQ publisher is starting disconnected", "error", err)
 	}
 
 	return &Publisher{url: url, conn: conn, ch: ch, confirms: confirms}
@@ -162,12 +162,12 @@ func (p *Publisher) Close() {
 	defer p.mu.Unlock()
 	if p.ch != nil && !p.ch.IsClosed() {
 		if err := p.ch.Close(); err != nil {
-			log.Printf("Failed to close RabbitMQ channel: %v", err)
+			slog.Warn("failed to close the RabbitMQ channel", "error", err)
 		}
 	}
 	if p.conn != nil && !p.conn.IsClosed() {
 		if err := p.conn.Close(); err != nil {
-			log.Printf("Failed to close RabbitMQ connection: %v", err)
+			slog.Warn("failed to close the RabbitMQ connection", "error", err)
 		}
 	}
 }

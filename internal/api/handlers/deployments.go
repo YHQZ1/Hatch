@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -242,7 +242,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": "deployment already running"})
 			return
 		}
-		log.Printf("failed to create deployment for project %s: %v", projectID, err)
+		slog.ErrorContext(c.Request.Context(), "failed to create deployment", "project_id", projectID, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create deployment"})
 		return
 	}
@@ -271,7 +271,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 				SecretArn:    sql.NullString{},
 			})
 			if err != nil {
-				log.Printf("failed to snapshot environment variable for deployment %s: %v", deployment.ID, err)
+				slog.ErrorContext(c.Request.Context(), "failed to snapshot an environment variable", "deployment_id", deployment.ID, "error", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save environment variables"})
 				return
 			}
@@ -360,10 +360,10 @@ func (h *DeploymentHandler) CancelDeployment(c *gin.Context) {
 	pipe.RPush(c.Request.Context(), key, msg)
 	pipe.Expire(c.Request.Context(), key, 7*24*time.Hour)
 	if _, err := pipe.Exec(c.Request.Context()); err != nil {
-		log.Printf("failed to persist cancel log for deployment %s: %v", id, err)
+		slog.WarnContext(c.Request.Context(), "failed to persist the cancel log line", "deployment_id", id, "error", err)
 	}
 	if err := h.rdb.Publish(c.Request.Context(), fmt.Sprintf("deployment:%s", id.String()), msg).Err(); err != nil {
-		log.Printf("failed to publish cancel log for deployment %s: %v", id, err)
+		slog.WarnContext(c.Request.Context(), "failed to publish the cancel log line", "deployment_id", id, "error", err)
 	}
 
 	c.JSON(http.StatusOK, h.toDeploymentResponse(deployment))
