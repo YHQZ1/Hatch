@@ -16,6 +16,7 @@ import {
   websocketUrl,
 } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { safeHttpUrl } from "@/lib/url";
 import {
   ACTIVE_DEPLOYMENT_STATUSES,
   NO_DEPLOYMENTS,
@@ -906,11 +907,12 @@ function formatRelativeTime(dateStr: string): string {
 function renderLogText(text: string) {
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(urlRegex);
-  return parts.map((part, i) =>
-    part.match(urlRegex) ? (
+  return parts.map((part, i) => {
+    const href = part.match(urlRegex) ? safeHttpUrl(part) : null;
+    return href ? (
       <a
         key={i}
-        href={part}
+        href={href}
         target="_blank"
         rel="noopener noreferrer"
         className="text-[#74c69d] underline underline-offset-3 decoration-[#74c69d]/30 hover:decoration-[#74c69d] transition-all"
@@ -919,8 +921,8 @@ function renderLogText(text: string) {
       </a>
     ) : (
       part
-    ),
-  );
+    );
+  });
 }
 
 function getLogTypeColor(type: string): string {

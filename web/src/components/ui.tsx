@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
+import { safeHttpUrl } from "@/lib/url";
 import { useEffect } from "react";
 
 type Tone = "default" | "success" | "warning" | "danger" | "muted";
@@ -147,6 +148,14 @@ export function Button({
   );
 
   if (href) {
+    // A full URL leaves the app; anything else is a route.
+    if (/^https?:\/\//i.test(href)) {
+      return (
+        <a href={safeHttpUrl(href) ?? undefined} className={classes}>
+          {children}
+        </a>
+      );
+    }
     return (
       <Link to={href} className={classes}>
         {children}

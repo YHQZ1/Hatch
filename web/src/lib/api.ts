@@ -1,4 +1,5 @@
 import type { NavigateFunction } from "react-router";
+import { safeHttpUrl } from "./url";
 
 // Earlier versions of the UI cached API data in localStorage under these
 // names. Nothing writes them now; signing out still removes any leftovers.
@@ -222,10 +223,11 @@ export async function loadAppConfig(): Promise<void> {
 
 export function deploymentUrl(host?: string | null) {
   if (!host) return null;
-  if (/^https?:\/\//.test(host)) {
-    return host;
-  }
-  return `${appConfig.deploymentUrlScheme}://${host}`;
+  return safeHttpUrl(
+    /^https?:\/\//.test(host)
+      ? host
+      : `${appConfig.deploymentUrlScheme}://${host}`,
+  );
 }
 
 /** The public host of a project: its subdomain under the base domain. */

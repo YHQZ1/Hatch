@@ -20,6 +20,7 @@ import {
   StatusText,
 } from "@/components/ui";
 import { apiFetch, deploymentUrl, readApiError } from "@/lib/api";
+import { safeHttpUrl } from "@/lib/url";
 import {
   ACTIVE_DEPLOYMENT_STATUSES as ACTIVE_STATUSES,
   NO_DEPLOYMENTS,
@@ -553,7 +554,7 @@ function RepositoryCell({
           className="w-3 h-3 flex-shrink-0"
         />
         <a
-          href={repoUrl}
+          href={safeHttpUrl(repoUrl) ?? undefined}
           target="_blank"
           rel="noopener noreferrer"
           className="text-[11px] text-zinc-500 font-mono truncate hover:text-zinc-300 transition-colors cursor-pointer"

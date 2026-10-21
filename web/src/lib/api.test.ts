@@ -45,6 +45,10 @@ test("hosts that are already complete are left alone", () => {
   expect(productionHost(null)).toBeNull();
 });
 
+test("a host that is not a web address does not become a link", () => {
+  expect(deploymentUrl("javascript:alert(1)")).toBeNull();
+});
+
 test("websocket URLs follow the page's origin", () => {
   expect(websocketUrl("/ws/deployments/1")).toBe(
     `ws://${window.location.host}/ws/deployments/1`,

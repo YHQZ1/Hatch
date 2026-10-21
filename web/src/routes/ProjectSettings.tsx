@@ -12,6 +12,7 @@ import {
   redirectIfUnauthorized,
 } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { safeHttpUrl } from "@/lib/url";
 import {
   NO_ENV_VARS,
   activityQuery,
@@ -942,7 +943,7 @@ function StaticValue({
       </p>
       {asLink ? (
         <a
-          href={value}
+          href={safeHttpUrl(value) ?? undefined}
           target="_blank"
           rel="noopener noreferrer"
           className="block truncate font-mono text-sm text-[#5cc98f] hover:underline"
