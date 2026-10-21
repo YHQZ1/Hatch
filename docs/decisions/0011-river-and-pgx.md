@@ -36,3 +36,20 @@ it.
   consolidation rather than as a separate migration.
 - Jobs and state change atomically, removing the "published but not recorded"
   class of bugs listed in 0003.
+
+## Sequencing (added 2026-10-21)
+
+The move to pgx happens in two steps.
+
+1. **Driver (done).** The `lib/pq` driver is replaced by pgx through its
+   `database/sql` adapter (`pgx/v5/stdlib`). sqlc still generates for
+   `database/sql`, so no query code changed. Errors are now checked by Postgres
+   error code (`store.IsUniqueViolation`) instead of matching message text.
+   Every query group has a test against a real Postgres.
+2. **Native pgx (with River).** The native `pgxpool` that River and
+   `LISTEN`/`NOTIFY` need, and regenerating sqlc for `pgx/v5` (`pgtype` and
+   `*string`-style nullable columns), land with River in the "deploy and watch
+   it" slice. The RabbitMQ worker packages use the `database/sql` types
+   throughout and are deleted in that slice, so converting them first would be
+   wasted work.
+

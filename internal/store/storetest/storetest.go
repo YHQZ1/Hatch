@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/lib/pq"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // EnvVar names the variable holding a Postgres URL the tests may create
@@ -30,7 +30,7 @@ func NewDatabase(t *testing.T) string {
 		t.Skipf("%s is not set; skipping the test that needs Postgres", EnvVar)
 	}
 
-	admin, err := sql.Open("postgres", adminURL)
+	admin, err := sql.Open("pgx", adminURL)
 	if err != nil {
 		t.Fatalf("open admin connection: %v", err)
 	}
