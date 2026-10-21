@@ -88,10 +88,11 @@ and tested without AWS. Details are in the
 
 ## Running locally
 
-You need Go 1.27 (an older Go downloads it automatically), Node.js 24 (see
-`.nvmrc`), Docker, [`golang-migrate`](https://github.com/golang-migrate/migrate),
-and a [GitHub OAuth app](https://github.com/settings/developers) with the
-callback URL `http://localhost:8080/auth/callback`.
+You need Go 1.27 (an older Go downloads it automatically), Node.js 24 (set by
+`engines` in `web/package.json`), Docker,
+[`golang-migrate`](https://github.com/golang-migrate/migrate), and a
+[GitHub OAuth app](https://github.com/settings/developers) with the callback
+URL `http://localhost:8080/auth/callback`.
 
 ```bash
 git clone https://github.com/YHQZ1/Hatch.git && cd Hatch
