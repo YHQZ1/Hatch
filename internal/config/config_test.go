@@ -69,3 +69,40 @@ func validProductionConfig() Config {
 		DataEncryptionKey:  strings.Repeat("d", 32),
 	}
 }
+
+func TestDeploymentURLScheme(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"defaults to http", nil, "http"},
+		{"https when an HTTPS listener is set", map[string]string{"ALB_HTTPS_LISTENER_ARN": "arn:listener"}, "https"},
+		{"explicit value wins", map[string]string{"ALB_HTTPS_LISTENER_ARN": "arn:listener", "DEPLOYMENT_URL_SCHEME": "http"}, "http"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DEPLOYMENT_URL_SCHEME", "")
+			t.Setenv("ALB_HTTPS_LISTENER_ARN", "")
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			if got := DeploymentURLScheme(); got != tt.want {
+				t.Fatalf("DeploymentURLScheme() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsUnknownDeploymentURLScheme(t *testing.T) {
+	cfg := Config{
+		Environment:         "development",
+		CORSAllowedOrigins:  []string{"http://localhost:3000"},
+		DeploymentURLScheme: "ftp",
+	}
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "DEPLOYMENT_URL_SCHEME") {
+		t.Fatalf("Validate() error = %v, want DEPLOYMENT_URL_SCHEME error", err)
+	}
+}

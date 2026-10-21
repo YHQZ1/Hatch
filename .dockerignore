@@ -6,9 +6,6 @@
 **/.env
 **/.env.*
 !**/.env.example
-**/*.tfstate
-**/*.tfstate.*
-**/*.tfvars
 
 # VCS, tooling, and OS files
 .git
@@ -16,9 +13,10 @@
 **/.DS_Store
 **/*.log
 
-# Not needed by the Go builds
+# Rebuilt inside the image
 **/node_modules
-**/.next
-**/.terraform
+web/dist
+bin
+
+# Not needed to build the image
 docs
-web

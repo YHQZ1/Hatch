@@ -1,6 +1,20 @@
-# Image for the hatch binary. Run one subcommand per container:
+# Image for the hatch binary, with the web UI embedded. Run one subcommand per
+# container:
 #   docker build --build-arg VERSION=$(git describe --tags --always) -t hatch .
 #   docker run --env-file .env hatch api
+
+# Build the web UI into web/dist.
+FROM node:24-alpine AS web
+WORKDIR /src/web
+# corepack installs the pnpm version pinned in web/package.json.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY web/ ./
+RUN pnpm build
+
+# Build the binary, embedding web/dist.
 FROM golang:1.27.3-alpine AS build
 WORKDIR /src
 
@@ -9,6 +23,8 @@ RUN go mod download
 
 COPY cmd/ cmd/
 COPY internal/ internal/
+COPY web/embed.go web/embed.go
+COPY --from=web /src/web/dist web/dist
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/hatch ./cmd/hatch
 

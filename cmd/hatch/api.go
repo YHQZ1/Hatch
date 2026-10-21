@@ -12,10 +12,12 @@ import (
 	"github.com/YHQZ1/hatch/internal/api/handlers"
 	"github.com/YHQZ1/hatch/internal/api/middleware"
 	"github.com/YHQZ1/hatch/internal/api/queue"
+	"github.com/YHQZ1/hatch/internal/api/spa"
 	wsHub "github.com/YHQZ1/hatch/internal/api/ws"
 	"github.com/YHQZ1/hatch/internal/config"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	dbconn "github.com/YHQZ1/hatch/internal/store"
+	"github.com/YHQZ1/hatch/web"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -78,6 +80,7 @@ func runAPI() {
 	deploymentHandler := handlers.NewDeploymentHandler(db, publisher, rdb, secretCodec)
 	metricsHandler := handlers.NewMetricsHandler(db, cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN, cfg.ALBArn)
 	githubHandler := handlers.NewGitHubHandler(rdb)
+	publicConfigHandler := handlers.NewPublicConfigHandler(cfg.BaseDomain, cfg.DeploymentURLScheme)
 	webhookHandler := handlers.NewWebhookHandler(db, publisher, secretCodec)
 	authMiddleware := auth.Middleware(cfg.JWTSecret, db, secretCodec)
 	csrfMiddleware := auth.CSRFMiddleware()
@@ -118,6 +121,7 @@ func runAPI() {
 	r.POST("/auth/logout", authMiddleware, csrfMiddleware, authHandler.Logout)
 	r.GET("/ws/deployments/:id", hub.HandleDeploymentLogs)
 	r.POST("/api/webhooks/github", webhookHandler.HandlePush)
+	r.GET("/api/config", publicConfigHandler.Get)
 
 	api := r.Group("/api")
 	api.Use(authMiddleware, csrfMiddleware)
@@ -157,6 +161,10 @@ func runAPI() {
 		api.GET("/github/repos", githubHandler.ListRepos)
 		api.GET("/github/repos/:owner/:repo/dockerfile", githubHandler.CheckDockerfile)
 	}
+
+	// Everything else is the web UI. Its client-side routes (such as /console)
+	// get index.html so a page reload works.
+	r.NoRoute(gin.WrapH(spa.Handler(web.Dist())))
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,

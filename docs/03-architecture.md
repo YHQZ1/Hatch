@@ -311,7 +311,8 @@ New or changed tables (names provisional):
 | Sessions | Server-side, in Postgres | Decided ([0013](decisions/0013-server-side-sessions.md)) |
 | Logging | `log/slog`, JSON in production | Decided |
 | GitHub integration | GitHub App | Decided ([0010](decisions/0010-github-app.md)) |
-| Frontend | React + Vite + TypeScript, React Router, TanStack Query, Tailwind 4; embedded in the Go binary | Decided ([0009](decisions/0009-react-spa-served-by-go.md)) |
+| Frontend | React + Vite + TypeScript, React Router, TanStack Query, Tailwind 4; embedded in the Go binary | Built ([0009](decisions/0009-react-spa-served-by-go.md)) |
+| Web package manager | pnpm, pinned to 10.x | Decided ([0016](decisions/0016-pnpm-for-the-web-app.md)) |
 | AWS SDK | aws-sdk-go-v2 | Keep |
 | AWS builds | CodeBuild | Decided |
 | AWS runtime | ECS Fargate + ALB | Keep |

@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo,
+    monospace;
+
+  --animate-loading-bar: loading-bar 2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  --animate-progress: progress linear infinite;
+
+  @keyframes loading-bar {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  @keyframes progress {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+}
+
+:root {
+  --hatch-bg: #000000;
+  --hatch-surface: #0a0a0a;
+  --hatch-border: #1a1a1a;
+  --hatch-border-hover: #2e2e2e;
+  --hatch-text-muted: #888888;
+}
+
+body {
+  background-color: #000000;
+  color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+.bg-grid-pattern {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'%3E%3Cpath d='M 40 0 L 0 0 0 40' fill='none' stroke='rgba(255,255,255,0.03)' stroke-width='1'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+}
+
+.hatch-modal-backdrop {
+  animation: hatch-modal-fade 160ms ease-out both;
+}
+
+.hatch-modal-panel {
+  animation: hatch-modal-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.hatch-toast-enter {
+  animation: hatch-toast-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes hatch-modal-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes hatch-modal-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes hatch-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+::selection {
+  background: #ffffff;
+  color: #000000;
+}

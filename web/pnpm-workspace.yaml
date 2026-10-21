@@ -1,0 +1,8 @@
+# pnpm settings (pnpm 10 reads them from this file).
+#
+# Only install versions that have been public for at least a day, which gives
+# the community time to catch a malicious release before it reaches us.
+minimumReleaseAge: 1440
+# Dependencies may not run install scripts. If a package needs one, list it
+# here (pnpm names it in its install output).
+onlyBuiltDependencies: []

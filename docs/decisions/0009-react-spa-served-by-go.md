@@ -1,6 +1,6 @@
 # 0009. Web UI: a React single-page app served by the Go binary
 
-- Status: Accepted
+- Status: Accepted (implemented; see "As built")
 - Date: 2026-10-21
 
 ## Context
@@ -27,9 +27,9 @@ The goal from 0002 is that an install is one Hatch program plus Postgres.
   **TanStack Query** for API data. Tailwind CSS 4 and the existing components
   stay.
 - `vite build` writes static files to `web/dist`. A small Go package in
-  `web/` (`web/embed.go`, `//go:embed all:dist`) embeds them, and
-  `hatch serve` serves them: API under `/api`, everything else falls back to
-  `index.html`. The UI and API share one origin.
+  `web/` (`web/embed.go`, `//go:embed all:dist`) embeds them, and the Go server
+  serves them: API under `/api`, everything else falls back to `index.html`.
+  The UI and API share one origin.
 - In development, the Vite dev server proxies `/api` to the Go server, so hot
   reload keeps working.
 - The migration happens in Phase 1, right after the repository move and before
@@ -46,7 +46,30 @@ The goal from 0002 is that an install is one Hatch program plus Postgres.
   indexing does not matter; the landing page loses SSR, which is acceptable
   for now.
 - `go build` needs `web/dist` to exist. The Makefile and Dockerfile build the
-  web app first; a placeholder `index.html` keeps `go build` and `go test`
-  working without a web build.
+  web app first; a tracked, empty `web/dist/.gitkeep` keeps `go build` and
+  `go test` working without a web build (the server then answers 503 and says
+  the UI is not built).
 - The migration replaces the routing layer in 21 files and the three layouts;
   components otherwise carry over unchanged.
+
+## As built
+
+- **Server:** `internal/api/spa` serves the embedded files with a fallback to
+  `index.html`, caches hashed assets under `/assets/` for a year, never caches
+  `index.html`, and answers unknown `/api/` and `/ws/` paths with a JSON 404.
+  `index.html` carries a Content-Security-Policy (own origin, plus GitHub
+  avatars), `X-Frame-Options: DENY`, `nosniff`, and a referrer policy.
+- **Runtime configuration:** values that used to be build-time `NEXT_PUBLIC_*`
+  variables cannot work for one binary shared by every install. The UI loads
+  `GET /api/config` (base domain and URL scheme of deployed apps) before it
+  renders. The UI makes no cross-origin API calls, so `NEXT_PUBLIC_API_URL` and
+  production CORS are gone.
+- **Development:** `make dev` runs the Vite dev server on port 3000, which
+  proxies `/api`, `/auth/{github,callback,logout}`, and `/ws` to `hatch api`.
+- **Data loading:** TanStack Query holds server state. A 401 from any query
+  clears the session and the query cache and goes to `/auth`. Polling lives in
+  the query definitions (`web/src/lib/queries.ts`), and WebSocket log lines
+  update the query cache. The localStorage caches of the Next.js app are gone.
+- **No third-party requests:** fonts (Inter, JetBrains Mono) and brand logos
+  (simple-icons) are bundled; the policy forbids anything else.
+

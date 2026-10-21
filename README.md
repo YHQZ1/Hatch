@@ -3,7 +3,7 @@
   <p>Render-style deploys into your own AWS account, with cost guardrails built in.</p>
 
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=flat-square&logo=go&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=next.js&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?style=flat-square&logo=postgresql&logoColor=white)
 ![AWS](https://img.shields.io/badge/AWS-ECS%20Fargate-FF9900?style=flat-square&logo=amazon-aws&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)
@@ -89,14 +89,15 @@ and tested without AWS. Details are in the
 ## Running locally
 
 You need Go 1.27 (an older Go downloads it automatically), Node.js 24 (set by
-`engines` in `web/package.json`), Docker,
+`engines` in `web/package.json`), [pnpm](https://pnpm.io/installation) (it
+switches itself to the version pinned in `web/package.json`), Docker,
 [`golang-migrate`](https://github.com/golang-migrate/migrate), and a
 [GitHub OAuth app](https://github.com/settings/developers) with the callback
 URL `http://localhost:8080/auth/callback`.
 
 ```bash
 git clone https://github.com/YHQZ1/Hatch.git && cd Hatch
-(cd web && npm install)
+(cd web && pnpm install)
 
 # Configuration: fill in the GitHub OAuth values, JWT_SECRET, and
 # DATA_ENCRYPTION_KEY. Every hatch subcommand reads this one file.
@@ -104,11 +105,16 @@ cp .env.example .env
 
 make infra     # Postgres, Redis, and RabbitMQ in Docker
 make migrate   # apply database migrations
-make dev       # run hatch api, builder, and deployer, and the web app
+make dev       # run hatch api, builder, and deployer, and the Vite dev server
 ```
 
-Open <http://localhost:3000>. `make stop-dev` stops everything `make dev`
-started.
+Open <http://localhost:3000>. The Vite dev server there forwards `/api`,
+sign-in, and live-log requests to `hatch api` on port 8080. `make stop-dev`
+stops everything `make dev` started.
+
+To run the single binary instead, `make build` builds the web UI into
+`bin/hatch`, and `bin/hatch api` then serves the UI and the API together on
+port 8080.
 
 Signing in, browsing repositories, and creating projects work with only the
 local services. Building and deploying need an AWS account with an ECR
@@ -125,7 +131,7 @@ internal/runtime   ECS services and ALB routing
 internal/store     database access (sqlc) and migrations
 internal/config    configuration loading
 internal/secrets   encryption at rest
-web/               Next.js dashboard
+web/               React + Vite dashboard, embedded in the binary
 docs/              vision, architecture, roadmap, and decision records
 ```
 

@@ -28,6 +28,11 @@ type Config struct {
 	ECSClusterName     string
 	ALBListenerARN     string
 	ALBArn             string
+
+	// BaseDomain and DeploymentURLScheme describe where deployed apps are
+	// reached. The web UI reads them from GET /api/config.
+	BaseDomain          string
+	DeploymentURLScheme string
 }
 
 func Load() *Config {
@@ -51,6 +56,9 @@ func Load() *Config {
 		ECSClusterName:     getEnv("ECS_CLUSTER_NAME", ""),
 		ALBListenerARN:     firstNonEmpty(getEnv("ALB_HTTPS_LISTENER_ARN", ""), getEnv("ALB_LISTENER_ARN", "")),
 		ALBArn:             getEnv("ALB_ARN", ""),
+
+		BaseDomain:          getEnv("BASE_DOMAIN", ""),
+		DeploymentURLScheme: DeploymentURLScheme(),
 	}
 	if err := cfg.Validate(); err != nil {
 		log.Fatal(err)
@@ -58,7 +66,23 @@ func Load() *Config {
 	return cfg
 }
 
+// DeploymentURLScheme returns how deployed apps are reached: the value of
+// DEPLOYMENT_URL_SCHEME, or https when an HTTPS load balancer listener is
+// configured and http otherwise.
+func DeploymentURLScheme() string {
+	if scheme := getEnv("DEPLOYMENT_URL_SCHEME", ""); scheme != "" {
+		return scheme
+	}
+	if getEnv("ALB_HTTPS_LISTENER_ARN", "") != "" {
+		return "https"
+	}
+	return "http"
+}
+
 func (c *Config) Validate() error {
+	if c.DeploymentURLScheme != "" && c.DeploymentURLScheme != "http" && c.DeploymentURLScheme != "https" {
+		return fmt.Errorf("DEPLOYMENT_URL_SCHEME must be http or https")
+	}
 	if len(c.CORSAllowedOrigins) == 0 {
 		return fmt.Errorf("CORS_ALLOWED_ORIGINS must include at least one origin")
 	}
