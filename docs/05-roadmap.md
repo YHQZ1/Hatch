@@ -144,8 +144,9 @@ Done when: the acceptance tests in the guardrails document pass.
 - [ ] Break up the 1,000+ line React components; consistent UI states.
 - [ ] Custom domains with ACM certificates _(may move after v1)_.
 - [ ] Review the landing page's claims (zero-downtime rollouts, automated TLS
-  and DNS) against what exists, and replace the logo, which is the Habr brand
-  icon from simple-icons with its title changed.
+  and DNS) against what exists, and replace the placeholder logo by
+  overwriting `web/public/hatch.svg` (the old one was the Habr brand icon and
+  was removed).
 
 ## Phase 6: Production readiness
 
