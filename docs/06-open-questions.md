@@ -47,6 +47,34 @@ and delegate DNS).
 Recommendation: allow HTTP-only with a warning for v1, plus optional "bring a
 wildcard domain" at connect time.
 
+### Q17. Background workers and cron jobs: when? (Phase 5)
+
+Today Hatch runs only web services (a container behind the load balancer).
+Most real apps also need workers (long-running, no URL) and scheduled jobs.
+Both fit the stateless-container model: a worker is an ECS service without a
+load balancer; a cron job is an ECS task started by EventBridge Scheduler.
+
+Recommendation: add both in Phase 5. Until then, the landing page should not
+advertise them (it currently does).
+
+### Q18. Managed databases, caches, and queues after v1? (After v1)
+
+Not in v1 (vision non-goal). In the user's account these mean RDS,
+ElastiCache, or SQS created by Hatch. RDS and ElastiCache bill hourly whether
+used or not and hold data, which conflicts with idle pause, expiry, and "tear
+down everything."
+
+Recommendation: v1 makes connecting external services easy (secret env vars,
+docs for scale-to-zero options such as Neon and Upstash). After v1, add in
+this order: SQS (pay per request, no idle cost); Postgres on RDS with strict
+guardrails (smallest instance by default, cost estimate before creation,
+snapshot before any deletion, never auto-expired); caches last.
+
+### Q19. Suggest a Dockerfile when a repository has none? (Phase 5)
+
+Recommendation: yes. Detect the language and offer a template Dockerfile to
+commit. This helps onboarding without Dockerfile-less builds (ADR 0014).
+
 ## Decided
 
 | # | Question | Decision | Recorded in |
@@ -61,6 +89,7 @@ wildcard domain" at connect time.
 | Q10 | Local reverse proxy? | Caddy, through its admin API. | [Architecture](03-architecture.md#technology-stack) |
 | Q11 | How does CodeBuild get the source? | A GitHub App installation token scoped to the repository. | [0010](decisions/0010-github-app.md) |
 | Q15 | Frontend restructuring scope? | Move to a React + Vite single-page app served by the Go binary, in Phase 1; split large components as pages are touched. | [0009](decisions/0009-react-spa-served-by-go.md) |
+| — | Dockerfile-less builds | Not in v1; builds require a Dockerfile. | [0014](decisions/0014-dockerfile-only-builds.md) |
 | Q16 | License and openness? | MIT, public repository; no outside contributions for now. | [LICENSE](../LICENSE) |
 | — | Live log transport | Server-sent events instead of WebSocket. | [0012](decisions/0012-server-sent-events-for-logs.md) |
 | — | Logging | `log/slog`, JSON in production. | [Architecture](03-architecture.md#technology-stack) |

@@ -19,6 +19,7 @@ reversed; do not rewrite history in old records, mark them superseded instead.
 | [0011](0011-river-and-pgx.md) | River for jobs, pgx as the Postgres driver | Accepted |
 | [0012](0012-server-sent-events-for-logs.md) | Server-sent events for live deployment logs | Accepted |
 | [0013](0013-server-side-sessions.md) | Server-side sessions in Postgres | Accepted |
+| [0014](0014-dockerfile-only-builds.md) | Builds require a Dockerfile | Accepted |
 
 Template:
 
