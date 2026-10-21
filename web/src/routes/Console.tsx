@@ -1,18 +1,14 @@
-import { Link, useNavigate } from "react-router";
+import {
+  type UseQueryResult,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
 import { siGithub } from "simple-icons";
 import BrandIcon from "@/components/BrandIcon";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { PageLoadingState } from "@/components/LoadingState";
-import {
-  apiFetch,
-  deploymentUrl,
-  readApiError,
-  redirectIfUnauthorized,
-} from "@/lib/api";
-import {
-  NoticeToast,
-  type NoticePayload,
-} from "@/components/NoticeToast";
+import { NoticeToast, type NoticePayload } from "@/components/NoticeToast";
 import {
   AppShell,
   Button,
@@ -23,34 +19,15 @@ import {
   Panel,
   StatusText,
 } from "@/components/ui";
-
-interface Project {
-  id: string;
-  repo_name: string;
-  repo_url: string;
-  branch: string;
-  subdomain: string | null;
-  port: number;
-  auto_deploy: boolean;
-  status?: string;
-  created_at: string;
-}
-
-interface Deployment {
-  id: string;
-  project_id: string;
-  status: string;
-  branch: string;
-  commit_sha?: string | null;
-  commit_message?: string | null;
-  cpu: number;
-  memory_mb: number;
-  port: number;
-  url: string | null;
-  subdomain: string | null;
-  created_at: string;
-  deployed_at: string | null;
-}
+import { apiFetch, deploymentUrl, readApiError } from "@/lib/api";
+import {
+  ACTIVE_DEPLOYMENT_STATUSES as ACTIVE_STATUSES,
+  NO_DEPLOYMENTS,
+  NO_PROJECTS,
+  projectDeploymentsQuery,
+  projectsQuery,
+} from "@/lib/queries";
+import type { Deployment, Project } from "@/lib/types";
 
 interface ServiceRow {
   project: Project;
@@ -76,124 +53,70 @@ interface StatusMeta {
   raw: string;
 }
 
-const CACHE_KEY = "hatch_projects_cache";
-const CACHE_TTL = 60 * 1000;
-const ACTIVE_STATUSES = new Set(["queued", "building", "deploying"]);
 const FAILED_STATUSES = new Set(["failed", "error"]);
 const CANCELED_STATUSES = new Set(["canceled", "cancelled"]);
 
+const LOAD_FAILED_NOTICE: NoticePayload = {
+  type: "error",
+  title: "Dashboard unavailable",
+  message: "We couldn't load the latest service list.",
+};
+
+/** The deployments of each project, in the order the projects were given. */
+function combineDeployments(results: UseQueryResult<Deployment[]>[]) {
+  return {
+    byIndex: results.map((result) => result.data),
+    pending: results.some((result) => result.isPending),
+    fetching: results.some((result) => result.isFetching),
+    updatedAt: Math.max(0, ...results.map((result) => result.dataUpdatedAt)),
+  };
+}
+
 export default function ConsoleClient() {
-  const navigate = useNavigate();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [deployments, setDeployments] = useState<Record<string, Deployment[]>>(
-    {},
-  );
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const queryClient = useQueryClient();
+  const projectsResult = useQuery(projectsQuery());
+  const projects = projectsResult.data ?? NO_PROJECTS;
+  const deploymentResults = useQueries({
+    queries: projects.map((project) => projectDeploymentsQuery(project.id)),
+    combine: combineDeployments,
+  });
   const [notice, setNotice] = useState<NoticePayload | null>(null);
-  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [loadErrorDismissedAt, setLoadErrorDismissedAt] = useState(0);
 
-  const loadData = useCallback(
-    async ({ background = false }: { background?: boolean } = {}) => {
-      if (background) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+  const deployments = useMemo(() => {
+    const byProject: Record<string, Deployment[]> = {};
+    projects.forEach((project, index) => {
+      byProject[project.id] = deploymentResults.byIndex[index] ?? NO_DEPLOYMENTS;
+    });
+    return byProject;
+  }, [projects, deploymentResults.byIndex]);
 
-      try {
-        const res = await apiFetch("/api/projects");
-        if (redirectIfUnauthorized(res, navigate)) return;
-        if (!res.ok) {
-          throw new Error(await readApiError(res, "Failed to fetch projects"));
-        }
+  const loading = projectsResult.isPending || deploymentResults.pending;
+  const refreshing =
+    !loading && (projectsResult.isFetching || deploymentResults.fetching);
+  const lastSyncedAt = projectsResult.dataUpdatedAt
+    ? new Date(Math.max(projectsResult.dataUpdatedAt, deploymentResults.updatedAt))
+    : null;
 
-        const data = await res.json();
-        const projectsList: Project[] = Array.isArray(data) ? data : [];
-
-        const deploymentResults = await Promise.all(
-          projectsList.map(async (project) => {
-            const dRes = await apiFetch(
-              `/api/projects/${project.id}/deployments`,
-            );
-            if (redirectIfUnauthorized(dRes, navigate)) {
-              return { id: project.id, data: [] as Deployment[] };
-            }
-            if (!dRes.ok) {
-              return { id: project.id, data: [] as Deployment[] };
-            }
-            const dData = await dRes.json();
-            return {
-              id: project.id,
-              data: Array.isArray(dData) ? dData : ([] as Deployment[]),
-            };
-          }),
-        );
-
-        const deploymentMap = deploymentResults.reduce(
-          (acc, curr) => {
-            acc[curr.id] = curr.data;
-            return acc;
-          },
-          {} as Record<string, Deployment[]>,
-        );
-
-        setProjects(projectsList);
-        setDeployments(deploymentMap);
-        setLastSyncedAt(new Date());
-        localStorage.setItem(
-          CACHE_KEY,
-          JSON.stringify({
-            projects: projectsList,
-            deployments: deploymentMap,
-            timestamp: Date.now(),
-          }),
-        );
-      } catch {
-        setNotice({
-          type: "error",
-          title: "Dashboard unavailable",
-          message: "We couldn't load the latest service list.",
-        });
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [navigate],
-  );
-
-  useEffect(() => {
-    setMounted(true);
-
-    const cached = localStorage.getItem(CACHE_KEY);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        const cacheAge = Date.now() - (parsed.timestamp || 0);
-
-        if (cacheAge < CACHE_TTL) {
-          setProjects(parsed.projects || []);
-          setDeployments(parsed.deployments || {});
-          setLastSyncedAt(new Date(parsed.timestamp));
-          setLoading(false);
-          loadData({ background: true });
-          return;
-        }
-      } catch {
-        // A corrupt cache entry is ignored.
-      }
-    }
-
-    loadData();
-  }, [loadData]);
+  const loadFailed =
+    projectsResult.isError &&
+    projectsResult.errorUpdatedAt > loadErrorDismissedAt;
+  const shownNotice = notice ?? (loadFailed ? LOAD_FAILED_NOTICE : null);
 
   useEffect(() => {
     if (!notice) return;
     const timeout = window.setTimeout(() => setNotice(null), 5000);
     return () => window.clearTimeout(timeout);
   }, [notice]);
+
+  useEffect(() => {
+    if (!loadFailed) return;
+    const timeout = window.setTimeout(
+      () => setLoadErrorDismissedAt(Date.now()),
+      5000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [loadFailed]);
 
   const rows = useMemo(() => {
     return projects
@@ -221,18 +144,6 @@ export default function ConsoleClient() {
   }, [deployments, projects]);
 
   const hasProjects = rows.length > 0;
-  const hasActiveDeployments = rows.some((row) => row.status.kind === "active");
-  const hasProjectTransitions = rows.some((row) =>
-    ["deleting", "suspending", "resuming"].includes(row.status.raw),
-  );
-
-  useEffect(() => {
-    if (!hasActiveDeployments && !hasProjectTransitions) return;
-    const interval = window.setInterval(() => {
-      loadData({ background: true });
-    }, 8000);
-    return () => window.clearInterval(interval);
-  }, [hasActiveDeployments, hasProjectTransitions, loadData]);
 
   const stats = useMemo(() => {
     return {
@@ -246,21 +157,26 @@ export default function ConsoleClient() {
   const pulse = useMemo(() => getConsolePulse(rows), [rows]);
 
   const handleDeleteQueued = (project: Project) => {
-    setProjects((prev) =>
-      prev.map((item) => (item.id === project.id ? project : item)),
+    queryClient.setQueryData<Project[]>(projectsQuery().queryKey, (current) =>
+      current?.map((item) => (item.id === project.id ? project : item)),
     );
-    localStorage.removeItem(CACHE_KEY);
   };
-
-  if (!mounted) return <PageLoadingState />;
 
   return (
     <AppShell>
-      <NoticeToast notice={notice} onDismiss={() => setNotice(null)} />
+      <NoticeToast
+        notice={shownNotice}
+        onDismiss={() => {
+          setNotice(null);
+          setLoadErrorDismissedAt(Date.now());
+        }}
+      />
       <ConsoleHeader
         lastSyncedAt={lastSyncedAt}
         refreshing={refreshing}
-        onRefresh={() => loadData({ background: true })}
+        onRefresh={() =>
+          void queryClient.invalidateQueries({ queryKey: projectsQuery().queryKey })
+        }
       />
 
       {!loading && hasProjects && (
