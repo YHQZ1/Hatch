@@ -87,6 +87,10 @@ jobs:
       - name: Check the image runs
         run: docker run --rm hatch:ci version
 
+      # Without the UI the binary still builds and runs, but answers 503.
+      - name: Check the web UI is embedded in the binary
+        run: docker run --rm --entrypoint grep hatch:ci -qa '<div id="root"' /usr/local/bin/hatch
+
   web:
     name: Web
     runs-on: ubuntu-latest
