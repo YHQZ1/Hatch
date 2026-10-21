@@ -1,5 +1,7 @@
 import Badge, { type Status } from "./Badge";
 import { ROADMAP_URL } from "./links";
+import Frame from "./Frame";
+import Reveal from "./Reveal";
 import Section from "./Section";
 
 const COLUMNS: { status: Status; heading: string; items: string[] }[] = [
@@ -39,21 +41,28 @@ export default function Roadmap() {
     <Section
       id="roadmap"
       title="Built in the open, and still being rebuilt."
+      tone="tint"
       intro="Hatch is moving from a hosted prototype to the product described on this page. This is where it stands."
     >
+      <Frame>
       <div className="grid gap-px overflow-hidden rounded-hatch border border-line bg-line md:grid-cols-3">
-        {COLUMNS.map((column) => (
-          <div key={column.heading} className="bg-black p-8">
-            <Badge status={column.status} />
-            <h3 className="mt-5 font-medium">{column.heading}</h3>
-            <ul className="mt-4 space-y-3 text-sm leading-relaxed text-muted">
-              {column.items.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
+        {COLUMNS.map((column, i) => (
+          <div key={column.heading} className="bg-base">
+            <Reveal delay={i * 110} className="p-8 lg:p-10">
+              <Badge status={column.status} />
+              <h3 className="mt-6 text-xl font-medium tracking-tight">
+                {column.heading}
+              </h3>
+              <ul className="mt-5 space-y-3 leading-relaxed text-muted">
+                {column.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </Reveal>
           </div>
         ))}
       </div>
+      </Frame>
       <a
         href={ROADMAP_URL}
         target="_blank"

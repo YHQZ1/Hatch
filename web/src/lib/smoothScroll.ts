@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import Lenis from "lenis";
 import "lenis/dist/lenis.css";
+import { prefersReducedMotion } from "./motion";
 
 /** Height of the sticky landing header, so anchored sections clear it. */
 const HEADER_OFFSET = 64;
@@ -13,7 +14,7 @@ let active: Lenis | null = null;
  */
 export function useSmoothScroll() {
   useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (prefersReducedMotion()) return;
 
     const lenis = new Lenis({ lerp: 0.1 });
     active = lenis;

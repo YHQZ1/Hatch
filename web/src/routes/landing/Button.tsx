@@ -6,8 +6,8 @@ type Variant = "primary" | "secondary" | "ghost";
 const VARIANTS: Record<Variant, string> = {
   primary: "bg-accent text-accent-ink hover:bg-accent-hover",
   secondary:
-    "border border-line-strong text-white hover:border-white/40 hover:bg-white/5",
-  ghost: "text-muted hover:text-white",
+    "border border-line-strong text-ink hover:border-ink/40 hover:bg-ink/5",
+  ghost: "text-muted hover:text-ink",
 };
 
 const BASE =
@@ -18,17 +18,21 @@ export default function Button({
   variant = "primary",
   to,
   href,
+  icon,
   children,
 }: {
   variant?: Variant;
   to?: string;
   href?: string;
+  /** Shown before the label. */
+  icon?: ReactNode;
   children: ReactNode;
 }) {
   const className = `${BASE} ${VARIANTS[variant]}`;
   if (to) {
     return (
       <Link to={to} className={className}>
+        {icon}
         {children}
       </Link>
     );
@@ -40,6 +44,7 @@ export default function Button({
       rel="noopener noreferrer"
       className={className}
     >
+      {icon}
       {children}
     </a>
   );

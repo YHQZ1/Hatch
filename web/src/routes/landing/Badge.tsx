@@ -8,7 +8,7 @@ const LABELS: Record<Status, string> = {
 
 const STYLES: Record<Status, string> = {
   available: "border-accent/40 bg-accent/10 text-accent",
-  development: "border-line-strong text-white/80",
+  development: "border-line-strong text-ink/80",
   planned: "border-line text-muted",
 };
 

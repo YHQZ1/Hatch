@@ -7,13 +7,19 @@ import HowItWorks from "./landing/HowItWorks";
 import Product from "./landing/Product";
 import Roadmap from "./landing/Roadmap";
 import Workloads from "./landing/Workloads";
+import { useTheme } from "./landing/useTheme";
 
 export default function Landing() {
   useSmoothScroll();
+  const { theme, toggle } = useTheme();
 
   return (
-    <div className="w-full bg-black">
-      <Header />
+    <div
+      data-theme={theme}
+      style={{ colorScheme: theme }}
+      className="w-full bg-base text-ink"
+    >
+      <Header theme={theme} onToggleTheme={toggle} />
       <Hero />
       <Product />
       <Guardrails />

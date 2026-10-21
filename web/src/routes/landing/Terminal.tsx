@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { prefersReducedMotion } from "@/lib/motion";
 
 type Line = { text: string; delay: number; tone?: "dim" | "strong" };
 
@@ -18,10 +19,6 @@ const SCRIPT: Line[] = [
 
 const COMMAND = "$ hatch deploy storefront";
 
-function prefersReducedMotion() {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
 export default function Terminal() {
   const [shown, setShown] = useState(() =>
     prefersReducedMotion() ? SCRIPT.length : 0,
@@ -38,7 +35,12 @@ export default function Terminal() {
 
   return (
     <figure className="m-0">
-      <div className="overflow-hidden rounded-hatch border border-line-strong bg-panel">
+      <div className="relative">
+      <div
+        aria-hidden
+        className="absolute inset-0 hidden translate-x-4 translate-y-4 rounded-hatch border border-accent/30 md:block"
+      />
+      <div className="relative overflow-hidden rounded-hatch border border-line-strong bg-panel">
         <div className="flex h-10 items-center border-b border-line px-4 text-xs text-faint">
           hatch deploy
         </div>
@@ -46,7 +48,7 @@ export default function Terminal() {
           className="min-h-[340px] px-5 py-5 font-mono text-[13px] leading-7"
           aria-label="Example deploy session"
         >
-          <div className="text-white">{COMMAND}</div>
+          <div className="text-ink">{COMMAND}</div>
           {SCRIPT.slice(0, shown).map((line) => (
             <div
               key={line.text}
@@ -55,18 +57,19 @@ export default function Terminal() {
                   ? "mt-3 font-medium text-accent"
                   : line.tone === "dim"
                     ? "text-muted"
-                    : "text-white/90"
+                    : "text-ink/90"
               }`}
             >
               {line.text}
             </div>
           ))}
           {shown < SCRIPT.length && (
-            <span className="mt-1 inline-block h-4 w-2 animate-blink bg-white/70 align-middle" />
+            <span className="mt-1 inline-block h-4 w-2 animate-blink bg-ink/70 align-middle" />
           )}
         </div>
       </div>
-      <figcaption className="mt-3 text-xs text-faint">
+      </div>
+      <figcaption className="mt-3 text-xs text-faint md:mt-8">
         An illustration of the target flow. Deploys are in development.
       </figcaption>
     </figure>

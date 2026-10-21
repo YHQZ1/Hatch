@@ -1,5 +1,9 @@
 import { scrollToSection } from "@/lib/smoothScroll";
+import Backdrop from "./Backdrop";
 import Button from "./Button";
+import Container from "./Container";
+import GitHubButton from "./GitHubButton";
+import Reveal from "./Reveal";
 import {
   ARCHITECTURE_URL,
   DOCS_URL,
@@ -16,30 +20,33 @@ const EXTERNAL = [
   { label: "Source", href: REPO_URL },
 ];
 
-const LINK = "text-muted transition-colors hover:text-white";
+const LINK = "text-muted transition-colors hover:text-ink";
 
 export default function Footer() {
   return (
     <>
-      <section className="border-b border-line">
-        <div className="mx-auto flex max-w-6xl flex-col items-start gap-8 px-6 py-20 md:flex-row md:items-center md:justify-between">
-          <h2 className="max-w-xl text-balance text-3xl font-semibold tracking-tight">
-            Follow along, or run it yourself.
-          </h2>
-          <div className="flex flex-wrap gap-3">
-            <Button href={REPO_URL}>View on GitHub</Button>
-            <Button variant="secondary" href={DOCS_URL}>
-              Read the docs
-            </Button>
-          </div>
-        </div>
+      <section className="relative overflow-hidden border-b border-line bg-tint">
+        <Backdrop />
+        <Container className="relative py-24 lg:py-32">
+          <Reveal className="flex flex-col items-start gap-8 md:flex-row md:items-center md:justify-between">
+            <h2 className="max-w-2xl text-balance text-4xl font-semibold tracking-tight md:text-5xl">
+              Follow along, or run it yourself.
+            </h2>
+            <div className="flex flex-wrap gap-3">
+              <GitHubButton />
+              <Button variant="secondary" href={DOCS_URL}>
+                Read the docs
+              </Button>
+            </div>
+          </Reveal>
+        </Container>
       </section>
 
       <footer>
-        <div className="mx-auto grid max-w-6xl gap-10 px-6 py-14 sm:grid-cols-[1.5fr_1fr_1fr]">
+        <Container className="grid gap-10 py-14 sm:grid-cols-[1.5fr_1fr_1fr]">
           <div>
             <div className="flex items-center gap-2.5">
-              <img src="/hatch.svg" alt="" className="h-5 w-5" />
+              <img src="/hatch.svg" alt="" className="theme-logo h-5 w-5" />
               <span className="font-semibold tracking-tight">Hatch</span>
             </div>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted">
@@ -82,11 +89,11 @@ export default function Footer() {
               </a>
             ))}
           </nav>
-        </div>
+        </Container>
         <div className="border-t border-line">
-          <div className="mx-auto max-w-6xl px-6 py-6 text-xs text-faint">
+          <Container className="py-6 text-xs text-faint">
             Open source under the MIT license.
-          </div>
+          </Container>
         </div>
       </footer>
     </>

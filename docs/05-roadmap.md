@@ -11,7 +11,7 @@ _Update this section at the end of every working session._
 | --- | --- |
 | Current phase | 1, Simplify the core and build the local target |
 | Branch | `feat/landing-page` (pull request to `main`) |
-| Last done | Landing page rewritten: Render-style positioning, cost guardrails, Available / In development / Planned badges, a light purple accent and eased scrolling (Lenis, landing only). Before that, foundation finished: pgx driver with real-Postgres tests for every query group, structured logging with slog, and Hatch as one program (`serve`, `worker`, `migrate`). Before that: React + Vite UI embedded in the binary |
+| Last done | Landing page rewritten: Render-style positioning, cost guardrails, Available / In development / Planned badges, a light purple accent, scroll effects, a light theme with a circular switch, and eased scrolling (Lenis, landing only). Before that, foundation finished: pgx driver with real-Postgres tests for every query group, structured logging with slog, and Hatch as one program (`serve`, `worker`, `migrate`). Before that: React + Vite UI embedded in the binary |
 | Next | Sign-in with a GitHub App (needs one created by the owner). The 2px corner radius and the accent have not been applied to the console pages yet |
 | Blockers | None. No AWS access (by design until Phase 6) |
 

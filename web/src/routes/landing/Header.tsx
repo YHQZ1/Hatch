@@ -1,8 +1,9 @@
-import { siGithub } from "simple-icons";
-import BrandIcon from "@/components/BrandIcon";
+import { useEffect, useRef } from "react";
 import { scrollToSection } from "@/lib/smoothScroll";
 import Button from "./Button";
-import { REPO_URL } from "./links";
+import Container from "./Container";
+import ThemeToggle from "./ThemeToggle";
+import type { Theme } from "./useTheme";
 
 const NAV = [
   { id: "product", label: "Product" },
@@ -11,10 +12,40 @@ const NAV = [
   { id: "roadmap", label: "Roadmap" },
 ];
 
-export default function Header() {
+export default function Header({
+  theme,
+  onToggleTheme,
+}: {
+  theme: Theme;
+  onToggleTheme: (origin: { x: number; y: number }) => void;
+}) {
+  const bar = useRef<HTMLDivElement>(null);
+
+  // Page scroll progress, drawn along the bottom edge of the header.
+  useEffect(() => {
+    const update = () => {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = max > 0 ? window.scrollY / max : 0;
+      if (bar.current) bar.current.style.transform = `scaleX(${progress})`;
+    };
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
   return (
-    <header className="sticky top-0 z-50 border-b border-line bg-black/80 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+    <header className="sticky top-0 z-50 border-b border-line bg-base/80 backdrop-blur-md">
+      <div
+        ref={bar}
+        aria-hidden
+        style={{ transform: "scaleX(0)" }}
+        className="absolute inset-x-0 -bottom-px h-px origin-left bg-accent"
+      />
+      <Container className="flex h-16 items-center justify-between">
         <div className="flex items-center gap-10">
           <a
             href="#top"
@@ -24,7 +55,7 @@ export default function Header() {
             }}
             className="flex items-center gap-2.5"
           >
-            <img src="/hatch.svg" alt="" className="h-6 w-6" />
+            <img src="/hatch.svg" alt="" className="theme-logo h-6 w-6" />
             <span className="text-lg font-semibold tracking-tight">Hatch</span>
           </a>
           <nav className="hidden items-center gap-7 text-sm md:flex">
@@ -36,7 +67,7 @@ export default function Header() {
                   e.preventDefault();
                   scrollToSection(item.id);
                 }}
-                className="text-muted transition-colors hover:text-white"
+                className="text-muted transition-colors hover:text-ink"
               >
                 {item.label}
               </a>
@@ -45,20 +76,12 @@ export default function Header() {
         </div>
 
         <div className="flex items-center gap-2">
-          <a
-            href={REPO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden h-10 items-center gap-2 rounded-hatch px-3 text-sm text-muted transition-colors hover:text-white sm:inline-flex"
-          >
-            <BrandIcon icon={siGithub} color="FFFFFF" className="h-4 w-4" />
-            GitHub
-          </a>
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <Button variant="secondary" to="/auth">
             Sign in
           </Button>
         </div>
-      </div>
+      </Container>
     </header>
   );
 }
