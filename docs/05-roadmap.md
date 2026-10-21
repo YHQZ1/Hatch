@@ -10,9 +10,9 @@ _Update this section at the end of every working session._
 | Field | Value |
 | --- | --- |
 | Current phase | 1, Simplify the core and build the local target |
-| Branch | `phase1/single-binary` (pull request to `main`) |
-| Last done | Hatch is one program: `hatch serve`, `worker`, and `migrate`, with one config loader, embedded migrations, and tests against real Postgres in CI. Before that: React + Vite UI embedded in the binary; placeholder logo |
-| Next | Foundation: structured logging with slog, then pgx; then the sign-in slice (needs a GitHub App from the owner) |
+| Branch | `phase1/slog` (pull request to `main`) |
+| Last done | Structured logging with slog (JSON in production, request IDs, one access-log line per request). Before that: Hatch is one program (`serve`, `worker`, `migrate`) with a single config loader and embedded migrations; React + Vite UI embedded in the binary |
+| Next | Foundation: pgx; then the landing page slice (the owner's choice), then sign-in (needs a GitHub App from the owner) |
 | Blockers | None. No AWS access (by design until Phase 6) |
 
 ## Phase 0: Foundation
@@ -61,8 +61,9 @@ something that can be demonstrated on a laptop.
 
 **Foundation (no visible change)**
 
-- [ ] Structured logging with `log/slog`: JSON in production, request IDs, a
-  request log in place of Gin's default.
+- [x] Structured logging with `log/slog`: JSON in production, request IDs, a
+  request log in place of Gin's default
+  ([ADR 0017](decisions/0017-structured-logging-with-slog.md)).
 - [ ] Switch to pgx and regenerate sqlc
   ([ADR 0011](decisions/0011-river-and-pgx.md)); tests for the queries run
   against real Postgres.

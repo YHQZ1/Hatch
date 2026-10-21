@@ -48,6 +48,11 @@ Read, in order:
   `NNNNNN_short_description.up.sql`, continuing the numbering; never edit a
   merged migration. After changing migrations or `internal/store/queries/`,
   run `cd internal/store && sqlc generate` and commit the generated code.
+- Logging: use `log/slog` with attributes (`slog.Error("failed to X",
+  "project_id", id, "error", err)`), not `log.Printf`. In request handlers use
+  the Context variants with `c.Request.Context()` so the request ID is
+  attached. Never log secrets, tokens, or query strings. (The RabbitMQ worker
+  packages still use `log`; they are deleted in the deploy slice.)
 - Never commit `.env` files or credentials.
 - Web (`web/`): load server data with TanStack Query (definitions in
   `src/lib/queries.ts`; a 401 signs the user out centrally); the React hook
