@@ -1,11 +1,11 @@
-package main
+package api
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/YHQZ1/hatch/internal/api/auth"
@@ -16,28 +16,29 @@ import (
 	wsHub "github.com/YHQZ1/hatch/internal/api/ws"
 	"github.com/YHQZ1/hatch/internal/config"
 	"github.com/YHQZ1/hatch/internal/secrets"
-	dbconn "github.com/YHQZ1/hatch/internal/store"
+	"github.com/YHQZ1/hatch/internal/store"
 	"github.com/YHQZ1/hatch/web"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 )
 
-func runAPI() {
-	_ = godotenv.Load()
-
-	cfg := config.Load()
+// Run serves the web UI and the API until ctx is canceled, then shuts down
+// gracefully. It returns an error if it cannot start or the server fails.
+func Run(ctx context.Context, cfg *config.Config) error {
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	db := dbconn.Connect(cfg.DatabaseURL)
+	db, err := store.Connect(cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
 	defer db.Close()
 
 	secretCodec, err := secrets.NewCodec(cfg.DataEncryptionKey)
 	if err != nil {
-		log.Fatalf("Failed to initialize secret codec: %v", err)
+		return fmt.Errorf("initialize secret codec: %w", err)
 	}
 
 	publisher := queue.NewPublisher(cfg.RabbitMQURL)
@@ -45,7 +46,7 @@ func runAPI() {
 
 	opt, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
-		log.Fatalf("Failed to parse Redis URL: %v", err)
+		return fmt.Errorf("parse REDIS_URL: %w", err)
 	}
 
 	rdb := redis.NewClient(opt)
@@ -176,23 +177,18 @@ func runAPI() {
 		MaxHeaderBytes:    1 << 20,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
 	serverErrors := make(chan error, 1)
 	go func() {
 		log.Printf("Hatch API starting on :%s", cfg.Port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrors <- err
 		}
 	}()
 
 	select {
 	case <-ctx.Done():
-		stop()
 	case err := <-serverErrors:
-		log.Printf("API server failed: %v", err)
-		return
+		return fmt.Errorf("API server failed: %w", err)
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -205,4 +201,5 @@ func runAPI() {
 		}
 	}
 	log.Println("API exited")
+	return nil
 }

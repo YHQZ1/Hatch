@@ -1,16 +1,38 @@
+// Package config loads Hatch's configuration from the environment.
 package config
 
 import (
 	"fmt"
-	"log"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
+	"time"
+)
 
-	"github.com/joho/godotenv"
+// Role says which part of Hatch is starting, and so which settings it needs.
+type Role int
+
+const (
+	// RoleServe runs the API and web UI together with the workers.
+	RoleServe Role = iota
+	// RoleWorker runs only the build and deploy workers.
+	RoleWorker
+	// RoleMigrate applies database migrations and needs only the database.
+	RoleMigrate
 )
 
 type Config struct {
+	Role Role
+
+	DatabaseURL       string
+	RedisURL          string
+	RabbitMQURL       string
+	Environment       string
+	DataEncryptionKey string
+	AWSRegion         string
+
+	// API and web UI (RoleServe).
 	Port               string
 	FrontendURL        string
 	CORSAllowedOrigins []string
@@ -18,16 +40,22 @@ type Config struct {
 	GitHubClientSecret string
 	GitHubRedirectURI  string
 	JWTSecret          string
-	DatabaseURL        string
-	RedisURL           string
-	RabbitMQURL        string
 	WebhookBaseURL     string
-	Environment        string
-	DataEncryptionKey  string
-	AWSRegion          string
-	ECSClusterName     string
-	ALBListenerARN     string
 	ALBArn             string
+
+	// Builder worker.
+	ECRRegistry   string
+	ECRRepository string
+	BuildTimeout  time.Duration
+
+	// Deployer worker (also read by the API for metrics).
+	ECSClusterName       string
+	ALBListenerARN       string
+	VPCID                string
+	SubnetA              string
+	SubnetB              string
+	ECSSecurityGroupID   string
+	TaskExecutionRoleARN string
 
 	// BaseDomain and DeploymentURLScheme describe where deployed apps are
 	// reached. The web UI reads them from GET /api/config.
@@ -35,35 +63,97 @@ type Config struct {
 	DeploymentURLScheme string
 }
 
-func Load() *Config {
-	_ = godotenv.Load()
+// reader collects every missing or malformed setting so Load can report them
+// all at once instead of stopping at the first.
+type reader struct {
+	missing  []string
+	problems []string
+}
 
+func (r *reader) require(key string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		r.missing = append(r.missing, key)
+	}
+	return value
+}
+
+func (r *reader) duration(key string, fallback time.Duration) time.Duration {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		r.problems = append(r.problems, fmt.Sprintf("%s is not a valid duration: %v", key, err))
+		return fallback
+	}
+	return parsed
+}
+
+func (r *reader) err() error {
+	var parts []string
+	if len(r.missing) > 0 {
+		sort.Strings(r.missing)
+		parts = append(parts, "missing required environment variables: "+strings.Join(r.missing, ", "))
+	}
+	parts = append(parts, r.problems...)
+	if len(parts) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s", strings.Join(parts, "; "))
+}
+
+// Load reads the settings the role needs from the environment. It returns one
+// error listing everything that is missing or invalid.
+func Load(role Role) (*Config, error) {
+	r := &reader{}
 	cfg := &Config{
-		Port:               getEnv("PORT", "8080"),
-		FrontendURL:        strings.TrimRight(getEnv("FRONTEND_URL", "http://localhost:3000"), "/"),
-		CORSAllowedOrigins: parseCSV(getEnv("CORS_ALLOWED_ORIGINS", getEnv("FRONTEND_URL", "http://localhost:3000"))),
-		GitHubClientID:     mustGetEnv("GITHUB_CLIENT_ID"),
-		GitHubClientSecret: mustGetEnv("GITHUB_CLIENT_SECRET"),
-		GitHubRedirectURI:  mustGetEnv("GITHUB_REDIRECT_URI"),
-		JWTSecret:          mustGetEnv("JWT_SECRET"),
-		DatabaseURL:        mustGetEnv("DATABASE_URL"),
-		RedisURL:           mustGetEnv("REDIS_URL"),
-		RabbitMQURL:        mustGetEnv("RABBITMQ_URL"),
-		WebhookBaseURL:     strings.TrimRight(mustGetEnv("WEBHOOK_BASE_URL"), "/"),
-		Environment:        getEnv("ENVIRONMENT", "development"),
-		DataEncryptionKey:  getEnv("DATA_ENCRYPTION_KEY", ""),
-		AWSRegion:          getEnv("AWS_REGION", "ap-south-1"),
-		ECSClusterName:     getEnv("ECS_CLUSTER_NAME", ""),
-		ALBListenerARN:     firstNonEmpty(getEnv("ALB_HTTPS_LISTENER_ARN", ""), getEnv("ALB_LISTENER_ARN", "")),
-		ALBArn:             getEnv("ALB_ARN", ""),
+		Role:        role,
+		DatabaseURL: r.require("DATABASE_URL"),
+		Environment: getEnv("ENVIRONMENT", "development"),
+	}
 
-		BaseDomain:          getEnv("BASE_DOMAIN", ""),
-		DeploymentURLScheme: DeploymentURLScheme(),
+	if role != RoleMigrate {
+		cfg.RedisURL = r.require("REDIS_URL")
+		cfg.RabbitMQURL = r.require("RABBITMQ_URL")
+		cfg.DataEncryptionKey = getEnv("DATA_ENCRYPTION_KEY", "")
+		cfg.AWSRegion = getEnv("AWS_REGION", "ap-south-1")
+
+		cfg.ECRRegistry = r.require("ECR_REGISTRY")
+		cfg.ECRRepository = r.require("ECR_REPOSITORY")
+		cfg.BuildTimeout = r.duration("BUILD_TIMEOUT", 30*time.Minute)
+
+		cfg.ECSClusterName = r.require("ECS_CLUSTER_NAME")
+		cfg.ALBListenerARN = firstNonEmpty(getEnv("ALB_HTTPS_LISTENER_ARN", ""), r.require("ALB_LISTENER_ARN"))
+		cfg.VPCID = r.require("VPC_ID")
+		cfg.SubnetA = r.require("SUBNET_A")
+		cfg.SubnetB = r.require("SUBNET_B")
+		cfg.ECSSecurityGroupID = r.require("ECS_SG_ID")
+		cfg.TaskExecutionRoleARN = r.require("TASK_EXECUTION_ROLE_ARN")
+		cfg.BaseDomain = r.require("BASE_DOMAIN")
+		cfg.DeploymentURLScheme = DeploymentURLScheme()
+	}
+
+	if role == RoleServe {
+		cfg.Port = getEnv("PORT", "8080")
+		cfg.FrontendURL = strings.TrimRight(getEnv("FRONTEND_URL", "http://localhost:3000"), "/")
+		cfg.CORSAllowedOrigins = parseCSV(getEnv("CORS_ALLOWED_ORIGINS", cfg.FrontendURL))
+		cfg.GitHubClientID = r.require("GITHUB_CLIENT_ID")
+		cfg.GitHubClientSecret = r.require("GITHUB_CLIENT_SECRET")
+		cfg.GitHubRedirectURI = r.require("GITHUB_REDIRECT_URI")
+		cfg.JWTSecret = r.require("JWT_SECRET")
+		cfg.WebhookBaseURL = strings.TrimRight(r.require("WEBHOOK_BASE_URL"), "/")
+		cfg.ALBArn = getEnv("ALB_ARN", "")
+	}
+
+	if err := r.err(); err != nil {
+		return nil, err
 	}
 	if err := cfg.Validate(); err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
-	return cfg
+	return cfg, nil
 }
 
 // DeploymentURLScheme returns how deployed apps are reached: the value of
@@ -79,33 +169,39 @@ func DeploymentURLScheme() string {
 	return "http"
 }
 
+// Validate checks the settings for the role the config was loaded for.
 func (c *Config) Validate() error {
 	if c.DeploymentURLScheme != "" && c.DeploymentURLScheme != "http" && c.DeploymentURLScheme != "https" {
 		return fmt.Errorf("DEPLOYMENT_URL_SCHEME must be http or https")
 	}
-	if len(c.CORSAllowedOrigins) == 0 {
-		return fmt.Errorf("CORS_ALLOWED_ORIGINS must include at least one origin")
-	}
-	for _, origin := range c.CORSAllowedOrigins {
-		parsed, err := url.Parse(origin)
-		if err != nil ||
-			(parsed.Scheme != "http" && parsed.Scheme != "https") ||
-			parsed.Host == "" ||
-			(parsed.Path != "" && parsed.Path != "/") ||
-			parsed.RawQuery != "" ||
-			parsed.Fragment != "" ||
-			parsed.User != nil {
-			return fmt.Errorf("CORS_ALLOWED_ORIGINS contains an invalid origin: %s", origin)
+	if c.Role == RoleServe {
+		if len(c.CORSAllowedOrigins) == 0 {
+			return fmt.Errorf("CORS_ALLOWED_ORIGINS must include at least one origin")
+		}
+		for _, origin := range c.CORSAllowedOrigins {
+			parsed, err := url.Parse(origin)
+			if err != nil ||
+				(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+				parsed.Host == "" ||
+				(parsed.Path != "" && parsed.Path != "/") ||
+				parsed.RawQuery != "" ||
+				parsed.Fragment != "" ||
+				parsed.User != nil {
+				return fmt.Errorf("CORS_ALLOWED_ORIGINS contains an invalid origin: %s", origin)
+			}
 		}
 	}
-	if c.Environment != "production" {
+	if c.Environment != "production" || c.Role == RoleMigrate {
 		return nil
 	}
-	if len(strings.TrimSpace(c.JWTSecret)) < 32 {
+	if c.Role == RoleServe && len(strings.TrimSpace(c.JWTSecret)) < 32 {
 		return fmt.Errorf("JWT_SECRET must be at least 32 characters in production")
 	}
 	if len(strings.TrimSpace(c.DataEncryptionKey)) < 32 {
 		return fmt.Errorf("DATA_ENCRYPTION_KEY must be at least 32 characters in production")
+	}
+	if c.Role != RoleServe {
+		return nil
 	}
 	for name, value := range map[string]string{
 		"FRONTEND_URL":        c.FrontendURL,
@@ -157,12 +253,4 @@ func getEnv(key, fallback string) string {
 		return val
 	}
 	return fallback
-}
-
-func mustGetEnv(key string) string {
-	val := os.Getenv(key)
-	if val == "" {
-		log.Fatalf("Missing required environment variable: %s", key)
-	}
-	return val
 }
