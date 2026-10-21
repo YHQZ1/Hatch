@@ -2,7 +2,7 @@
   <h1>Hatch</h1>
   <p>Render-style deploys into your own AWS account, with cost guardrails built in.</p>
 
-![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=next.js&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)
 ![AWS](https://img.shields.io/badge/AWS-ECS%20Fargate-FF9900?style=flat-square&logo=amazon-aws&logoColor=white)
@@ -88,7 +88,7 @@ and tested without AWS. Details are in the
 
 ## Running locally
 
-You need Go 1.26 (an older Go downloads it automatically), Node.js 24 (see
+You need Go 1.27 (an older Go downloads it automatically), Node.js 24 (see
 `.nvmrc`), Docker, [`golang-migrate`](https://github.com/golang-migrate/migrate),
 and a [GitHub OAuth app](https://github.com/settings/developers) with the
 callback URL `http://localhost:8080/auth/callback`.

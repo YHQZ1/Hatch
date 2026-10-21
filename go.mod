@@ -1,6 +1,6 @@
 module github.com/YHQZ1/hatch
 
-go 1.26.10
+go 1.27.3
 
 // Keep Go tooling out of npm packages (some ship .go files).
 ignore ./web/node_modules
