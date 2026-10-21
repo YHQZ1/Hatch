@@ -35,9 +35,7 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: docker
-    directories:
-      - /
-      - /web
+    directory: /
     schedule:
       interval: weekly
     ignore:

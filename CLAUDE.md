@@ -54,19 +54,17 @@ Read, in order:
 
 ```bash
 make infra                      # Postgres, Redis, RabbitMQ via Docker Compose
-make dev                        # infra + hatch api, builder, deployer + web
+make dev                        # infra + hatch api, builder, deployer + Vite dev server
 make migrate                    # apply migrations (needs golang-migrate)
 go run ./cmd/hatch help         # list subcommands
 make build                      # bin/hatch, version stamped from git
 
-make check                      # golangci-lint, ESLint, go test -race
-cd web && npm run build    # web production build
+make web                        # build the web UI into web/dist (embedded by go build)
+make check                      # golangci-lint, ESLint, go test -race, web tests
+cd web && pnpm lint && pnpm build   # web checks (pnpm, version pinned in package.json)
 ```
 
 Configuration for every subcommand is read from `.env` in the repository root
 (see `.env.example`).
-
-After building the web app, restore `web/next-env.d.ts` if it changed
-(`git checkout -- web/next-env.d.ts`); Next.js rewrites it.
 
 Update this section when Phase 1 changes the layout.

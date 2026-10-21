@@ -3,7 +3,7 @@ SHELL := /bin/bash
 DEV_PID_FILE := .hatch-dev.pids
 DEV_PORTS := 3000 8080
 
-.PHONY: dev stop-dev check-dev-ports infra build up down migrate test lint lint-go lint-web fmt check
+.PHONY: dev stop-dev check-dev-ports infra web build up down migrate test lint lint-go lint-web test-web fmt check
 
 
 infra:
@@ -22,7 +22,7 @@ stop-dev:
 		fi; \
 	done; \
 	workspace="$$(pwd)"; \
-	process_pids="$$(pgrep -f 'go run ./cmd/hatch|/go-build.*/exe/hatch (api|builder|deployer)|next dev|npm run dev' 2>/dev/null || true)"; \
+	process_pids="$$(pgrep -f 'go run ./cmd/hatch|/go-build.*/exe/hatch (api|builder|deployer)|vite|pnpm.* dev' 2>/dev/null || true)"; \
 	for pid in $$process_pids; do \
 		cwd="$$(lsof -a -p "$$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"; \
 		case "$$cwd" in \
@@ -68,19 +68,23 @@ check-dev-ports:
 
 dev: infra stop-dev check-dev-ports
 	@test -f .env || { echo "Missing .env (copy .env.example)"; exit 1; }
-	@test -f web/.env.development.local || cp web/.env.example web/.env.development.local
+	@test -d web/node_modules || { echo "Run: cd web && pnpm install"; exit 1; }
 	@set -e; \
 	rm -f "$(DEV_PID_FILE)"; \
 	trap '$(MAKE) --no-print-directory stop-dev >/dev/null 2>&1 || true; wait' INT TERM EXIT; \
 	go run ./cmd/hatch api & echo $$! >> "$(DEV_PID_FILE)"; \
 	go run ./cmd/hatch builder & echo $$! >> "$(DEV_PID_FILE)"; \
 	go run ./cmd/hatch deployer & echo $$! >> "$(DEV_PID_FILE)"; \
-	( cd web && npm run dev ) & echo $$! >> "$(DEV_PID_FILE)"; \
+	( cd web && pnpm dev ) & echo $$! >> "$(DEV_PID_FILE)"; \
 	wait
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-build:
+# Build the web UI into web/dist, which the hatch binary embeds.
+web:
+	cd web && pnpm install --frozen-lockfile && pnpm build
+
+build: web
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/hatch ./cmd/hatch
 
 up:
@@ -105,9 +109,12 @@ lint-go:
 	golangci-lint run ./...
 
 lint-web:
-	cd web && npm run lint
+	cd web && pnpm lint
+
+test-web:
+	cd web && pnpm test
 
 fmt:
 	gofmt -w cmd internal
 
-check: lint test
+check: lint test test-web
