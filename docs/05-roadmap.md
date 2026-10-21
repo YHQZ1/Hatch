@@ -11,8 +11,8 @@ _Update this section at the end of every working session._
 | --- | --- |
 | Current phase | 1, Simplify the core and build the local target |
 | Branch | `main` |
-| Last done | Repository restructured and hardened (one Go module, `web/`, CI checks, CodeQL, Postgres 18); dependencies upgraded. Scope decided: Dockerfile-only builds (ADR 0014) and web services only in v1, with workers, cron jobs, and managed data services after v1 (ADR 0015) |
-| Next | Move the web UI to React + Vite served by the Go binary (ADR 0009) |
+| Last done | Web UI moved from Next.js to a React + Vite app embedded in the Go binary (pnpm, Tailwind 4, TanStack Query, strict hook lint, runtime config from `/api/config`, CSP, mock-API browser checks); landing page no longer claims workers or cron jobs |
+| Next | Merge the API, builder, and deployer into one Go program (`serve`, `worker`, `migrate`) |
 | Blockers | None. No AWS access (by design until Phase 6) |
 
 ## Phase 0: Foundation
@@ -50,17 +50,13 @@ Order matters: move files first, then the frontend, then backend changes.
   rewrites go in their own commits, separate from behaviour changes.
 - [x] Remove `infra/` (hosted-model Terraform) and the in-app docs pages under
   `web/src/app/docs`, along with the landing-page links to them.
-- [ ] Move the web UI to a React + Vite single-page app with React Router and
+- [x] Move the web UI to a React + Vite single-page app with React Router and
   TanStack Query, embedded in and served by the Go binary, with the Vite dev
   server proxying `/api` in development
-  ([ADR 0009](decisions/0009-react-spa-served-by-go.md)). Also:
-  - fix the React hook rule warnings (16 in six pages) and restore those
-    rules to errors in `eslint.config.mjs`;
-  - fix the CodeQL alerts: take a deployment's live URL only from the API
-    (checked against the configured domain), not from log text, and allow
-    only `http(s)` links in the log viewer;
-  - remove landing-page claims for features that do not exist (background
-    workers, cron jobs), per ADR 0015.
+  ([ADR 0009](decisions/0009-react-spa-served-by-go.md),
+  [ADR 0016](decisions/0016-pnpm-for-the-web-app.md)). Done, including the
+  hook-rule fixes, the CodeQL link fixes, and removing the landing page's
+  claims for workers and cron jobs.
 - [ ] Merge the API, builder, and deployer into one Go program
   (`hatch serve`, `hatch worker`, `hatch migrate`) with `log/slog`
   structured logging.
@@ -70,7 +66,10 @@ Order matters: move files first, then the frontend, then backend changes.
 - [ ] Replace Redis and the WebSocket hub with `deployment_logs`,
   `LISTEN/NOTIFY`, and server-sent events
   ([ADR 0012](decisions/0012-server-sent-events-for-logs.md)); replace the
-  GitHub cache with a Postgres table or in-process cache.
+  GitHub cache with a Postgres table or in-process cache. Send deployment
+  status changes as explicit events: the UI currently infers status from log
+  text (for example any line containing `error:` marks a deployment failed and
+  closes the stream), which a build can trigger by accident.
 - [ ] Replace JWT sessions with server-side sessions
   ([ADR 0013](decisions/0013-server-side-sessions.md)).
 - [ ] Replace the OAuth App with a GitHub App for sign-in, repository access,
@@ -144,6 +143,9 @@ Done when: the acceptance tests in the guardrails document pass.
 - [ ] Health-check configuration and clearer failure messages.
 - [ ] Break up the 1,000+ line React components; consistent UI states.
 - [ ] Custom domains with ACM certificates _(may move after v1)_.
+- [ ] Review the landing page's claims (zero-downtime rollouts, automated TLS
+  and DNS) against what exists, and replace the logo, which is the Habr brand
+  icon from simple-icons with its title changed.
 
 ## Phase 6: Production readiness
 

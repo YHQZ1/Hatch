@@ -49,6 +49,15 @@ Read, in order:
   merged migration. After changing migrations or `internal/store/queries/`,
   run `cd internal/store && sqlc generate` and commit the generated code.
 - Never commit `.env` files or credentials.
+- Web (`web/`): load server data with TanStack Query (definitions in
+  `src/lib/queries.ts`; a 401 signs the user out centrally); the React hook
+  lint rules are errors, so fix the code rather than disabling them. Links
+  built from data the server or a build produced go through `safeHttpUrl`.
+  The UI makes no third-party requests (the CSP in `internal/api/spa` forbids
+  them), so bundle fonts and icons. Deployed-app addresses come from
+  `GET /api/config`, never from build-time variables.
+- Web package manager is pnpm (pinned to 10.x, see ADR 0016); do not add an
+  npm or yarn lockfile.
 
 ## Commands
 
