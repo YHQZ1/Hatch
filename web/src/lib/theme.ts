@@ -4,6 +4,23 @@ import { prefersReducedMotion } from "@/lib/motion";
 
 export type Theme = "dark" | "light";
 
+/**
+ * Recreates every running CSS animation at its current position. Some
+ * browsers leave animations stuck after a view transition; this restarts
+ * their clocks without a visible jump.
+ */
+function resyncAnimations() {
+  for (const animation of document.getAnimations()) {
+    if (!(animation instanceof CSSAnimation) || animation.playState !== "running") {
+      continue;
+    }
+    const position = animation.currentTime;
+    animation.cancel();
+    animation.play();
+    animation.currentTime = position;
+  }
+}
+
 const STORAGE_KEY = "hatch-theme";
 const DURATION_MS = 450;
 
@@ -62,9 +79,10 @@ export function useTheme() {
           },
         ),
       );
-      void transition.finished.finally(() =>
-        root.classList.remove("theme-switching"),
-      );
+      void transition.finished.finally(() => {
+        root.classList.remove("theme-switching");
+        requestAnimationFrame(resyncAnimations);
+      });
     },
     [theme],
   );

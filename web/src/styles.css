@@ -161,13 +161,13 @@ body {
  */
 [data-theme="light"] {
   --color-ink: #0d0d12;
-  --color-base: #fafafb;
-  --color-panel: #f2f2f6;
-  --color-tint: #f0ecfd;
-  --color-line: #e4e4eb;
-  --color-line-strong: #d2d2dc;
-  --color-muted: #646471;
-  --color-faint: #9494a0;
+  --color-base: #eeeef1;
+  --color-panel: #e6e6eb;
+  --color-tint: #e7e3f4;
+  --color-line: #d8d8df;
+  --color-line-strong: #c5c5cf;
+  --color-muted: #5a5a67;
+  --color-faint: #84848f;
   --color-danger: #b42318;
   --color-accent: #6d4fe0;
   --color-accent-hover: #5a3ecb;
@@ -214,6 +214,123 @@ body {
 
 [data-theme="light"] .bg-line-grid {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cpath d='M64 0H0V64' fill='none' stroke='black' stroke-opacity='0.06'/%3E%3C/svg%3E");
+}
+
+/*
+ * The sign-in page's 3D scene: a floor of grid lines seen in perspective that
+ * slides toward the viewer, with wireframe cubes riding along it at the same
+ * speed. Opacity is animated on the faces, not on the cubes, because opacity on
+ * an element that has 3D children flattens them.
+ */
+.scene {
+  perspective: 2000px;
+  perspective-origin: 50% 0;
+}
+
+.floor {
+  position: absolute;
+  top: 0;
+  right: -90%;
+  left: -90%;
+  height: 2000px;
+  transform-origin: 50% 0;
+  transform: rotateX(78deg);
+  transform-style: preserve-3d;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cpath d='M96 0H0V96' fill='none' stroke='white' stroke-opacity='0.2'/%3E%3C/svg%3E");
+  background-size: 96px 96px;
+  animation: floor-slide 2s linear infinite;
+}
+
+[data-theme="light"] .floor {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cpath d='M96 0H0V96' fill='none' stroke='black' stroke-opacity='0.16'/%3E%3C/svg%3E");
+}
+
+@keyframes floor-slide {
+  to {
+    background-position: 0 96px;
+  }
+}
+
+.mover {
+  position: absolute;
+  top: 0;
+  transform-style: preserve-3d;
+  animation: cube-run 28s linear infinite;
+  animation-delay: var(--delay);
+}
+
+/* The grid moves 48px a second, so the cubes do too: 1344px in 28 seconds. */
+@keyframes cube-run {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(1344px);
+  }
+}
+
+.cube {
+  position: relative;
+  width: var(--s);
+  height: var(--s);
+  transform-style: preserve-3d;
+  transform: translateZ(calc(var(--s) / 2));
+}
+
+.face {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--face-line, color-mix(in oklab, var(--color-ink) 32%, transparent));
+  background: var(--face-fill, color-mix(in oklab, var(--color-base) 82%, transparent));
+  animation: cube-fade 28s linear infinite;
+  animation-delay: var(--delay);
+}
+
+.face-top {
+  transform: translateZ(calc(var(--s) / 2));
+}
+.face-n {
+  transform: rotateX(90deg) translateZ(calc(var(--s) / 2));
+}
+.face-s {
+  transform: rotateX(-90deg) translateZ(calc(var(--s) / 2));
+}
+.face-e {
+  transform: rotateY(90deg) translateZ(calc(var(--s) / 2));
+}
+.face-w {
+  transform: rotateY(-90deg) translateZ(calc(var(--s) / 2));
+}
+
+.cube-accent {
+  --face-line: var(--color-accent);
+  --face-fill: color-mix(in oklab, var(--color-accent) 20%, var(--color-base));
+}
+
+@keyframes cube-fade {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  12%,
+  82% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floor {
+    animation: none;
+  }
+
+  .mover {
+    animation: none;
+    transform: translateY(var(--rest));
+  }
+
+  .face {
+    animation: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
