@@ -10,9 +10,9 @@ _Update this section at the end of every working session._
 | Field | Value |
 | --- | --- |
 | Current phase | 1, Simplify the core and build the local target |
-| Branch | `main` |
-| Last done | Web UI moved from Next.js to a React + Vite app embedded in the Go binary (pnpm, Tailwind 4, TanStack Query, strict hook lint, runtime config from `/api/config`, CSP, mock-API browser checks); landing page no longer claims workers or cron jobs |
-| Next | Merge the API, builder, and deployer into one Go program (`serve`, `worker`, `migrate`) |
+| Branch | `phase1/single-binary` (pull request to `main`) |
+| Last done | Hatch is one program: `hatch serve`, `worker`, and `migrate`, with one config loader, embedded migrations, and tests against real Postgres in CI. Before that: React + Vite UI embedded in the binary; placeholder logo |
+| Next | Foundation: structured logging with slog, then pgx; then the sign-in slice (needs a GitHub App from the owner) |
 | Blockers | None. No AWS access (by design until Phase 6) |
 
 ## Phase 0: Foundation
@@ -42,46 +42,64 @@ Done when: CI is green on `main` and the docs are reviewed.
 Goal: the full flow works on a laptop with only Postgres running, from one
 `hatch` binary that also serves the UI.
 
-Order matters: move files first, then the frontend, then backend changes.
+Work is a foundation, then slices by step of the user's journey. Each slice is
+a pull request that changes API, UI, tests, and docs together and ends with
+something that can be demonstrated on a laptop.
 
-- [x] Move to the layout in
-  [ADR 0008](decisions/0008-repository-structure.md): one root Go module,
-  `cmd/hatch` + `internal/`, `apps/web` → `web/`. File moves and import
-  rewrites go in their own commits, separate from behaviour changes.
-- [x] Remove `infra/` (hosted-model Terraform) and the in-app docs pages under
-  `web/src/app/docs`, along with the landing-page links to them.
-- [x] Move the web UI to a React + Vite single-page app with React Router and
-  TanStack Query, embedded in and served by the Go binary, with the Vite dev
-  server proxying `/api` in development
+**Done**
+
+- [x] Layout from [ADR 0008](decisions/0008-repository-structure.md): one root
+  Go module, `cmd/hatch` + `internal/`, `web/`; `infra/` and the in-app docs
+  pages removed.
+- [x] React + Vite single-page app with React Router and TanStack Query,
+  embedded in and served by the Go binary
   ([ADR 0009](decisions/0009-react-spa-served-by-go.md),
-  [ADR 0016](decisions/0016-pnpm-for-the-web-app.md)). Done, including the
-  hook-rule fixes, the CodeQL link fixes, and removing the landing page's
-  claims for workers and cron jobs.
-- [ ] Merge the API, builder, and deployer into one Go program
-  (`hatch serve`, `hatch worker`, `hatch migrate`) with `log/slog`
-  structured logging.
-- [ ] Switch to pgx and regenerate sqlc; replace RabbitMQ with River jobs that
-  are idempotent and enqueued in the same transaction as their cause
+  [ADR 0016](decisions/0016-pnpm-for-the-web-app.md)).
+- [x] One program: `hatch serve`, `hatch worker`, `hatch migrate`; one config
+  loader that reports every missing variable at once; migrations embedded in
+  the binary; tests against real Postgres (CI sets `HATCH_TEST_DATABASE_URL`).
+
+**Foundation (no visible change)**
+
+- [ ] Structured logging with `log/slog`: JSON in production, request IDs, a
+  request log in place of Gin's default.
+- [ ] Switch to pgx and regenerate sqlc
+  ([ADR 0011](decisions/0011-river-and-pgx.md)); tests for the queries run
+  against real Postgres.
+
+**Slice: sign in**
+
+- [ ] GitHub App for sign-in, repository access, and webhooks
+  ([ADR 0010](decisions/0010-github-app.md)) and server-side sessions
+  ([ADR 0013](decisions/0013-server-side-sessions.md)), replacing the OAuth App
+  and JWT cookie. Needs a GitHub App created by the owner. Touches the auth
+  pages, navbar, and sign-out.
+
+**Slice: see and create a service**
+
+- [ ] Console and new-service pages: repositories from the GitHub App
+  installation, Dockerfile detection, creating a project.
+
+**Slice: deploy and watch it**
+
+- [ ] River jobs replace RabbitMQ; `Builder`, `Runtime`, and `CostEstimator`
+  interfaces with a fake for tests
   ([ADR 0011](decisions/0011-river-and-pgx.md)).
-- [ ] Replace Redis and the WebSocket hub with `deployment_logs`,
-  `LISTEN/NOTIFY`, and server-sent events
-  ([ADR 0012](decisions/0012-server-sent-events-for-logs.md)); replace the
-  GitHub cache with a Postgres table or in-process cache. Send deployment
+- [ ] Local Docker provider (build, run, route `<app>.localhost` through
+  Caddy, scale, destroy, runtime logs); the existing ECS/ALB code moves behind
+  the `Runtime` interface unchanged.
+- [ ] `deployment_logs`, `LISTEN/NOTIFY`, and server-sent events replace Redis
+  and the WebSocket hub
+  ([ADR 0012](decisions/0012-server-sent-events-for-logs.md)). Send deployment
   status changes as explicit events: the UI currently infers status from log
   text (for example any line containing `error:` marks a deployment failed and
   closes the stream), which a build can trigger by accident.
-- [ ] Replace JWT sessions with server-side sessions
-  ([ADR 0013](decisions/0013-server-side-sessions.md)).
-- [ ] Replace the OAuth App with a GitHub App for sign-in, repository access,
-  and webhooks ([ADR 0010](decisions/0010-github-app.md)).
-- [ ] Define `Builder`, `Runtime`, and `CostEstimator` interfaces with a fake
-  implementation for tests.
-- [ ] Implement the local Docker provider (build, run, route `<app>.localhost`
-  through Caddy, scale, destroy, runtime logs).
-- [ ] Move the existing ECS/ALB code behind the `Runtime` interface without
-  changing its behaviour yet.
-- [ ] Remove RabbitMQ and Redis from `docker-compose.yaml` and the config; run
-  database tests against Postgres in CI.
+- [ ] Remove RabbitMQ and Redis from `docker-compose.yaml` and the config.
+
+**Slice: operate it**
+
+- [ ] Settings, environment variables, pause, resume, delete, and rollback on
+  the local target.
 
 Done when: on a clean machine, `make dev` starts Postgres and Hatch; a user can
 sign in through the GitHub App, deploy a sample repo locally, watch logs
