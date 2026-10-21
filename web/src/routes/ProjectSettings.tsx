@@ -1,5 +1,9 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type ChangeEvent, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { NoticeToast } from "@/components/NoticeToast";
+import { AppShell, Button, PageTitle, StatusText } from "@/components/ui";
+import { useNotice } from "@/components/useNotice";
 import {
   apiFetch,
   deploymentUrl,
@@ -7,37 +11,18 @@ import {
   readApiError,
   redirectIfUnauthorized,
 } from "@/lib/api";
-import {
-  AppShell,
-  Button,
-  PageTitle,
-  StatusText,
-} from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
-  NoticeToast,
-  type NoticePayload,
-} from "@/components/NoticeToast";
+  NO_ENV_VARS,
+  activityQuery,
+  isProjectTransitioning,
+  projectEnvVarsQuery,
+  projectQuery,
+  projectsQuery,
+} from "@/lib/queries";
+import type { Project, ProjectEnvVar } from "@/lib/types";
 
 type Tab = "general" | "build" | "vars" | "danger";
-interface NullableString {
-  String?: string;
-  Valid?: boolean;
-}
-
-interface Project {
-  id: string;
-  repo_name: string;
-  repo_url: string;
-  branch: string;
-  dockerfile_path: string;
-  port: number;
-  subdomain: NullableString | string | null;
-  auto_deploy: boolean;
-  status?: string;
-  delete_error?: NullableString | string | null;
-  created_at: string;
-}
 
 interface EnvVar {
   key: string;
@@ -45,128 +30,92 @@ interface EnvVar {
   visible: boolean;
 }
 
-interface ProjectEnvVarResponse {
-  key: string;
-  value: string;
-}
+const toEnvVars = (envVars: ProjectEnvVar[] | null | undefined): EnvVar[] =>
+  Array.isArray(envVars)
+    ? envVars.map(({ key, value }) => ({ key, value, visible: false }))
+    : [];
 
 export default function ProjectSettingsClient() {
-  const { id } = useParams<{ id: string }>();
+  const { id = "" } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const projectResult = useQuery({
+    ...projectQuery(id),
+    // Suspending, resuming, and deleting finish on their own; keep checking.
+    refetchInterval: (query) =>
+      isProjectTransitioning(query.state.data?.status) ? 3500 : false,
+  });
+  const project = projectResult.data ?? null;
+  const envVarsResult = useQuery(projectEnvVarsQuery(id));
+  const loading = projectResult.isPending || envVarsResult.isPending;
 
   const [activeTab, setActiveTab] = useState<Tab>("general");
-  const [project, setProject] = useState<Project | null>(null);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [serviceActioning, setServiceActioning] = useState(false);
-  const [notice, setNotice] = useState<NoticePayload | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
 
-  const [projectName, setProjectName] = useState("");
-  const [branch, setBranch] = useState("main");
-  const [dockerfilePath, setDockerfilePath] = useState("Dockerfile");
-  const [port, setPort] = useState("80");
-  const [autoDeploy, setAutoDeploy] = useState(true);
+  const failedAt = projectResult.isError
+    ? projectResult.errorUpdatedAt
+    : envVarsResult.isError
+      ? envVarsResult.errorUpdatedAt
+      : null;
+  const { notice, setNotice, dismiss } = useNotice({
+    failedAt,
+    notice: {
+      type: "error",
+      title: "Settings unavailable",
+      message: "Hatch could not load this service settings page.",
+    },
+  });
 
-  const [envVars, setEnvVars] = useState<EnvVar[]>([]);
-  const [envVarsBaseline, setEnvVarsBaseline] = useState<EnvVar[]>([]);
+  // The form shows the saved project until a field is edited. A draft is null
+  // until then, so editing starts from whatever was last loaded or saved.
+  const [projectNameDraft, setProjectName] = useState<string | null>(null);
+  const [branchDraft, setBranch] = useState<string | null>(null);
+  const [dockerfilePathDraft, setDockerfilePath] = useState<string | null>(null);
+  const [portDraft, setPort] = useState<string | null>(null);
+  const [autoDeployDraft, setAutoDeployDraft] = useState<boolean | null>(null);
+  const projectName = projectNameDraft ?? project?.repo_name ?? "";
+  const branch = branchDraft ?? project?.branch ?? "main";
+  const dockerfilePath =
+    dockerfilePathDraft ?? rootFromDockerfilePath(project?.dockerfile_path);
+  const port = portDraft ?? String(project?.port ?? 80);
+  const autoDeploy = autoDeployDraft ?? Boolean(project?.auto_deploy ?? true);
+  const toggleAutoDeploy = () => setAutoDeployDraft(!autoDeploy);
+
+  const discardProjectDraft = () => {
+    setProjectName(null);
+    setBranch(null);
+    setDockerfilePath(null);
+    setPort(null);
+    setAutoDeployDraft(null);
+  };
+
+  const envVarsBaseline = useMemo(
+    () => toEnvVars(envVarsResult.data ?? NO_ENV_VARS),
+    [envVarsResult.data],
+  );
+  const [envVarsDraft, setEnvVarsDraft] = useState<EnvVar[] | null>(null);
+  const envVars = envVarsDraft ?? envVarsBaseline;
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
   const [bulkEnvText, setBulkEnvText] = useState("");
 
-  useEffect(() => {
-    let alive = true;
+  const setEnvVars = (update: EnvVar[] | ((current: EnvVar[]) => EnvVar[])) =>
+    setEnvVarsDraft(typeof update === "function" ? update(envVars) : update);
 
-    async function loadSettings() {
-      setLoading(true);
-      try {
-        const [projectRes, envRes] = await Promise.all([
-          apiFetch(`/api/projects/${id}`),
-          apiFetch(`/api/projects/${id}/env-vars`),
-        ]);
+  /** Other pages list this project, so they should look again. */
+  const refreshProjectLists = () => {
+    void queryClient.invalidateQueries({
+      queryKey: projectsQuery().queryKey,
+      exact: true,
+    });
+    void queryClient.invalidateQueries({ queryKey: activityQuery().queryKey });
+  };
 
-        if (
-          redirectIfUnauthorized(projectRes, navigate) ||
-          redirectIfUnauthorized(envRes, navigate)
-        ) {
-          return;
-        }
-        if (!projectRes.ok) throw new Error("failed to load project");
-
-        const projectData: Project = await projectRes.json();
-        const envData: ProjectEnvVarResponse[] = envRes.ok
-          ? await envRes.json()
-          : [];
-
-        if (!alive) return;
-        setProject(projectData);
-        hydrateProjectForm(projectData);
-
-        const nextEnvVars = Array.isArray(envData)
-          ? envData.map((envVar) => ({
-              key: envVar.key,
-              value: envVar.value,
-              visible: false,
-            }))
-          : [];
-        setEnvVars(nextEnvVars);
-        setEnvVarsBaseline(nextEnvVars);
-      } catch {
-        if (!alive) return;
-        setNotice({
-          type: "error",
-          title: "Settings unavailable",
-          message: "Hatch could not load this service settings page.",
-        });
-      } finally {
-        if (alive) setLoading(false);
-      }
-    }
-
-    loadSettings();
-    return () => {
-      alive = false;
-    };
-  }, [id, navigate]);
-
-  useEffect(() => {
-    if (!notice) return;
-    const timeout = window.setTimeout(() => setNotice(null), 4200);
-    return () => window.clearTimeout(timeout);
-  }, [notice]);
-
-  const clearProjectCaches = useCallback(function clearProjectCaches() {
-    localStorage.removeItem(`hatch_project_${id}`);
-    localStorage.removeItem("hatch_projects_cache");
-    localStorage.removeItem("hatch_insights_cache");
-  }, [id]);
-
-  useEffect(() => {
-    if (!project || !isProjectTransitioning(project.status)) return;
-
-    const interval = window.setInterval(async () => {
-      try {
-        const res = await apiFetch(`/api/projects/${id}`);
-        if (redirectIfUnauthorized(res, navigate)) return;
-        if (!res.ok) return;
-        const nextProject: Project = await res.json();
-        setProject(nextProject);
-        if (!isProjectTransitioning(nextProject.status)) {
-          clearProjectCaches();
-        }
-      } catch {
-        // Try again on the next poll.
-      }
-    }, 3500);
-
-    return () => window.clearInterval(interval);
-  }, [clearProjectCaches, id, project, navigate]);
-
-  const productionUrl = useMemo(() => {
-    const subdomain = subdomainValue(project?.subdomain);
-    return deploymentUrl(productionHost(subdomain));
-  }, [project?.subdomain]);
+  const productionUrl = deploymentUrl(productionHost(project?.subdomain ?? null));
 
   const hasProjectChanges = project
     ? projectName.trim() !== project.repo_name ||
@@ -182,14 +131,6 @@ export default function ProjectSettingsClient() {
 
   const canSave =
     activeTab === "vars" ? hasEnvChanges : activeTab !== "danger" && hasProjectChanges;
-
-  function hydrateProjectForm(nextProject: Project) {
-    setProjectName(nextProject.repo_name ?? "");
-    setBranch(nextProject.branch ?? "main");
-    setDockerfilePath(rootFromDockerfilePath(nextProject.dockerfile_path));
-    setPort(String(nextProject.port ?? 80));
-    setAutoDeploy(Boolean(nextProject.auto_deploy));
-  }
 
   async function saveProjectSettings() {
     if (!project || saving) return;
@@ -223,9 +164,9 @@ export default function ProjectSettingsClient() {
       }
 
       const updatedProject: Project = await res.json();
-      setProject(updatedProject);
-      hydrateProjectForm(updatedProject);
-      clearProjectCaches();
+      queryClient.setQueryData(projectQuery(id).queryKey, updatedProject);
+      discardProjectDraft();
+      refreshProjectLists();
       setNotice({
         type: "success",
         title: "Settings saved",
@@ -261,17 +202,9 @@ export default function ProjectSettingsClient() {
         throw new Error(await readApiError(res, "failed to save variables"));
       }
 
-      const data: ProjectEnvVarResponse[] = await res.json();
-      const next = Array.isArray(data)
-        ? data.map((envVar) => ({
-            key: envVar.key,
-            value: envVar.value,
-            visible: false,
-          }))
-        : [];
-      setEnvVars(next);
-      setEnvVarsBaseline(next);
-      clearProjectCaches();
+      const saved: ProjectEnvVar[] = await res.json();
+      queryClient.setQueryData(projectEnvVarsQuery(id).queryKey, saved);
+      setEnvVarsDraft(null);
       setNotice({
         type: "success",
         title: "Variables saved",
@@ -298,12 +231,12 @@ export default function ProjectSettingsClient() {
 
   function handleDiscard() {
     if (activeTab === "vars") {
-      setEnvVars(envVarsBaseline);
+      setEnvVarsDraft(null);
       setNewKey("");
       setNewValue("");
       return;
     }
-    if (project) hydrateProjectForm(project);
+    discardProjectDraft();
   }
 
   async function handleDelete({ retry = false }: { retry?: boolean } = {}) {
@@ -321,7 +254,8 @@ export default function ProjectSettingsClient() {
       if (!res.ok) {
         throw new Error(await readApiError(res, "failed to delete service"));
       }
-      clearProjectCaches();
+      refreshProjectLists();
+      queryClient.removeQueries({ queryKey: projectQuery(id).queryKey });
       setNotice({
         type: "success",
         title: retry ? "Cleanup retry queued" : "Deletion queued",
@@ -361,8 +295,8 @@ export default function ProjectSettingsClient() {
       }
 
       const nextProject: Project = await res.json();
-      setProject(nextProject);
-      clearProjectCaches();
+      queryClient.setQueryData(projectQuery(id).queryKey, nextProject);
+      refreshProjectLists();
       setNotice({
         type: "success",
         title: action === "suspend" ? "Suspend queued" : "Resume queued",
@@ -459,7 +393,7 @@ export default function ProjectSettingsClient() {
       className="xl:h-[calc(100vh-64px)] xl:overflow-hidden"
       contentClassName="xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:py-5"
     >
-      <NoticeToast notice={notice} onDismiss={() => setNotice(null)} />
+      <NoticeToast notice={notice} onDismiss={dismiss} />
       <PageTitle
         eyebrow="Service Settings"
         title={loading ? "Loading..." : project?.repo_name || "Service"}
@@ -599,7 +533,7 @@ export default function ProjectSettingsClient() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => setAutoDeploy((value) => !value)}
+                      onClick={toggleAutoDeploy}
                       className={`flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border p-1 transition-colors ${
                         autoDeploy
                           ? "border-[#5cc98f]/40 bg-[#5cc98f]/15"
@@ -1037,10 +971,6 @@ function normalizeEnvKey(key: string) {
   return key.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_").replace(/_+/g, "_");
 }
 
-function isProjectTransitioning(status?: string) {
-  return status === "suspending" || status === "resuming" || status === "deleting";
-}
-
 function projectStatusTone(
   status?: string,
 ): "default" | "success" | "warning" | "danger" | "muted" {
@@ -1089,13 +1019,6 @@ function normalizeEnvVars(envVars: EnvVar[]) {
     }))
     .filter((envVar) => envVar.key)
     .sort((a, b) => a.key.localeCompare(b.key));
-}
-
-function subdomainValue(subdomain?: Project["subdomain"]) {
-  if (!subdomain) return null;
-  if (typeof subdomain === "string") return subdomain;
-  if (subdomain.Valid && subdomain.String) return subdomain.String;
-  return null;
 }
 
 function rootFromDockerfilePath(path?: string) {

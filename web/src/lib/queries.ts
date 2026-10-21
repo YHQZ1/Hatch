@@ -1,6 +1,6 @@
 import { type UseQueryResult, queryOptions } from "@tanstack/react-query";
 import { apiJson } from "./api";
-import type { ActivityEvent, Deployment, Project } from "./types";
+import type { ActivityEvent, Deployment, Project, ProjectEnvVar } from "./types";
 
 /** How often to re-check things that are changing on their own. */
 const POLL_MS = 8000;
@@ -21,6 +21,7 @@ const PROJECT_TRANSITION_STATUSES = new Set([
 export const NO_PROJECTS: Project[] = [];
 export const NO_DEPLOYMENTS: Deployment[] = [];
 export const NO_ACTIVITY: ActivityEvent[] = [];
+export const NO_ENV_VARS: ProjectEnvVar[] = [];
 
 // The API answers null for an empty list.
 const list = <T>(data: T[] | null, empty: T[]): T[] =>
@@ -80,6 +81,21 @@ export const deploymentQuery = (deploymentId: string) =>
     refetchInterval: (query) =>
       isActiveDeployment(query.state.data?.status) ? 3500 : false,
   });
+
+/** A project's environment variables. */
+export const projectEnvVarsQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "env-vars"],
+    queryFn: async () =>
+      list(
+        await apiJson<ProjectEnvVar[] | null>(`/api/projects/${projectId}/env-vars`),
+        NO_ENV_VARS,
+      ),
+  });
+
+/** Whether a project status is a change that finishes by itself. */
+export const isProjectTransitioning = (status: string | undefined) =>
+  PROJECT_TRANSITION_STATUSES.has(status?.toLowerCase() ?? "");
 
 /** A project's deployments, newest first; polls while one is in progress. */
 export const projectDeploymentsQuery = (projectId: string) =>

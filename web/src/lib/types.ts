@@ -16,6 +16,11 @@ export interface Project {
   created_at: string;
 }
 
+export interface ProjectEnvVar {
+  key: string;
+  value: string;
+}
+
 export interface ActivityEvent {
   id: string;
   user_id: string;
