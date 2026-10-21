@@ -10,9 +10,9 @@ _Update this section at the end of every working session._
 | Field | Value |
 | --- | --- |
 | Current phase | 1, Simplify the core and build the local target |
-| Branch | `phase1/slog` (pull request to `main`) |
-| Last done | Structured logging with slog (JSON in production, request IDs, one access-log line per request). Before that: Hatch is one program (`serve`, `worker`, `migrate`) with a single config loader and embedded migrations; React + Vite UI embedded in the binary |
-| Next | Foundation: pgx; then the landing page slice (the owner's choice), then sign-in (needs a GitHub App from the owner) |
+| Branch | `phase1/pgx` (pull request to `main`) |
+| Last done | Foundation finished: pgx driver with real-Postgres tests for every query group, structured logging with slog, and Hatch as one program (`serve`, `worker`, `migrate`). Before that: React + Vite UI embedded in the binary |
+| Next | The landing page slice (the owner's choice), then sign-in (needs a GitHub App from the owner) |
 | Blockers | None. No AWS access (by design until Phase 6) |
 
 ## Phase 0: Foundation
@@ -64,9 +64,10 @@ something that can be demonstrated on a laptop.
 - [x] Structured logging with `log/slog`: JSON in production, request IDs, a
   request log in place of Gin's default
   ([ADR 0017](decisions/0017-structured-logging-with-slog.md)).
-- [ ] Switch to pgx and regenerate sqlc
-  ([ADR 0011](decisions/0011-river-and-pgx.md)); tests for the queries run
-  against real Postgres.
+- [x] Use pgx as the Postgres driver (through `database/sql`), and test every
+  query group against real Postgres
+  ([ADR 0011](decisions/0011-river-and-pgx.md#sequencing-added-2026-10-21)).
+  The native pgx pool and sqlc regenerated for `pgx/v5` come with River below.
 
 **Slice: sign in**
 
@@ -83,9 +84,9 @@ something that can be demonstrated on a laptop.
 
 **Slice: deploy and watch it**
 
-- [ ] River jobs replace RabbitMQ; `Builder`, `Runtime`, and `CostEstimator`
-  interfaces with a fake for tests
-  ([ADR 0011](decisions/0011-river-and-pgx.md)).
+- [ ] River jobs replace RabbitMQ, on a native pgx pool; sqlc is regenerated
+  for `pgx/v5`; `Builder`, `Runtime`, and `CostEstimator` interfaces with a
+  fake for tests ([ADR 0011](decisions/0011-river-and-pgx.md)).
 - [ ] Local Docker provider (build, run, route `<app>.localhost` through
   Caddy, scale, destroy, runtime logs); the existing ECS/ALB code moves behind
   the `Runtime` interface unchanged.
