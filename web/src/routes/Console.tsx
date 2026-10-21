@@ -3,11 +3,12 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { siGithub } from "simple-icons";
 import BrandIcon from "@/components/BrandIcon";
 import { NoticeToast, type NoticePayload } from "@/components/NoticeToast";
+import { useNotice } from "@/components/useNotice";
 import {
   AppShell,
   Button,
@@ -70,8 +71,10 @@ export default function ConsoleClient() {
     queries: projects.map((project) => projectDeploymentsQuery(project.id)),
     combine: combineResults<Deployment[]>,
   });
-  const [notice, setNotice] = useState<NoticePayload | null>(null);
-  const [loadErrorDismissedAt, setLoadErrorDismissedAt] = useState(0);
+  const { notice, setNotice, dismiss } = useNotice({
+    failedAt: projectsResult.isError ? projectsResult.errorUpdatedAt : null,
+    notice: LOAD_FAILED_NOTICE,
+  });
 
   const deployments = useMemo(() => {
     const byProject: Record<string, Deployment[]> = {};
@@ -87,26 +90,6 @@ export default function ConsoleClient() {
   const lastSyncedAt = projectsResult.dataUpdatedAt
     ? new Date(Math.max(projectsResult.dataUpdatedAt, deploymentResults.updatedAt))
     : null;
-
-  const loadFailed =
-    projectsResult.isError &&
-    projectsResult.errorUpdatedAt > loadErrorDismissedAt;
-  const shownNotice = notice ?? (loadFailed ? LOAD_FAILED_NOTICE : null);
-
-  useEffect(() => {
-    if (!notice) return;
-    const timeout = window.setTimeout(() => setNotice(null), 5000);
-    return () => window.clearTimeout(timeout);
-  }, [notice]);
-
-  useEffect(() => {
-    if (!loadFailed) return;
-    const timeout = window.setTimeout(
-      () => setLoadErrorDismissedAt(Date.now()),
-      5000,
-    );
-    return () => window.clearTimeout(timeout);
-  }, [loadFailed]);
 
   const rows = useMemo(() => {
     return projects
@@ -154,13 +137,7 @@ export default function ConsoleClient() {
 
   return (
     <AppShell>
-      <NoticeToast
-        notice={shownNotice}
-        onDismiss={() => {
-          setNotice(null);
-          setLoadErrorDismissedAt(Date.now());
-        }}
-      />
+      <NoticeToast notice={notice} onDismiss={dismiss} />
       <ConsoleHeader
         lastSyncedAt={lastSyncedAt}
         refreshing={refreshing}

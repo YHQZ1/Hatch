@@ -1,8 +1,7 @@
-/* eslint-disable react-hooks/exhaustive-deps */
+import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { debounce } from "@/lib/debounce";
-import { PageLoadingState } from "@/components/LoadingState";
+import { NoticeToast, type NoticePayload } from "@/components/NoticeToast";
 import {
   AppShell,
   Button,
@@ -10,17 +9,20 @@ import {
   PageTitle,
   StatusText,
 } from "@/components/ui";
-import { cn } from "@/lib/cn";
+import { useNotice } from "@/components/useNotice";
 import {
-  NoticeToast,
-  type NoticePayload,
-} from "@/components/NoticeToast";
-import {
+  ApiError,
   apiFetch,
+  apiJson,
+  getAppConfig,
+  productionHost,
   pushFlashNotice,
   readApiError,
   redirectIfUnauthorized,
 } from "@/lib/api";
+import { cn } from "@/lib/cn";
+import { activityQuery, projectsQuery } from "@/lib/queries";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 interface Repo {
   id: number;
@@ -39,103 +41,105 @@ interface EnvVar {
   value: string;
 }
 
+const NO_REPOS: Repo[] = [];
+const NO_PORTS: number[] = [];
+
+const GITHUB_UNAVAILABLE_NOTICE: NoticePayload = {
+  type: "error",
+  title: "GitHub unavailable",
+  message: "We couldn't load your repositories right now.",
+};
+
+const reposQuery = () =>
+  queryOptions({
+    queryKey: ["github", "repos"],
+    queryFn: async () => {
+      const repos = await apiJson<Repo[] | null>("/api/github/repos");
+      return Array.isArray(repos) ? repos : NO_REPOS;
+    },
+  });
+
+/**
+ * Whether the repository has a Dockerfile in the folder, and the ports it
+ * exposes. Any answer other than 200 means no Dockerfile.
+ */
+const dockerfileQuery = (repoFullName: string | undefined, folder: string) =>
+  queryOptions({
+    queryKey: ["github", "dockerfile", repoFullName, folder],
+    enabled: Boolean(repoFullName),
+    retry: false,
+    queryFn: async () => {
+      const dockerfilePath = folder ? `${folder}/Dockerfile` : "Dockerfile";
+      const response = await apiFetch(
+        `/api/github/repos/${repoFullName}/dockerfile?path=${encodeURIComponent(dockerfilePath)}`,
+      );
+      if (response.status === 401) throw new ApiError("Unauthorized", 401);
+      if (response.status !== 200) return { found: false, ports: NO_PORTS };
+
+      const data = await response.json();
+      const ports: number[] = Array.isArray(data.ports)
+        ? data.ports.filter(
+            (value: unknown) =>
+              typeof value === "number" && Number.isInteger(value),
+          )
+        : NO_PORTS;
+      return { found: true, ports };
+    },
+  });
+
+const sanitizePath = (path: string) =>
+  path.replace(/^\.\//, "").replace(/\/+$/, "").replace(/\/+/g, "/").trim();
+
+const defaultPortFor = (language?: string) =>
+  language === "Go" ? "8080" : language === "Python" ? "8000" : "80";
+
 export default function NewProjectClient() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [step, setStep] = useState<1 | 2>(1);
-  const [repos, setRepos] = useState<Repo[]>([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
   const [sourceMode, setSourceMode] = useState<"connected" | "url">("connected");
   const [manualRepoUrl, setManualRepoUrl] = useState("");
   const [manualRepoError, setManualRepoError] = useState("");
   const [deploying, setDeploying] = useState(false);
-  const [mounted, setMounted] = useState(false);
 
   const [projectName, setProjectName] = useState("");
   const [subdomain, setSubdomain] = useState("");
   const [branch, setBranch] = useState("main");
-  const [port, setPort] = useState("");
+  // null until the user edits the port; then their value wins over detection.
+  const [portInput, setPortInput] = useState<string | null>(null);
   const [healthCheck, setHealthCheck] = useState("/health");
   const [rootPath, setRootPath] = useState("./");
-  const [detectedPorts, setDetectedPorts] = useState<number[]>([]);
   const [envVars, setEnvVars] = useState<EnvVar[]>([]);
-  const [hasDockerfile, setHasDockerfile] = useState<boolean | null>(null);
-  const [checkingDocker, setCheckingDocker] = useState(false);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkEnv, setBulkEnv] = useState("");
-  const [notice, setNotice] = useState<NoticePayload | null>(null);
-  const userEditedPortRef = useRef(false);
 
-  useEffect(() => {
-    setMounted(true);
-    apiFetch("/api/github/repos")
-      .then((response) => {
-        if (redirectIfUnauthorized(response, navigate)) return [];
-        return response.json();
-      })
-      .then((data) => {
-        setRepos(Array.isArray(data) ? data : []);
-        setLoading(false);
-      })
-      .catch(() => {
-        setNotice({
-          type: "error",
-          title: "GitHub unavailable",
-          message: "We couldn't load your repositories right now.",
-        });
-        setLoading(false);
-      });
-  }, [navigate]);
+  const reposResult = useQuery(reposQuery());
+  const repos = reposResult.data ?? NO_REPOS;
+  const loading = reposResult.isPending;
+  const { notice, setNotice, dismiss } = useNotice({
+    failedAt: reposResult.isError ? reposResult.errorUpdatedAt : null,
+    notice: GITHUB_UNAVAILABLE_NOTICE,
+  });
 
-  useEffect(() => {
-    if (!notice) return;
-    const timeout = window.setTimeout(() => setNotice(null), 5000);
-    return () => window.clearTimeout(timeout);
-  }, [notice]);
-
-  const sanitizePath = (path: string) =>
-    path.replace(/^\.\//, "").replace(/\/+$/, "").replace(/\/+/g, "/").trim();
-
-  const debouncedCheck = useCallback(
-    debounce(async (repoFullName: string, path: string) => {
-      setCheckingDocker(true);
-      const cleanRoot = sanitizePath(path);
-      const fullDockerPath = cleanRoot
-        ? `${cleanRoot}/Dockerfile`
-        : "Dockerfile";
-
-      try {
-        const response = await apiFetch(
-          `/api/github/repos/${repoFullName}/dockerfile?path=${encodeURIComponent(fullDockerPath)}`,
-        );
-        if (redirectIfUnauthorized(response, navigate)) return;
-        if (response.status === 200) {
-          const data = await response.json();
-          const ports = Array.isArray(data.ports)
-            ? data.ports.filter(
-                (value: unknown) =>
-                  typeof value === "number" && Number.isInteger(value),
-              )
-            : [];
-          setHasDockerfile(true);
-          setDetectedPorts(ports);
-          if (ports.length > 0 && !userEditedPortRef.current) {
-            setPort(String(ports[0]));
-          }
-        } else {
-          setHasDockerfile(false);
-          setDetectedPorts([]);
-        }
-      } catch {
-        setHasDockerfile(false);
-        setDetectedPorts([]);
-      } finally {
-        setCheckingDocker(false);
-      }
-    }, 600),
-    [],
+  // Re-check the Dockerfile once the folder has stopped changing.
+  const checkedFolder = sanitizePath(useDebouncedValue(rootPath, 600));
+  const dockerfileCheck = useQuery(
+    dockerfileQuery(selectedRepo?.full_name, checkedFolder),
   );
+  const checkingDocker = dockerfileCheck.isFetching;
+  const hasDockerfile = dockerfileCheck.data
+    ? dockerfileCheck.data.found
+    : dockerfileCheck.isError
+      ? false
+      : null;
+  const detectedPorts = dockerfileCheck.data?.ports ?? NO_PORTS;
+  const port =
+    portInput ??
+    (detectedPorts.length > 0
+      ? String(detectedPorts[0])
+      : defaultPortFor(selectedRepo?.language));
 
   const handleSelectRepo = (repo: Repo) => {
     setSelectedRepo(repo);
@@ -143,12 +147,7 @@ export default function NewProjectClient() {
     setProjectName(repo.name);
     setBranch(repo.default_branch || "main");
     setSubdomain("");
-    userEditedPortRef.current = false;
-    if (repo.language === "Go") setPort("8080");
-    else if (repo.language === "Python") setPort("8000");
-    else setPort("80");
-    setDetectedPorts([]);
-    debouncedCheck(repo.full_name, rootPath);
+    setPortInput(null);
     setStep(2);
   };
 
@@ -178,10 +177,7 @@ export default function NewProjectClient() {
     setProjectName(parsed.repo);
     setBranch(branch || "main");
     setSubdomain("");
-    userEditedPortRef.current = false;
-    setPort("80");
-    setDetectedPorts([]);
-    debouncedCheck(parsed.fullName, rootPath);
+    setPortInput(null);
     setStep(2);
   };
 
@@ -238,6 +234,8 @@ export default function NewProjectClient() {
       }
 
       const project = await projectRes.json();
+      void queryClient.invalidateQueries({ queryKey: projectsQuery().queryKey });
+      void queryClient.invalidateQueries({ queryKey: activityQuery().queryKey });
       const deployRes = await apiFetch("/api/deployments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -251,8 +249,6 @@ export default function NewProjectClient() {
       });
       if (redirectIfUnauthorized(deployRes, navigate)) return;
       if (deployRes.ok) {
-        localStorage.removeItem("hatch_projects_cache");
-        localStorage.removeItem("hatch_insights_cache");
         pushFlashNotice({
           type: "success",
           title: "Service created",
@@ -315,8 +311,6 @@ export default function NewProjectClient() {
     reader.readAsText(file);
   };
 
-  if (!mounted) return <PageLoadingState />;
-
   const filteredRepos = repos.filter((repo) =>
     repo.full_name.toLowerCase().includes(search.toLowerCase()),
   );
@@ -332,7 +326,10 @@ export default function NewProjectClient() {
     sourceMode === "url" ? "External repository" : "Connected repository";
   const configuredEnvVars = envVars.filter((item) => item.key.trim()).length;
   const dockerfileDirectory = rootPath || "./";
-  const productionUrl = subdomain ? `${subdomain}.hatchcloud.xyz` : "Not set";
+  const baseDomain = getAppConfig().baseDomain;
+  const productionUrl = subdomain
+    ? (productionHost(subdomain) ?? subdomain)
+    : "Not set";
   const preflight = [
     { label: "Repository", ready: Boolean(selectedRepo) },
     { label: "Service name", ready: Boolean(projectName.trim()) },
@@ -343,7 +340,7 @@ export default function NewProjectClient() {
 
   return (
     <AppShell>
-      <NoticeToast notice={notice} onDismiss={() => setNotice(null)} />
+      <NoticeToast notice={notice} onDismiss={dismiss} />
       <PageTitle
         eyebrow="New Service"
         title="Deploy from GitHub"
@@ -368,7 +365,6 @@ export default function NewProjectClient() {
                     setStep(1);
                     setSelectedRepo(null);
                     setProjectName("");
-                    setHasDockerfile(null);
                     setManualRepoError("");
                   }}
                   className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600 transition-colors hover:text-white cursor-pointer"
@@ -435,9 +431,11 @@ export default function NewProjectClient() {
                         placeholder="my-service"
                         className="min-w-0 flex-1 bg-transparent py-3 text-sm text-zinc-200 outline-none placeholder:text-zinc-800"
                       />
-                      <span className="shrink-0 pl-2 font-mono text-[11px] text-zinc-700">
-                        .hatchcloud.xyz
-                      </span>
+                      {baseDomain && (
+                        <span className="shrink-0 pl-2 font-mono text-[11px] text-zinc-700">
+                          .{baseDomain}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -452,10 +450,9 @@ export default function NewProjectClient() {
                   <FieldInput
                     label="Port"
                     value={port}
-                    onChange={(value) => {
-                      userEditedPortRef.current = true;
-                      setPort(value.replace(/[^0-9]/g, ""));
-                    }}
+                    onChange={(value) =>
+                      setPortInput(value.replace(/[^0-9]/g, ""))
+                    }
                     placeholder="8080"
                   />
                   <FieldInput
@@ -483,12 +480,7 @@ export default function NewProjectClient() {
                   <FieldInput
                     label="Dockerfile directory"
                     value={rootPath}
-                    onChange={(value) => {
-                      setRootPath(value);
-                      if (selectedRepo) {
-                        debouncedCheck(selectedRepo.full_name, value);
-                      }
-                    }}
+                    onChange={setRootPath}
                     placeholder="./"
                   />
                   <FieldInput
