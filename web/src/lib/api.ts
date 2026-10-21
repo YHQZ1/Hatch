@@ -88,6 +88,29 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
   return res;
 }
 
+/** A failed API response, with the server's message and the HTTP status. */
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/** Fetches JSON from the API; any non-2xx response throws an ApiError. */
+export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await apiFetch(path, init);
+  if (!res.ok) {
+    throw new ApiError(
+      await readApiError(res, `Request failed (${res.status})`),
+      res.status,
+    );
+  }
+  return res.json() as Promise<T>;
+}
+
 export async function readApiError(
   res: Response,
   fallback = "Request failed",

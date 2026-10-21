@@ -1,7 +1,6 @@
-import { useNavigate } from "react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { PageLoadingState } from "@/components/LoadingState";
-import { apiFetch, redirectIfUnauthorized } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { apiJson } from "@/lib/api";
 import {
   AppShell,
   Button,
@@ -20,72 +19,22 @@ interface ActivityEvent {
 
 type ActivityKind = "create" | "delete" | "deploy" | "system";
 
-const CACHE_KEY = "hatch_activity_cache";
-const CACHE_TTL = 60 * 1000;
+const NO_EVENTS: ActivityEvent[] = [];
+
+const asList = (data: ActivityEvent[] | null) =>
+  Array.isArray(data) ? data : NO_EVENTS;
 
 export default function ActivityClient() {
-  const navigate = useNavigate();
-  const [events, setEvents] = useState<ActivityEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
-
-  const loadData = useCallback(
-    async ({ background = false }: { background?: boolean } = {}) => {
-      if (background) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-
-      try {
-        const res = await apiFetch("/api/activity");
-        if (redirectIfUnauthorized(res, navigate)) return;
-        const data = await res.json();
-        const eventsList: ActivityEvent[] = Array.isArray(data) ? data : [];
-        setEvents(eventsList);
-        setLastSyncedAt(new Date());
-
-        localStorage.setItem(
-          CACHE_KEY,
-          JSON.stringify({
-            data: eventsList,
-            timestamp: Date.now(),
-          }),
-        );
-      } catch {
-        // Keep the last cached activity visible if the refresh fails.
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [navigate],
-  );
-
-  useEffect(() => {
-    setMounted(true);
-
-    const cached = localStorage.getItem(CACHE_KEY);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        const cacheAge = Date.now() - (parsed.timestamp || 0);
-        if (cacheAge < CACHE_TTL) {
-          setEvents(parsed.data || []);
-          setLastSyncedAt(new Date(parsed.timestamp));
-          setLoading(false);
-          loadData({ background: true });
-          return;
-        }
-      } catch {
-        // A corrupt cache entry is ignored.
-      }
-    }
-
-    loadData();
-  }, [loadData]);
+  const activity = useQuery({
+    queryKey: ["activity"],
+    queryFn: () => apiJson<ActivityEvent[] | null>("/api/activity"),
+    select: asList,
+  });
+  const events = activity.data ?? NO_EVENTS;
+  const loading = activity.isPending;
+  const lastSyncedAt = activity.dataUpdatedAt
+    ? new Date(activity.dataUpdatedAt)
+    : null;
 
   const stats = useMemo(() => {
     return {
@@ -99,14 +48,12 @@ export default function ActivityClient() {
     };
   }, [events]);
 
-  if (!mounted) return <PageLoadingState />;
-
   return (
     <AppShell>
       <ActivityHeader
         lastSyncedAt={lastSyncedAt}
-        refreshing={refreshing}
-        onRefresh={() => loadData({ background: true })}
+        refreshing={activity.isFetching && !loading}
+        onRefresh={() => void activity.refetch()}
       />
 
       {!loading && events.length > 0 && (
