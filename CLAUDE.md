@@ -57,6 +57,7 @@ make infra                      # Postgres, Redis, RabbitMQ via Docker Compose
 make dev                        # infra + hatch api, builder, deployer + web
 make migrate                    # apply migrations (needs golang-migrate)
 go run ./cmd/hatch help         # list subcommands
+make build                      # bin/hatch, version stamped from git
 
 make check                      # golangci-lint, ESLint, go test -race
 cd web && npm run build    # web production build

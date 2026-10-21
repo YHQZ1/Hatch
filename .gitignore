@@ -1,108 +1,31 @@
-# ─── OS ───────────────────────────────────────────────────────────────────────
+# OS and editors
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-Thumbs.db
-Desktop.ini
-
-# ─── IDE / Editor ─────────────────────────────────────────────────────────────
-.vscode/
 .idea/
-*.iml
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+.vscode/
 *.swp
-*.swo
-.fleet/
-.cursor/
 
-# ─── Environment Variables ────────────────────────────────────────────────────
+# Environment and secrets (examples are committed)
 .env
 .env.*
 !.env.example
-!.env.local.example
+*.pem
+*.key
 
-# ─── Go ───────────────────────────────────────────────────────────────────────
-# Binaries
+# Go
 /bin/
-
-# Test artifacts
 *.test
-*.out
 coverage.out
 coverage.html
 
-# ─── Next.js / Node ───────────────────────────────────────────────────────────
+# Web
 node_modules/
 web/.next/
 web/out/
-web/.turbo/
-web/build/
+*.tsbuildinfo
 
-# npm / pnpm / yarn
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-.pnpm-store/
-.yarn/cache
-.yarn/unplugged
-.yarn/install-state.gz
-
-# ─── Docker ───────────────────────────────────────────────────────────────────
-# Don't ignore Dockerfiles themselves, only runtime artifacts
-
-# ─── Terraform ────────────────────────────────────────────────────────────────
-**/.terraform/
-**/.terraform.lock.hcl
-**/terraform.tfstate
-**/terraform.tfstate.*
-**/terraform.tfvars
-!**/terraform.tfvars.example
-**/tfplan
-**/tfplan.*
-**/crash.log
-**/crash.*.log
-**/override.tf
-**/override.tf.json
-**/*_override.tf
-**/*_override.tf.json
-
-# ─── AWS ──────────────────────────────────────────────────────────────────────
-.aws/
-aws-exports.js
-
-# ─── Database ─────────────────────────────────────────────────────────────────
-*.sql.bak
-dump.sql
-*.dump
-
-# ─── sqlc ─────────────────────────────────────────────────────────────────────
-# Keep generated files in source control so CI doesn't need sqlc installed
-# internal/store/db/ is intentionally NOT ignored
-
-# ─── Logs ─────────────────────────────────────────────────────────────────────
+# Local runtime files
 *.log
-*.pid
+.hatch-dev.pids
 
-# ─── Secrets / Keys ───────────────────────────────────────────────────────────
-*.pem
-*.key
-*.p12
-*.pfx
-*.crt
-*.cer
-id_rsa
-id_ed25519
-*.secrets
-
-# ─── Misc Build Artifacts ─────────────────────────────────────────────────────
-dist/
-tmp/
-.cache/
-checks/*
+# Generated sqlc code in internal/store/db/ is committed on purpose, so CI and
+# builds do not need sqlc installed.

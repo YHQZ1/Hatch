@@ -15,6 +15,7 @@ Commands:
   api        run the HTTP API and WebSocket log hub
   builder    run the build worker (clone, docker build, push to ECR)
   deployer   run the deploy worker (ECS services and ALB routing)
+  version    print the version
 
 Configuration is read from the environment and from a .env file in the
 current directory.
@@ -33,6 +34,8 @@ func main() {
 		runBuilder()
 	case "deployer":
 		runDeployer()
+	case "version", "--version":
+		fmt.Println(versionString())
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	default:

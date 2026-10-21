@@ -78,8 +78,10 @@ dev: infra stop-dev check-dev-ports
 	( cd web && npm run dev ) & echo $$! >> "$(DEV_PID_FILE)"; \
 	wait
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
 build:
-	go build -o bin/hatch ./cmd/hatch
+	go build -ldflags "-X main.version=$(VERSION)" -o bin/hatch ./cmd/hatch
 
 up:
 	docker compose up

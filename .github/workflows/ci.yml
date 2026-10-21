@@ -32,11 +32,39 @@ jobs:
           version: v2.15.0
           install-only: true
 
+      - name: Check go.mod and go.sum are tidy
+        run: go mod tidy -diff
+
+      - uses: sqlc-dev/setup-sqlc@bac53b7fb28c039a6c7f5736fd1e89744021bdd6 # v5.0.0
+        with:
+          sqlc-version: "1.30.0"
+
+      - name: Check generated database code is current
+        working-directory: internal/store
+        run: sqlc diff
+
       - name: Lint
         run: make lint-go
 
       - name: Test
         run: make test
+
+      - name: Check for known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  docker:
+    name: Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the hatch image
+        run: docker build --build-arg VERSION="${GITHUB_SHA::12}" -t hatch:ci .
+
+      - name: Check the image runs
+        run: docker run --rm hatch:ci version
 
   web:
     name: Web
@@ -51,7 +79,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version-file: .nvmrc
+          node-version-file: web/package.json
           cache: npm
           cache-dependency-path: web/package-lock.json
 

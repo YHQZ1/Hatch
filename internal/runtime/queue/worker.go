@@ -35,7 +35,6 @@ type Config struct {
 	SubnetB              string
 	ECSSgID              string
 	TaskExecutionRoleARN string
-	ECRRegistry          string
 	DatabaseURL          string
 	BaseDomain           string
 	DataEncryptionKey    string

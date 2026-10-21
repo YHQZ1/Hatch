@@ -11,7 +11,7 @@ _Update this section at the end of every working session._
 | --- | --- |
 | Current phase | 1, Simplify the core and build the local target |
 | Branch | `main` |
-| Last done | Repository moved to one Go module (`cmd/hatch` with `api`, `builder`, `deployer` subcommands; `internal/`), `apps/web` → `web/`, one root `.env`; `infra/` and in-app docs pages removed; Vercel disconnected. Dependencies upgraded: Go 1.27.3, ESLint 10, TypeScript 6.0 (7 is blocked by typescript-eslint and Next.js), Node stays on 24 LTS |
+| Last done | Repository moved to one Go module (`cmd/hatch` + `internal/`), `web/`, one root `.env`; Vercel disconnected; dependencies upgraded (Go 1.27.3, ESLint 10, TypeScript 6.0, Node 24). Repo hardening: env files match the code, Node version in `web/package.json`, `hatch version`, non-root image, CI checks tidiness, generated code, vulnerabilities, and the Docker image |
 | Next | Move the web UI to React + Vite served by the Go binary (ADR 0009) |
 | Blockers | None. No AWS access (by design until Phase 6) |
 
