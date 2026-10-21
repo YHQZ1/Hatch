@@ -3,10 +3,12 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/joho/godotenv"
+
+	"github.com/YHQZ1/hatch/internal/logging"
 )
 
 const usage = `Usage: hatch <command>
@@ -29,6 +31,8 @@ func main() {
 
 	// A missing .env is normal (production sets real environment variables).
 	_ = godotenv.Load()
+	// After .env is loaded, so ENVIRONMENT and LOG_LEVEL from it apply.
+	logging.SetupFromEnv()
 
 	var err error
 	switch os.Args[1] {
@@ -47,7 +51,7 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		log.Printf("hatch %s: %v", os.Args[1], err)
+		slog.Error("command failed", "command", os.Args[1], "error", err)
 		os.Exit(1)
 	}
 }

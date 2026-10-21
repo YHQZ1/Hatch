@@ -22,6 +22,7 @@ reversed; do not rewrite history in old records, mark them superseded instead.
 | [0014](0014-dockerfile-only-builds.md) | Builds require a Dockerfile | Accepted |
 | [0015](0015-v1-runs-web-services-only.md) | v1 runs web services only | Accepted |
 | [0016](0016-pnpm-for-the-web-app.md) | pnpm for the web app | Accepted |
+| [0017](0017-structured-logging-with-slog.md) | Structured logging with log/slog | Accepted |
 
 Template:
 
