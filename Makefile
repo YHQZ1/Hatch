@@ -22,7 +22,7 @@ stop-dev:
 		fi; \
 	done; \
 	workspace="$$(pwd)"; \
-	process_pids="$$(pgrep -f 'go run ./cmd/hatch|/go-build.*/exe/hatch (api|builder|deployer)|vite|pnpm.* dev' 2>/dev/null || true)"; \
+	process_pids="$$(pgrep -f 'go run ./cmd/hatch|/go-build.*/exe/hatch (serve|worker)|vite|pnpm.* dev' 2>/dev/null || true)"; \
 	for pid in $$process_pids; do \
 		cwd="$$(lsof -a -p "$$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"; \
 		case "$$cwd" in \
@@ -72,9 +72,7 @@ dev: infra stop-dev check-dev-ports
 	@set -e; \
 	rm -f "$(DEV_PID_FILE)"; \
 	trap '$(MAKE) --no-print-directory stop-dev >/dev/null 2>&1 || true; wait' INT TERM EXIT; \
-	go run ./cmd/hatch api & echo $$! >> "$(DEV_PID_FILE)"; \
-	go run ./cmd/hatch builder & echo $$! >> "$(DEV_PID_FILE)"; \
-	go run ./cmd/hatch deployer & echo $$! >> "$(DEV_PID_FILE)"; \
+	go run ./cmd/hatch serve & echo $$! >> "$(DEV_PID_FILE)"; \
 	( cd web && pnpm dev ) & echo $$! >> "$(DEV_PID_FILE)"; \
 	wait
 
@@ -93,9 +91,9 @@ up:
 down:
 	docker compose down
 
+# Applies the migrations embedded in the binary to DATABASE_URL (from .env).
 migrate:
-	migrate -path internal/store/migrations \
-		-database "postgres://hatch:hatch@localhost:5433/hatch?sslmode=disable" up
+	go run ./cmd/hatch migrate
 
 # Checks (CI runs `make check` and the web build)
 

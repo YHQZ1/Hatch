@@ -8,7 +8,7 @@ Email **rupareluttkarsh2309@gmail.com** with:
 
 - a description of the vulnerability and its impact
 - steps to reproduce or a proof of concept
-- the affected component (api, builder, deployer, web, or a shared package)
+- the affected component (the API, a worker, the web UI, or a shared package)
 - any suggested fix
 
 You will get an acknowledgment within **48 hours** and a fuller response within

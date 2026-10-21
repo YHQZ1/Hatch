@@ -1,20 +1,20 @@
 // Command hatch runs the Hatch control plane.
-//
-// Until the services are merged into `serve` and `worker`, each subcommand
-// runs one of the former services unchanged.
 package main
 
 import (
 	"fmt"
+	"log"
 	"os"
+
+	"github.com/joho/godotenv"
 )
 
 const usage = `Usage: hatch <command>
 
 Commands:
-  api        run the HTTP API and WebSocket log hub
-  builder    run the build worker (clone, docker build, push to ECR)
-  deployer   run the deploy worker (ECS services and ALB routing)
+  serve      run the web UI, the API, and the build and deploy workers
+  worker     run only the build and deploy workers
+  migrate    apply database migrations and exit
   version    print the version
 
 Configuration is read from the environment and from a .env file in the
@@ -27,13 +27,17 @@ func main() {
 		os.Exit(2)
 	}
 
+	// A missing .env is normal (production sets real environment variables).
+	_ = godotenv.Load()
+
+	var err error
 	switch os.Args[1] {
-	case "api":
-		runAPI()
-	case "builder":
-		runBuilder()
-	case "deployer":
-		runDeployer()
+	case "serve":
+		err = runServe()
+	case "worker":
+		err = runWorkers()
+	case "migrate":
+		err = runMigrate()
 	case "version", "--version":
 		fmt.Println(versionString())
 	case "help", "-h", "--help":
@@ -41,5 +45,9 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "hatch: unknown command %q\n\n%s", os.Args[1], usage)
 		os.Exit(2)
+	}
+	if err != nil {
+		log.Printf("hatch %s: %v", os.Args[1], err)
+		os.Exit(1)
 	}
 }

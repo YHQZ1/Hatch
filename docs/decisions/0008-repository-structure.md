@@ -85,13 +85,12 @@ temporary home next to its owner instead of in its final package:
 
 | Package | Until |
 | --- | --- |
-| `cmd/hatch` with subcommands `api`, `builder`, `deployer` (one per former service) | The services merge into `serve`, `worker`, and `migrate` |
-| `internal/api/queue`, `internal/build/queue`, `internal/runtime/queue` (RabbitMQ) | River replaces RabbitMQ (`internal/jobs`, 0011) |
+| `internal/api/queue`, `internal/build/queue`, `internal/runtime/queue` (RabbitMQ; the build and deploy consumers run as components of `hatch serve` and `hatch worker`) | River replaces RabbitMQ (`internal/jobs`, 0011) |
 | `internal/api/ws`, `internal/build/logs`, `internal/runtime/logs` (Redis and WebSocket) | SSE log streaming (`internal/stream`, 0012) |
 | `internal/api/{auth,handlers,middleware}` | GitHub code moves to `internal/github` with the GitHub App (0010) |
 | `internal/store/db` (sqlc package `db`), `internal/store` (connection) | Kept; regenerated for pgx (0011) |
 
-All subcommands read one `.env` in the repository root, and `go.mod` uses an
+All commands read one `.env` in the repository root, and `go.mod` uses an
 `ignore` directive so `./...` skips the web app's `node_modules`.
 
 ### Sequencing

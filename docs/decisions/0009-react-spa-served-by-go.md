@@ -65,7 +65,7 @@ The goal from 0002 is that an install is one Hatch program plus Postgres.
   renders. The UI makes no cross-origin API calls, so `NEXT_PUBLIC_API_URL` and
   production CORS are gone.
 - **Development:** `make dev` runs the Vite dev server on port 3000, which
-  proxies `/api`, `/auth/{github,callback,logout}`, and `/ws` to `hatch api`.
+  proxies `/api`, `/auth/{github,callback,logout}`, and `/ws` to `hatch serve`.
 - **Data loading:** TanStack Query holds server state. A 401 from any query
   clears the session and the query cache and goes to `/auth`. Polling lives in
   the query definitions (`web/src/lib/queries.ts`), and WebSocket log lines

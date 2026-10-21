@@ -70,7 +70,7 @@ Browser ── REST + WebSocket ──▶ API (Go, Gin)
                                     wait until healthy
 
 Logs:  builder / deployer → Redis → API WebSocket hub → browser
-Data:  PostgreSQL (sqlc queries, golang-migrate migrations)
+Data:  PostgreSQL (sqlc queries, migrations embedded in the binary)
 ```
 
 The API also sends project cleanup and suspend/resume jobs to the deployer
@@ -90,8 +90,7 @@ and tested without AWS. Details are in the
 
 You need Go 1.27 (an older Go downloads it automatically), Node.js 24 (set by
 `engines` in `web/package.json`), [pnpm](https://pnpm.io/installation) (it
-switches itself to the version pinned in `web/package.json`), Docker,
-[`golang-migrate`](https://github.com/golang-migrate/migrate), and a
+switches itself to the version pinned in `web/package.json`), Docker, and a
 [GitHub OAuth app](https://github.com/settings/developers) with the callback
 URL `http://localhost:8080/auth/callback`.
 
@@ -100,20 +99,20 @@ git clone https://github.com/YHQZ1/Hatch.git && cd Hatch
 (cd web && pnpm install)
 
 # Configuration: fill in the GitHub OAuth values, JWT_SECRET, and
-# DATA_ENCRYPTION_KEY. Every hatch subcommand reads this one file.
+# DATA_ENCRYPTION_KEY. Every hatch command reads this one file.
 cp .env.example .env
 
 make infra     # Postgres, Redis, and RabbitMQ in Docker
-make migrate   # apply database migrations
-make dev       # run hatch api, builder, and deployer, and the Vite dev server
+make migrate   # apply database migrations (hatch migrate)
+make dev       # run hatch serve and the Vite dev server
 ```
 
 Open <http://localhost:3000>. The Vite dev server there forwards `/api`,
-sign-in, and live-log requests to `hatch api` on port 8080. `make stop-dev`
+sign-in, and live-log requests to `hatch serve` on port 8080. `make stop-dev`
 stops everything `make dev` started.
 
 To run the single binary instead, `make build` builds the web UI into
-`bin/hatch`, and `bin/hatch api` then serves the UI and the API together on
+`bin/hatch`, and `bin/hatch serve` then serves the UI and the API together on
 port 8080.
 
 Signing in, browsing repositories, and creating projects work with only the
@@ -124,7 +123,7 @@ that requirement for local development.
 ## Repository layout
 
 ```text
-cmd/hatch          the hatch binary: `api`, `builder`, and `deployer` subcommands
+cmd/hatch          the hatch binary: `serve`, `worker`, and `migrate` commands
 internal/api       REST API, GitHub OAuth and webhooks, WebSocket log hub
 internal/build     cloning, building, and pushing images
 internal/runtime   ECS services and ALB routing
