@@ -91,15 +91,14 @@ and tested without AWS. Details are in the
 You need Go 1.27 (an older Go downloads it automatically), Node.js 24 (set by
 `engines` in `web/package.json`), [pnpm](https://pnpm.io/installation) (it
 switches itself to the version pinned in `web/package.json`), Docker, and a
-[GitHub OAuth app](https://github.com/settings/developers) with the callback
-URL `http://localhost:8080/auth/callback`.
+GitHub App for sign-in; [setting one up](docs/07-github-app-setup.md) takes a
+few minutes.
 
 ```bash
 git clone https://github.com/YHQZ1/Hatch.git && cd Hatch
 (cd web && pnpm install)
 
-# Configuration: fill in the GitHub OAuth values, JWT_SECRET, and
-# DATA_ENCRYPTION_KEY. Every hatch command reads this one file.
+# Configuration: fill in the GitHub App values and DATA_ENCRYPTION_KEY. Every hatch command reads this one file.
 cp .env.example .env
 
 make infra     # Postgres, Redis, and RabbitMQ in Docker

@@ -19,10 +19,13 @@ type Querier interface {
 	CreateEnvVar(ctx context.Context, arg CreateEnvVarParams) (EnvVar, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateProjectEnvVar(ctx context.Context, arg CreateProjectEnvVarParams) (ProjectEnvVar, error)
+	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) (int64, error)
 	DeleteProject(ctx context.Context, id uuid.UUID) error
 	DeleteProjectByIDAndUserID(ctx context.Context, arg DeleteProjectByIDAndUserIDParams) error
 	DeleteProjectEnvVarsByProject(ctx context.Context, projectID uuid.UUID) error
+	DeleteSessionByTokenHash(ctx context.Context, tokenHash []byte) error
 	GetActiveDeploymentByProjectIDAndUserID(ctx context.Context, arg GetActiveDeploymentByProjectIDAndUserIDParams) (Deployment, error)
 	GetActivityLogsByUserID(ctx context.Context, userID uuid.UUID) ([]ActivityLog, error)
 	GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployment, error)
@@ -37,12 +40,14 @@ type Querier interface {
 	GetProjectEnvVarsByProject(ctx context.Context, projectID uuid.UUID) ([]ProjectEnvVar, error)
 	GetProjectsByRepoURL(ctx context.Context, repoUrl string) ([]Project, error)
 	GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]Project, error)
+	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (Session, error)
 	GetUserByGithubID(ctx context.Context, githubID int64) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	MarkDeploymentFailed(ctx context.Context, arg MarkDeploymentFailedParams) (Deployment, error)
 	MarkProjectDeleteFailed(ctx context.Context, arg MarkProjectDeleteFailedParams) error
 	MarkProjectDeleting(ctx context.Context, arg MarkProjectDeletingParams) (Project, error)
 	MarkProjectOperationFailed(ctx context.Context, arg MarkProjectOperationFailedParams) error
+	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	UpdateDeploymentLive(ctx context.Context, arg UpdateDeploymentLiveParams) (Deployment, error)
 	UpdateDeploymentStatus(ctx context.Context, arg UpdateDeploymentStatusParams) (Deployment, error)
 	UpdateProjectLifecycleStatus(ctx context.Context, arg UpdateProjectLifecycleStatusParams) (Project, error)

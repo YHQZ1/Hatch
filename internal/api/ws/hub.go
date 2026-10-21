@@ -11,7 +11,6 @@ import (
 	"github.com/YHQZ1/hatch/internal/api/auth"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
@@ -20,7 +19,7 @@ import (
 type Hub struct {
 	redis         *redis.Client
 	queries       *dbpkg.Queries
-	jwtSecret     string
+	sessions      *auth.Sessions
 	allowedOrigin map[string]struct{}
 }
 
@@ -32,7 +31,7 @@ const (
 	maxLogHistoryLines   = 5000
 )
 
-func NewHub(url, jwtSecret string, allowedOrigins []string, db *sql.DB) (*Hub, error) {
+func NewHub(url string, sessions *auth.Sessions, allowedOrigins []string, db *sql.DB) (*Hub, error) {
 	opt, err := redis.ParseURL(url)
 	if err != nil {
 		return nil, fmt.Errorf("parse REDIS_URL: %w", err)
@@ -46,7 +45,7 @@ func NewHub(url, jwtSecret string, allowedOrigins []string, db *sql.DB) (*Hub, e
 	return &Hub{
 		redis:         redis.NewClient(opt),
 		queries:       dbpkg.New(db),
-		jwtSecret:     jwtSecret,
+		sessions:      sessions,
 		allowedOrigin: originSet,
 	}, nil
 }
@@ -169,34 +168,11 @@ func (h *Hub) authenticateDeployment(ctx context.Context, r *http.Request, deplo
 	if err != nil {
 		return err
 	}
-	if cookie.Value == "" {
-		return jwt.ErrTokenMalformed
-	}
-
-	token, err := jwt.Parse(
-		cookie.Value,
-		func(t *jwt.Token) (interface{}, error) {
-			return []byte(h.jwtSecret), nil
-		},
-		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
-		jwt.WithExpirationRequired(),
-	)
-	if err != nil || !token.Valid {
-		return jwt.ErrSignatureInvalid
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return jwt.ErrTokenInvalidClaims
-	}
-	userIDRaw, ok := claims["user_id"].(string)
-	if !ok {
-		return jwt.ErrTokenInvalidClaims
-	}
-	userID, err := uuid.Parse(userIDRaw)
+	user, err := h.sessions.Lookup(ctx, cookie.Value)
 	if err != nil {
 		return err
 	}
+	userID := user.ID
 
 	_, err = h.queries.GetDeploymentByIDAndUserID(ctx, dbpkg.GetDeploymentByIDAndUserIDParams{
 		ID:     deploymentUUID,

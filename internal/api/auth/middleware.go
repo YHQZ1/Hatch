@@ -1,63 +1,35 @@
 package auth
 
 import (
-	"database/sql"
+	"errors"
+	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/YHQZ1/hatch/internal/secrets"
-	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
-func Middleware(jwtSecret string, db *sql.DB, secretCodec *secrets.Codec) gin.HandlerFunc {
-	queries := dbpkg.New(db)
-
+// Middleware requires a valid session cookie and puts the signed-in user in the
+// request context (user_id, github_id, username, access_token).
+func Middleware(sessions *Sessions, secretCodec *secrets.Codec) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		tokenStr, ok := tokenFromRequest(c)
-		if !ok {
+		token, err := c.Cookie(SessionCookieName)
+		if err != nil || token == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
 
-		token, err := jwt.Parse(
-			tokenStr,
-			func(t *jwt.Token) (interface{}, error) {
-				return []byte(jwtSecret), nil
-			},
-			jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
-			jwt.WithExpirationRequired(),
-		)
-
-		if err != nil || !token.Valid {
+		user, err := sessions.Lookup(c.Request.Context(), token)
+		if errors.Is(err, ErrNoSession) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid session"})
 			return
 		}
-
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid session claims"})
-			return
-		}
-
-		userIDRaw, ok := claims["user_id"].(string)
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid session claims"})
-			return
-		}
-		userID, err := uuid.Parse(userIDRaw)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid session claims"})
+			slog.ErrorContext(c.Request.Context(), "session lookup failed", "error", err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			return
 		}
 
-		user, err := queries.GetUserByID(c.Request.Context(), userID)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "session user not found"})
-			return
-		}
 		accessToken, err := secretCodec.Decrypt(user.AccessToken)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "session secret unavailable"})
@@ -69,27 +41,11 @@ func Middleware(jwtSecret string, db *sql.DB, secretCodec *secrets.Codec) gin.Ha
 		c.Set("username", user.GithubUsername)
 		c.Set("access_token", accessToken)
 
-		if !usesBearerAuth(c) {
-			if _, err := EnsureCSRFCookieWithError(c); err != nil {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to create csrf token"})
-				return
-			}
+		if _, err := EnsureCSRFCookieWithError(c); err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to create csrf token"})
+			return
 		}
 
 		c.Next()
 	}
-}
-
-func tokenFromRequest(c *gin.Context) (string, bool) {
-	authHeader := c.GetHeader("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
-		return token, token != ""
-	}
-
-	cookie, err := c.Cookie(SessionCookieName)
-	if err != nil || cookie == "" {
-		return "", false
-	}
-	return cookie, true
 }

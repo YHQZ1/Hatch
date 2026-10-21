@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -21,6 +22,10 @@ const (
 	// RoleMigrate applies database migrations and needs only the database.
 	RoleMigrate
 )
+
+// appSlugPattern matches the slug GitHub gives an App: the last part of
+// github.com/apps/<slug>.
+var appSlugPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
 
 type Config struct {
 	Role Role
@@ -39,7 +44,7 @@ type Config struct {
 	GitHubClientID     string
 	GitHubClientSecret string
 	GitHubRedirectURI  string
-	JWTSecret          string
+	GitHubAppSlug      string
 	WebhookBaseURL     string
 	ALBArn             string
 
@@ -142,7 +147,7 @@ func Load(role Role) (*Config, error) {
 		cfg.GitHubClientID = r.require("GITHUB_CLIENT_ID")
 		cfg.GitHubClientSecret = r.require("GITHUB_CLIENT_SECRET")
 		cfg.GitHubRedirectURI = r.require("GITHUB_REDIRECT_URI")
-		cfg.JWTSecret = r.require("JWT_SECRET")
+		cfg.GitHubAppSlug = r.require("GITHUB_APP_SLUG")
 		cfg.WebhookBaseURL = strings.TrimRight(r.require("WEBHOOK_BASE_URL"), "/")
 		cfg.ALBArn = getEnv("ALB_ARN", "")
 	}
@@ -175,6 +180,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("DEPLOYMENT_URL_SCHEME must be http or https")
 	}
 	if c.Role == RoleServe {
+		if !appSlugPattern.MatchString(c.GitHubAppSlug) {
+			return fmt.Errorf("GITHUB_APP_SLUG must be the GitHub App's slug (letters, digits, and hyphens), not a URL")
+		}
 		if len(c.CORSAllowedOrigins) == 0 {
 			return fmt.Errorf("CORS_ALLOWED_ORIGINS must include at least one origin")
 		}
@@ -193,9 +201,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Environment != "production" || c.Role == RoleMigrate {
 		return nil
-	}
-	if c.Role == RoleServe && len(strings.TrimSpace(c.JWTSecret)) < 32 {
-		return fmt.Errorf("JWT_SECRET must be at least 32 characters in production")
 	}
 	if len(strings.TrimSpace(c.DataEncryptionKey)) < 32 {
 		return fmt.Errorf("DATA_ENCRYPTION_KEY must be at least 32 characters in production")

@@ -51,7 +51,8 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 	rdb := redis.NewClient(opt)
 	defer rdb.Close()
-	hub, err := wsHub.NewHub(cfg.RedisURL, cfg.JWTSecret, cfg.CORSAllowedOrigins, db)
+	sessions := auth.NewSessions(db)
+	hub, err := wsHub.NewHub(cfg.RedisURL, sessions, cfg.CORSAllowedOrigins, db)
 	if err != nil {
 		return err
 	}
@@ -70,15 +71,13 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	}))
 	r.Use(middleware.BodyLimit(4 << 20))
 
-	authHandler := auth.NewHandler(
-		cfg.GitHubClientID,
-		cfg.GitHubClientSecret,
-		cfg.GitHubRedirectURI,
-		cfg.FrontendURL,
-		cfg.JWTSecret,
-		db,
-		secretCodec,
-	)
+	authHandler := auth.NewHandler(auth.Config{
+		ClientID:     cfg.GitHubClientID,
+		ClientSecret: cfg.GitHubClientSecret,
+		RedirectURI:  cfg.GitHubRedirectURI,
+		FrontendURL:  cfg.FrontendURL,
+		AppSlug:      cfg.GitHubAppSlug,
+	}, db, sessions, secretCodec)
 
 	projectHandler := handlers.NewProjectHandler(db, publisher, cfg.WebhookBaseURL, secretCodec)
 	deploymentHandler := handlers.NewDeploymentHandler(db, publisher, rdb, secretCodec)
@@ -86,7 +85,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	githubHandler := handlers.NewGitHubHandler(rdb)
 	publicConfigHandler := handlers.NewPublicConfigHandler(cfg.BaseDomain, cfg.DeploymentURLScheme)
 	webhookHandler := handlers.NewWebhookHandler(db, publisher, secretCodec)
-	authMiddleware := auth.Middleware(cfg.JWTSecret, db, secretCodec)
+	authMiddleware := auth.Middleware(sessions, secretCodec)
 	csrfMiddleware := auth.CSRFMiddleware()
 
 	r.GET("/health", func(c *gin.Context) {
@@ -121,6 +120,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	})
 
 	r.GET("/auth/github", authHandler.RedirectToGitHub)
+	r.GET("/auth/install", authHandler.RedirectToInstall)
 	r.GET("/auth/callback", authHandler.HandleCallback)
 	r.POST("/auth/logout", authMiddleware, csrfMiddleware, authHandler.Logout)
 	r.GET("/ws/deployments/:id", hub.HandleDeploymentLogs)

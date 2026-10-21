@@ -52,7 +52,7 @@ Out of scope:
 - **Env vars are visible in ECS.** They are encrypted in Postgres but written
   in plain text into ECS task definitions, so anyone with ECS read access in
   the account can see them.
-- **Use strong secrets.** Generate `JWT_SECRET` and `DATA_ENCRYPTION_KEY` with
+- **Use strong secrets.** Generate `DATA_ENCRYPTION_KEY` with
   `openssl rand -hex 32`. `DATA_ENCRYPTION_KEY` must be identical in the api,
   builder, and deployer, and changing it makes stored tokens and env vars
   unreadable.

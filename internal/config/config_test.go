@@ -22,7 +22,7 @@ func TestValidateAllowsDevelopmentDefaults(t *testing.T) {
 		FrontendURL:        "http://localhost:3000",
 		WebhookBaseURL:     "http://localhost:8080",
 		CORSAllowedOrigins: []string{"http://localhost:3000"},
-		JWTSecret:          "short",
+		GitHubAppSlug:      "hatch-local-dev",
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -32,11 +32,28 @@ func TestValidateAllowsDevelopmentDefaults(t *testing.T) {
 
 func TestValidateRejectsWeakProductionSecrets(t *testing.T) {
 	cfg := validProductionConfig()
-	cfg.JWTSecret = "short"
+	cfg.DataEncryptionKey = "short"
 
 	err := cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "JWT_SECRET") {
-		t.Fatalf("Validate() error = %v, want JWT_SECRET error", err)
+	if err == nil || !strings.Contains(err.Error(), "DATA_ENCRYPTION_KEY") {
+		t.Fatalf("Validate() error = %v, want DATA_ENCRYPTION_KEY error", err)
+	}
+}
+
+func TestValidateRequiresAnAppSlugNotAURL(t *testing.T) {
+	for _, slug := range []string{
+		"https://github.com/settings/apps/hatch-local-dev",
+		"github.com/apps/hatch",
+		"hatch local",
+		"",
+	} {
+		cfg := validProductionConfig()
+		cfg.GitHubAppSlug = slug
+
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "GITHUB_APP_SLUG") {
+			t.Errorf("slug %q: Validate() error = %v, want GITHUB_APP_SLUG error", slug, err)
+		}
 	}
 }
 
@@ -66,7 +83,7 @@ func validProductionConfig() Config {
 		GitHubRedirectURI:  "https://api.hatchcloud.xyz/auth/callback",
 		WebhookBaseURL:     "https://api.hatchcloud.xyz",
 		CORSAllowedOrigins: []string{"https://app.hatchcloud.xyz"},
-		JWTSecret:          strings.Repeat("j", 32),
+		GitHubAppSlug:      "hatch",
 		DataEncryptionKey:  strings.Repeat("d", 32),
 	}
 }
@@ -126,7 +143,7 @@ var allVars = map[string]string{
 	"GITHUB_CLIENT_ID":        "client-id",
 	"GITHUB_CLIENT_SECRET":    "client-secret",
 	"GITHUB_REDIRECT_URI":     "http://localhost:8080/auth/callback",
-	"JWT_SECRET":              "jwt-secret",
+	"GITHUB_APP_SLUG":         "hatch-local-dev",
 	"WEBHOOK_BASE_URL":        "http://localhost:8080",
 }
 
@@ -194,13 +211,13 @@ func TestLoadPrefersTheHTTPSListener(t *testing.T) {
 }
 
 func TestLoadReportsEveryMissingVariable(t *testing.T) {
-	setEnv(t, without(allVars, "JWT_SECRET", "DATABASE_URL", "VPC_ID"))
+	setEnv(t, without(allVars, "GITHUB_APP_SLUG", "DATABASE_URL", "VPC_ID"))
 
 	_, err := Load(RoleServe)
 	if err == nil {
 		t.Fatal("expected an error")
 	}
-	want := "missing required environment variables: DATABASE_URL, JWT_SECRET, VPC_ID"
+	want := "missing required environment variables: DATABASE_URL, GITHUB_APP_SLUG, VPC_ID"
 	if err.Error() != want {
 		t.Fatalf("error = %q, want %q", err, want)
 	}
@@ -208,7 +225,7 @@ func TestLoadReportsEveryMissingVariable(t *testing.T) {
 
 func TestWorkerDoesNotNeedTheAPISettings(t *testing.T) {
 	setEnv(t, without(allVars,
-		"GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_REDIRECT_URI", "JWT_SECRET", "WEBHOOK_BASE_URL"))
+		"GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_REDIRECT_URI", "GITHUB_APP_SLUG", "WEBHOOK_BASE_URL"))
 
 	if _, err := Load(RoleWorker); err != nil {
 		t.Fatalf("worker should load without API settings: %v", err)
@@ -266,6 +283,6 @@ func TestWorkerProductionSkipsTheAPIChecks(t *testing.T) {
 	}
 
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("worker should not need JWT or URL settings: %v", err)
+		t.Fatalf("worker should not need the API settings: %v", err)
 	}
 }

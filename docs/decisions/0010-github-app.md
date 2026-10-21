@@ -46,3 +46,12 @@ Replace the OAuth App with a single **GitHub App**:
   users must sign in again and install the App.
 - Webhooks need a public URL; in local development a forwarding service such
   as smee.io relays them to the local server.
+
+## As built, sign-in (2026-10-21)
+
+Sign-in and sessions are built. The user access token is still stored
+(encrypted) because the repository, webhook, and build code written for the
+OAuth App uses it; GitHub App user tokens expire after 8 hours, so refreshing
+them arrives with the repositories slice, which also removes per-project
+webhooks and the stored token. Installation tokens (App ID and private key) are
+not used yet. Setup is in [07-github-app-setup.md](../07-github-app-setup.md).
