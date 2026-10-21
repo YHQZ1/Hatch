@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import { createBrowserRouter, Navigate } from "react-router";
+import InitialLoad from "@/components/InitialLoad";
 import ProtectedLayout from "@/components/ProtectedLayout";
 import RootLayout from "@/components/RootLayout";
 
@@ -15,6 +16,7 @@ function page(load: () => Promise<PageModule>) {
 export const router = createBrowserRouter([
   {
     Component: RootLayout,
+    HydrateFallback: InitialLoad,
     children: [
       { index: true, ...page(() => import("./routes/Landing")) },
       { path: "auth", ...page(() => import("./routes/Auth")) },
