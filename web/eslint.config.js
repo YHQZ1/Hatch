@@ -20,18 +20,4 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
-  {
-    // The React Compiler hook rules flag patterns in pages ported from the
-    // Next.js app (state set in effects, helpers used before declaration).
-    // They stay warnings until those pages move to TanStack Query; the
-    // roadmap tracks turning them back into errors.
-    files: ['src/**/*.{ts,tsx}'],
-    rules: {
-      'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/preserve-manual-memoization': 'warn',
-      'react-hooks/immutability': 'warn',
-      'react-hooks/use-memo': 'warn',
-      'react-hooks/refs': 'warn',
-    },
-  },
 ])
