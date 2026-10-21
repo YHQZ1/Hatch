@@ -1,52 +1,28 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageLoadingState } from "@/components/LoadingState";
+import { NoticeToast } from "@/components/NoticeToast";
+import { AppShell, Button, PageTitle, StatusText } from "@/components/ui";
+import { useNotice } from "@/components/useNotice";
 import {
   apiFetch,
+  apiJson,
   deploymentUrl,
   productionHost,
   readApiError,
   redirectIfUnauthorized,
 } from "@/lib/api";
-import {
-  AppShell,
-  Button,
-  PageTitle,
-  StatusText,
-} from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
-  NoticeToast,
-  type NoticePayload,
-} from "@/components/NoticeToast";
-
-interface Deployment {
-  id: string;
-  project_id: string;
-  branch: string;
-  status: string;
-  port: number;
-  health_check: string;
-  image_uri: string | null;
-  ecs_task_arn: string | null;
-  ecs_service_name: string | null;
-  target_group_arn: string | null;
-  subdomain: string | null;
-  url: string | null;
-  commit_sha: string | null;
-  commit_message: string | null;
-  created_at: string;
-  deployed_at: string | null;
-}
-
-interface Project {
-  id: string;
-  repo_name: string;
-  repo_url: string;
-  branch: string;
-  dockerfile_path: string;
-  subdomain: { String?: string; Valid?: boolean } | string | null;
-}
+  activityQuery,
+  deploymentQuery,
+  isActiveDeployment,
+  projectDeploymentsQuery,
+  projectQuery,
+  projectsQuery,
+} from "@/lib/queries";
+import type { Deployment, Project } from "@/lib/types";
 
 interface LogLine {
   text: string;
@@ -55,8 +31,6 @@ interface LogLine {
 
 type DeploymentTone = "default" | "success" | "warning" | "danger" | "muted";
 
-const CACHE_KEY_PREFIX = "hatch_deployment_";
-const CACHE_TTL = 90 * 1000;
 const PIPELINE_STEPS = [
   { key: "queued", label: "Queued" },
   { key: "building", label: "Building" },
@@ -64,131 +38,66 @@ const PIPELINE_STEPS = [
   { key: "live", label: "Live" },
 ];
 
+const NO_LOG_LINES: string[] = [];
+
 export default function DeploymentDetailClient() {
-  const { id, deploymentId } = useParams<{ id: string; deploymentId: string }>();
+  const { id = "", deploymentId = "" } = useParams();
   const navigate = useNavigate();
-  const [deployment, setDeployment] = useState<Deployment | null>(null);
-  const [project, setProject] = useState<Project | null>(null);
-  const [logs, setLogs] = useState<LogLine[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [canceling, setCanceling] = useState(false);
-  const [notice, setNotice] = useState<NoticePayload | null>(null);
 
-  const loadDeployment = useCallback(
-    async ({ quiet = false }: { quiet?: boolean } = {}) => {
-      if (!quiet) setLoading(true);
-      const cacheKey = `${CACHE_KEY_PREFIX}${deploymentId}`;
+  const deploymentResult = useQuery(deploymentQuery(deploymentId));
+  const deployment = deploymentResult.data ?? null;
+  const active = isActiveDeployment(deployment?.status);
 
-      if (!quiet) {
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-          try {
-            const parsed = JSON.parse(cached);
-            if (Date.now() - (parsed.timestamp || 0) < CACHE_TTL) {
-              setDeployment(parsed.deployment);
-              setProject(parsed.project ?? null);
-              setLogs(parsed.logs ?? []);
-              setLoading(false);
-            }
-          } catch {
-            // A corrupt cache entry is ignored.
-          }
-        }
-      }
+  // The project only supplies a fallback subdomain, so failing to load it is fine.
+  const projectResult = useQuery(projectQuery(id));
+  const project = projectResult.data ?? null;
 
-      try {
-        const [deploymentRes, projectRes, logsRes] = await Promise.all([
-          apiFetch(`/api/deployments/${deploymentId}`),
-          apiFetch(`/api/projects/${id}`),
-          apiFetch(`/api/deployments/${deploymentId}/logs`),
-        ]);
+  const logsKey = ["deployments", deploymentId, "logs"] as const;
+  const logsResult = useQuery({
+    queryKey: logsKey,
+    queryFn: () => apiJson<string[] | null>(`/api/deployments/${deploymentId}/logs`),
+    select: (lines) => (Array.isArray(lines) ? lines : NO_LOG_LINES),
+    refetchInterval: active ? 3500 : false,
+  });
+  const logs: LogLine[] = (logsResult.data ?? NO_LOG_LINES).map((text) => ({ text }));
 
-        if (
-          redirectIfUnauthorized(deploymentRes, navigate) ||
-          redirectIfUnauthorized(projectRes, navigate) ||
-          redirectIfUnauthorized(logsRes, navigate)
-        ) {
-          return;
-        }
-        if (!deploymentRes.ok) {
-          throw new Error(await readApiError(deploymentRes, "deployment not found"));
-        }
+  const loading =
+    deploymentResult.isPending || projectResult.isPending || logsResult.isPending;
 
-        const nextDeployment: Deployment = await deploymentRes.json();
-        const nextProject: Project | null = projectRes.ok
-          ? await projectRes.json()
-          : null;
-        const nextLogs: LogLine[] = logsRes.ok
-          ? (await logsRes.json()).map((line: string) => ({ text: line }))
-          : [];
-
-        setDeployment(nextDeployment);
-        setProject(nextProject);
-        setLogs(nextLogs);
-        localStorage.setItem(
-          cacheKey,
-          JSON.stringify({
-            deployment: nextDeployment,
-            project: nextProject,
-            logs: nextLogs.slice(-40),
-            timestamp: Date.now(),
-          }),
-        );
-      } catch (err) {
-        setNotice({
-          type: "error",
-          title: "Deployment unavailable",
-          message:
-            err instanceof Error
-              ? err.message
-              : "Hatch could not load this deployment.",
-        });
-      } finally {
-        setLoading(false);
-      }
+  const { notice, setNotice, dismiss } = useNotice({
+    failedAt: deploymentResult.isError ? deploymentResult.errorUpdatedAt : null,
+    notice: {
+      type: "error",
+      title: "Deployment unavailable",
+      message:
+        deploymentResult.error instanceof Error
+          ? deploymentResult.error.message
+          : "Hatch could not load this deployment.",
     },
-    [deploymentId, id, navigate],
-  );
+  });
 
-  useEffect(() => {
-    loadDeployment();
-  }, [loadDeployment]);
+  const duration =
+    deployment?.created_at && deployment.deployed_at
+      ? Math.max(
+          0,
+          Math.round(
+            (new Date(deployment.deployed_at).getTime() -
+              new Date(deployment.created_at).getTime()) /
+              1000,
+          ),
+        )
+      : null;
 
-  useEffect(() => {
-    if (!deployment || !isActiveStatus(deployment.status)) return;
-    const interval = window.setInterval(() => {
-      loadDeployment({ quiet: true });
-    }, 3500);
-    return () => window.clearInterval(interval);
-  }, [deployment, loadDeployment]);
-
-  useEffect(() => {
-    if (!notice) return;
-    const timeout = window.setTimeout(() => setNotice(null), 4200);
-    return () => window.clearTimeout(timeout);
-  }, [notice]);
-
-  const duration = useMemo(() => {
-    if (!deployment?.created_at || !deployment?.deployed_at) return null;
-    return Math.max(
-      0,
-      Math.round(
-        (new Date(deployment.deployed_at).getTime() -
-          new Date(deployment.created_at).getTime()) /
-          1000,
-      ),
-    );
-  }, [deployment?.created_at, deployment?.deployed_at]);
-
-  const liveUrl = useMemo(() => {
-    if (!deployment) return null;
-    return deploymentUrl(
-      deployment.url || productionHost(deployment.subdomain || subdomainValue(project?.subdomain)),
-    );
-  }, [deployment, project?.subdomain]);
+  const liveUrl = deployment
+    ? deploymentUrl(
+        deployment.url || productionHost(deployment.subdomain || project?.subdomain || null),
+      )
+    : null;
 
   async function handleCancel() {
-    if (!deployment || canceling || !isActiveStatus(deployment.status)) return;
+    if (!deployment || canceling || !isActiveDeployment(deployment.status)) return;
     if (!confirm("Cancel this deployment?")) return;
 
     setCanceling(true);
@@ -201,9 +110,19 @@ export default function DeploymentDetailClient() {
         throw new Error(await readApiError(res, "deployment cannot be canceled"));
       }
       const canceled: Deployment = await res.json();
-      setDeployment(canceled);
-      setLogs((prev) => [...prev, { text: "Deployment canceled by user" }]);
-      localStorage.removeItem(`${CACHE_KEY_PREFIX}${deploymentId}`);
+      queryClient.setQueryData(deploymentQuery(deploymentId).queryKey, canceled);
+      queryClient.setQueryData<string[]>(logsKey, (lines) => [
+        ...(lines ?? []),
+        "Deployment canceled by user",
+      ]);
+      void queryClient.invalidateQueries({
+        queryKey: projectDeploymentsQuery(id).queryKey,
+      });
+      void queryClient.invalidateQueries({
+        queryKey: projectsQuery().queryKey,
+        exact: true,
+      });
+      void queryClient.invalidateQueries({ queryKey: activityQuery().queryKey });
       setNotice({
         type: "success",
         title: "Deployment canceled",
@@ -223,7 +142,7 @@ export default function DeploymentDetailClient() {
     }
   }
 
-  if (loading && !deployment) return <PageLoadingState />;
+  if (loading) return <PageLoadingState />;
 
   if (!deployment) {
     return (
@@ -248,7 +167,6 @@ export default function DeploymentDetailClient() {
   const isLive = status === "live";
   const isFailed = status === "failed" || status === "error";
   const isCanceled = status === "canceled";
-  const active = isActiveStatus(status);
   const pipelineIndex = getPipelineIndex(status);
   const recentLogs = logs.slice(-12);
   const shortDeploymentId = `${deployment.id.slice(0, 8)}...${deployment.id.slice(-4)}`;
@@ -269,7 +187,7 @@ export default function DeploymentDetailClient() {
       className="xl:h-[calc(100vh-64px)] xl:overflow-hidden"
       contentClassName="xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:py-5"
     >
-      <NoticeToast notice={notice} onDismiss={() => setNotice(null)} />
+      <NoticeToast notice={notice} onDismiss={dismiss} />
       <PageTitle
         eyebrow="Deployment"
         title={project?.repo_name || "Deployment"}
@@ -376,7 +294,7 @@ export default function DeploymentDetailClient() {
             </InfoCard>
 
             <InfoCard title="Network">
-              <Kv label="Subdomain" value={deployment.subdomain || subdomainValue(project?.subdomain) || "-"} />
+              <Kv label="Subdomain" value={deployment.subdomain || project?.subdomain || "-"} />
               <Kv
                 label="URL"
                 value={
@@ -619,14 +537,10 @@ function getPipelineIndex(status: string): number {
   return -1;
 }
 
-function isActiveStatus(status: string) {
-  return ["queued", "building", "deploying"].includes(status.toLowerCase());
-}
-
 function deploymentStatusTone(status: string): DeploymentTone {
   const s = status.toLowerCase();
   if (s === "live") return "success";
-  if (isActiveStatus(s)) return "warning";
+  if (isActiveDeployment(s)) return "warning";
   if (s === "failed" || s === "error") return "danger";
   if (s === "canceled") return "muted";
   return "default";
@@ -639,13 +553,6 @@ function logColor(text: string) {
     return "text-[#5cc98f]";
   }
   return "text-zinc-600";
-}
-
-function subdomainValue(subdomain?: Project["subdomain"]) {
-  if (!subdomain) return null;
-  if (typeof subdomain === "string") return subdomain;
-  if (subdomain.Valid && subdomain.String) return subdomain.String;
-  return null;
 }
 
 function repoLabel(repoUrl?: string) {
