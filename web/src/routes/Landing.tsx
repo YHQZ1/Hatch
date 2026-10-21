@@ -201,34 +201,29 @@ function WorkloadPrimitives() {
     >
       <div className="max-w-3xl mb-20">
         <h2 className="text-4xl md:text-5xl font-medium tracking-tight text-white mb-6">
-          Built for every workload your app grows into.
+          Frontends and backends, as web services.
         </h2>
         <p className="text-xl text-[#888] font-light leading-relaxed">
-          Start with a web service today, then expand into private services,
-          workers, and scheduled jobs as your system evolves.
+          Hatch deploys any app with a Dockerfile that listens on a port. Workers,
+          scheduled jobs, and managed databases are planned for after v1.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <PrimitiveCard
           title="Web Services"
-          desc="Public-facing applications with auto-provisioned SSL and zero-downtime rollouts."
+          desc="Public-facing apps built from your Dockerfile and run on AWS Fargate behind a load balancer."
           icon="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
         />
         <PrimitiveCard
-          title="Private Services"
-          desc="Internal APIs and microservices that sit safely behind your VPC."
-          icon="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+          title="Frontends"
+          desc="Single-page apps and server-rendered sites, served from a container on their own URL."
+          icon="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
         />
         <PrimitiveCard
-          title="Background Workers"
-          desc="Always-on processes pulling from queues like RabbitMQ or SQS."
-          icon="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-        />
-        <PrimitiveCard
-          title="Cron Jobs"
-          desc="Scheduled tasks executed via AWS EventBridge triggers."
-          icon="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+          title="Backends"
+          desc="APIs and services that listen on a port, configured with environment variables."
+          icon="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"
         />
       </div>
     </section>
@@ -506,7 +501,7 @@ function Header() {
               onClick={() => scrollToSection("primitives")}
               className="text-[#888] hover:text-white transition-colors cursor-pointer uppercase"
             >
-              Primitives
+              Services
             </button>
           </nav>
         </div>
@@ -591,13 +586,13 @@ function Footer() {
               href="#primitives"
               className="text-[#888] text-sm hover:text-white transition-colors mb-4 block"
             >
-              Background Workers
+              Frontends
             </a>
             <a
               href="#primitives"
               className="text-[#888] text-sm hover:text-white transition-colors block"
             >
-              Cron Jobs
+              Backends
             </a>
           </div>
           <div className="flex flex-col items-center">
