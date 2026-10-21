@@ -1,6 +1,12 @@
 import { type UseQueryResult, queryOptions } from "@tanstack/react-query";
 import { apiJson } from "./api";
-import type { ActivityEvent, Deployment, Project, ProjectEnvVar } from "./types";
+import type {
+  ActivityEvent,
+  Deployment,
+  Project,
+  ProjectEnvVar,
+  Session,
+} from "./types";
 
 /** How often to re-check things that are changing on their own. */
 const POLL_MS = 8000;
@@ -39,6 +45,13 @@ export function combineResults<T>(results: UseQueryResult<T>[]) {
     updatedAt: Math.max(0, ...results.map((result) => result.dataUpdatedAt)),
   };
 }
+
+/** The signed-in user. A 401 here means the session has ended. */
+export const meQuery = () =>
+  queryOptions({
+    queryKey: ["me"],
+    queryFn: () => apiJson<Session>("/api/me"),
+  });
 
 /** The user's activity feed, newest first. */
 export const activityQuery = () =>

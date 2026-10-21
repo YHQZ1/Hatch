@@ -1,5 +1,7 @@
 import type { NavigateFunction } from "react-router";
 
+// Earlier versions of the UI cached API data in localStorage under these
+// names. Nothing writes them now; signing out still removes any leftovers.
 const CACHE_PREFIXES = ["hatch_project_", "hatch_deployment_"];
 const CACHE_KEYS = [
   "hatch_token",

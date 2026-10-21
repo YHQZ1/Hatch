@@ -1,23 +1,9 @@
-import { useNavigate, useParams } from "react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import {
-  apiFetch,
-  clearClientSession,
-  logout,
-  redirectIfUnauthorized,
-} from "@/lib/api";
+import { useNavigate, useParams } from "react-router";
 import { PageLoadingState } from "@/components/LoadingState";
-
-interface UserSession {
-  username: string;
-  github_id: number;
-  user_id: string;
-}
-
-interface Project {
-  id: string;
-  auto_deploy: boolean;
-}
+import { clearClientSession, logout } from "@/lib/api";
+import { NO_PROJECTS, meQuery, projectsQuery } from "@/lib/queries";
 
 type Notice = {
   tone: "success" | "info" | "error";
@@ -25,75 +11,32 @@ type Notice = {
   message?: string;
 };
 
-const PROFILE_CACHE_KEY = "hatch_profile_cache";
-const PROFILE_CACHE_TTL = 5 * 60 * 1000;
+const LOAD_FAILED_NOTICE: Notice = {
+  tone: "error",
+  title: "Account failed to load",
+  message: "Refresh the page once your API server is back online.",
+};
 
 export default function UserClient() {
   const navigate = useNavigate();
-  const params = useParams();
-  const routeUsername = String(params.id || "");
+  const queryClient = useQueryClient();
+  const { id: routeUsername = "" } = useParams();
 
-  const [user, setUser] = useState<UserSession | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState<Notice | null>(null);
+  const meResult = useQuery(meQuery());
+  const projectsResult = useQuery(projectsQuery());
+  const user = meResult.data ?? null;
+  const projects = projectsResult.data ?? NO_PROJECTS;
+  const loading = meResult.isPending || projectsResult.isPending;
+  const [actionNotice, setNotice] = useState<Notice | null>(null);
+  const notice = actionNotice ?? (meResult.isError ? LOAD_FAILED_NOTICE : null);
   const [copied, setCopied] = useState<string | null>(null);
 
+  // /u/<name> always shows the signed-in user's own page.
   useEffect(() => {
-    let alive = true;
-
-    async function loadAccount() {
-      try {
-        const cached = readProfileCache();
-        if (cached && alive) {
-          setUser(cached.user);
-          setProjects(cached.projects);
-          setLoading(false);
-        }
-
-        const meResponse = await apiFetch("/api/me");
-        if (redirectIfUnauthorized(meResponse, navigate)) return;
-        if (!meResponse.ok) throw new Error("Failed to load account");
-
-        const nextUser = (await meResponse.json()) as UserSession;
-        if (
-          routeUsername &&
-          nextUser.username &&
-          routeUsername !== nextUser.username
-        ) {
-          navigate(`/u/${nextUser.username}`, { replace: true });
-          return;
-        }
-
-        const projectsResponse = await apiFetch("/api/projects");
-        if (redirectIfUnauthorized(projectsResponse, navigate)) return;
-        const nextProjects = projectsResponse.ok
-          ? ((await projectsResponse.json()) as Project[])
-          : [];
-
-        if (!alive) return;
-        const normalizedProjects = Array.isArray(nextProjects) ? nextProjects : [];
-        setUser(nextUser);
-        setProjects(normalizedProjects);
-        setLoading(false);
-        writeProfileCache(nextUser, normalizedProjects);
-      } catch {
-        if (!alive) return;
-        setLoading(false);
-        setNotice({
-          tone: "error",
-          title: "Account failed to load",
-          message: "Refresh the page once your API server is back online.",
-        });
-      }
+    if (user?.username && routeUsername && routeUsername !== user.username) {
+      navigate(`/u/${user.username}`, { replace: true });
     }
-
-    loadAccount();
-
-    return () => {
-      alive = false;
-    };
-  }, [routeUsername, navigate]);
+  }, [user?.username, routeUsername, navigate]);
 
   const stats = useMemo(() => {
     const autoDeployCount = projects.filter((project) => project.auto_deploy).length;
@@ -111,6 +54,7 @@ export default function UserClient() {
 
   async function handleSignOut() {
     await logout();
+    queryClient.clear();
     navigate("/");
   }
 
@@ -120,6 +64,7 @@ export default function UserClient() {
 
   function handleClearLocalCache() {
     clearClientSession();
+    void queryClient.resetQueries();
     setNotice({
       tone: "success",
       title: "Local cache cleared",
@@ -133,7 +78,7 @@ export default function UserClient() {
     setTimeout(() => setCopied(null), 1600);
   }
 
-  if (loading && !user) return <PageLoadingState />;
+  if (loading) return <PageLoadingState />;
 
   return (
     <div className="min-h-[calc(100vh-64px)] bg-black text-white">
@@ -326,32 +271,6 @@ export default function UserClient() {
         </section>
       </main>
     </div>
-  );
-}
-
-function readProfileCache():
-  | { user: UserSession; projects: Project[] }
-  | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(PROFILE_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (Date.now() - (parsed.timestamp || 0) > PROFILE_CACHE_TTL) return null;
-    return {
-      user: parsed.user,
-      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeProfileCache(user: UserSession, projects: Project[]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(
-    PROFILE_CACHE_KEY,
-    JSON.stringify({ user, projects, timestamp: Date.now() }),
   );
 }
 

@@ -1,16 +1,19 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import React, { useState, useEffect, useRef } from "react";
-import { apiFetch, logout } from "@/lib/api";
+import { logout } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { meQuery } from "@/lib/queries";
 import { Button } from "./ui";
 
 export default function Navbar() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const pathname = useLocation().pathname;
-  const [user, setUser] = useState<{
-    username: string;
-    avatar?: string;
-  } | null>(null);
+  const me = useQuery(meQuery()).data;
+  const user = me
+    ? { username: me.username, avatar: `https://github.com/${me.username}.png` }
+    : null;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -21,23 +24,12 @@ export default function Navbar() {
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
-
-    apiFetch("/api/me")
-      .then(async (res) => {
-        if (!res.ok) return;
-        const payload = await res.json();
-        setUser({
-          username: payload.username,
-          avatar: `https://github.com/${payload.username}.png`,
-        });
-      })
-      .catch(() => {});
-
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleSignOut = async () => {
     await logout();
+    queryClient.clear();
     navigate("/");
   };
 

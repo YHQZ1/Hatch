@@ -16,6 +16,7 @@ await loadAppConfig();
 
 const queryClient = createQueryClient(() => {
   clearClientSession();
+  queryClient.clear();
   void router.navigate("/auth", { replace: true });
 });
 

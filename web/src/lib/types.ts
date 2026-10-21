@@ -16,6 +16,12 @@ export interface Project {
   created_at: string;
 }
 
+export interface Session {
+  user_id: string;
+  github_id: number;
+  username: string;
+}
+
 export interface ProjectEnvVar {
   key: string;
   value: string;
