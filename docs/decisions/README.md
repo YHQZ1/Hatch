@@ -20,6 +20,7 @@ reversed; do not rewrite history in old records, mark them superseded instead.
 | [0012](0012-server-sent-events-for-logs.md) | Server-sent events for live deployment logs | Accepted |
 | [0013](0013-server-side-sessions.md) | Server-side sessions in Postgres | Accepted |
 | [0014](0014-dockerfile-only-builds.md) | Builds require a Dockerfile | Accepted |
+| [0015](0015-v1-runs-web-services-only.md) | v1 runs web services only | Accepted |
 
 Template:
 

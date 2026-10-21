@@ -11,7 +11,7 @@ _Update this section at the end of every working session._
 | --- | --- |
 | Current phase | 1, Simplify the core and build the local target |
 | Branch | `main` |
-| Last done | Repository moved to one Go module (`cmd/hatch` + `internal/`), `web/`, one root `.env`; Vercel disconnected; dependencies upgraded (Go 1.27.3, ESLint 10, TypeScript 6.0, Node 24). Repo hardening: env files match the code, Node version in `web/package.json`, `hatch version`, non-root image, CI checks tidiness, generated code, vulnerabilities, and the Docker image |
+| Last done | Repository restructured and hardened (one Go module, `web/`, CI checks, CodeQL, Postgres 18); dependencies upgraded. Scope decided: Dockerfile-only builds (ADR 0014) and web services only in v1, with workers, cron jobs, and managed data services after v1 (ADR 0015) |
 | Next | Move the web UI to React + Vite served by the Go binary (ADR 0009) |
 | Blockers | None. No AWS access (by design until Phase 6) |
 
@@ -53,9 +53,14 @@ Order matters: move files first, then the frontend, then backend changes.
 - [ ] Move the web UI to a React + Vite single-page app with React Router and
   TanStack Query, embedded in and served by the Go binary, with the Vite dev
   server proxying `/api` in development
-  ([ADR 0009](decisions/0009-react-spa-served-by-go.md)). Fix the React
-  hook rule warnings (16 in six pages) and restore those rules to errors in
-  `eslint.config.mjs`.
+  ([ADR 0009](decisions/0009-react-spa-served-by-go.md)). Also:
+  - fix the React hook rule warnings (16 in six pages) and restore those
+    rules to errors in `eslint.config.mjs`;
+  - fix the CodeQL alerts: take a deployment's live URL only from the API
+    (checked against the configured domain), not from log text, and allow
+    only `http(s)` links in the log viewer;
+  - remove landing-page claims for features that do not exist (background
+    workers, cron jobs), per ADR 0015.
 - [ ] Merge the API, builder, and deployer into one Go program
   (`hatch serve`, `hatch worker`, `hatch migrate`) with `log/slog`
   structured logging.
@@ -154,8 +159,15 @@ Done when: the acceptance tests in the guardrails document pass.
 
 ## After v1
 
-Preview environments per pull request, Dockerfile-less builds, teams and roles,
-more clouds, managed add-ons.
+Planned, in priority order ([ADR 0015](decisions/0015-v1-runs-web-services-only.md)):
+
+1. Background workers and cron jobs.
+2. Suggest a Dockerfile when a repository has none.
+3. Managed data services: SQS, then Postgres on RDS with strict guardrails,
+   caches last.
+
+Later: preview environments per pull request, Dockerfile-less builds, teams
+and roles, more clouds.
 
 ## Testing without AWS
 

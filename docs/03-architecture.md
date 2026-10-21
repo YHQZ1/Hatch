@@ -266,7 +266,8 @@ New or changed tables (names provisional):
   region, role ARN, ExternalId, stack name and version, stack outputs, status,
   monthly budget, last verified time.
 - `projects`: add `connection_id`, `expires_at`, `idle_policy`,
-  `last_request_at`.
+  `last_request_at`, and `service_type` (only `web` in v1; workers and cron
+  jobs come after v1, see [ADR 0015](decisions/0015-v1-runs-web-services-only.md)).
 - `deployments`: add `image_digest`, `rollback_of`, `estimated_monthly_cost`;
   add status `superseded` for releases replaced by a newer live one.
 - `resources`: the inventory. Connection, project (nullable), type (for example
