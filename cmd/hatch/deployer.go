@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/YHQZ1/hatch/internal/config"
 	"github.com/YHQZ1/hatch/internal/runtime/queue"
 	"github.com/joho/godotenv"
 )
@@ -18,22 +19,13 @@ func runDeployer() {
 		listenerARN = httpsListener
 	}
 
-	publicURLScheme := getEnv("DEPLOYMENT_URL_SCHEME", "")
-	if publicURLScheme == "" {
-		if getEnv("ALB_HTTPS_LISTENER_ARN", "") != "" {
-			publicURLScheme = "https"
-		} else {
-			publicURLScheme = "http"
-		}
-	}
-
 	cfg := queue.Config{
 		RabbitMQURL:          mustGetEnv("RABBITMQ_URL"),
 		RedisURL:             mustGetEnv("REDIS_URL"),
 		AWSRegion:            mustGetEnv("AWS_REGION"),
 		ECSClusterName:       mustGetEnv("ECS_CLUSTER_NAME"),
 		ALBListenerARN:       listenerARN,
-		PublicURLScheme:      publicURLScheme,
+		PublicURLScheme:      config.DeploymentURLScheme(),
 		VPCID:                mustGetEnv("VPC_ID"),
 		SubnetA:              mustGetEnv("SUBNET_A"),
 		SubnetB:              mustGetEnv("SUBNET_B"),

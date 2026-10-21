@@ -17,10 +17,10 @@
 coverage.out
 coverage.html
 
-# Web
+# Web (web/dist/.gitkeep stays so `go build` works before the first web build)
 node_modules/
-web/.next/
-web/out/
+web/dist/*
+!web/dist/.gitkeep
 *.tsbuildinfo
 
 # Local runtime files
