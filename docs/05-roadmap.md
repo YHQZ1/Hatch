@@ -10,9 +10,9 @@ _Update this section at the end of every working session._
 | Field | Value |
 | --- | --- |
 | Current phase | 1, Simplify the core and build the local target |
-| Branch | `phase1/pgx` (pull request to `main`) |
-| Last done | Foundation finished: pgx driver with real-Postgres tests for every query group, structured logging with slog, and Hatch as one program (`serve`, `worker`, `migrate`). Before that: React + Vite UI embedded in the binary |
-| Next | The landing page slice (the owner's choice), then sign-in (needs a GitHub App from the owner) |
+| Branch | `feat/landing-page` (pull request to `main`) |
+| Last done | Landing page rewritten: Render-style positioning, cost guardrails, Available / In development / Planned badges, a light purple accent and eased scrolling (Lenis, landing only). Before that, foundation finished: pgx driver with real-Postgres tests for every query group, structured logging with slog, and Hatch as one program (`serve`, `worker`, `migrate`). Before that: React + Vite UI embedded in the binary |
+| Next | Sign-in with a GitHub App (needs one created by the owner). The 2px corner radius and the accent have not been applied to the console pages yet |
 | Blockers | None. No AWS access (by design until Phase 6) |
 
 ## Phase 0: Foundation
@@ -163,10 +163,12 @@ Done when: the acceptance tests in the guardrails document pass.
 - [ ] Health-check configuration and clearer failure messages.
 - [ ] Break up the 1,000+ line React components; consistent UI states.
 - [ ] Custom domains with ACM certificates _(may move after v1)_.
-- [ ] Review the landing page's claims (zero-downtime rollouts, automated TLS
-  and DNS) against what exists, and replace the placeholder logo by
-  overwriting `web/public/hatch.svg` (the old one was the Habr brand icon and
-  was removed).
+- [x] Review the landing page's claims against what exists (done in the
+  landing page rewrite; every feature carries a status badge).
+- [ ] Replace the placeholder logo by overwriting `web/public/hatch.svg` (the
+  old one was the Habr brand icon and was removed).
+- [ ] Keep the landing page's badges in step with this roadmap as features
+  land.
 
 ## Phase 6: Production readiness
 

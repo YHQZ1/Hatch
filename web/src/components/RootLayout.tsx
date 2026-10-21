@@ -1,6 +1,6 @@
 import { Outlet, useMatches } from "react-router";
 
-const DEFAULT_TITLE = "Hatch — Your code, your cloud.";
+const DEFAULT_TITLE = "Hatch — Deploys in your own AWS account";
 
 /** Wraps every page: sets the document title and draws the page backdrop. */
 export default function RootLayout() {

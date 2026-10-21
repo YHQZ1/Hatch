@@ -5,6 +5,17 @@
   --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo,
     monospace;
 
+  --color-accent: #c4b5fd;
+  --color-accent-hover: #d8ccff;
+  --color-accent-ink: #1b1233;
+  --color-line: #1f1f24;
+  --color-line-strong: #2e2e36;
+  --color-panel: #09090b;
+  --color-muted: #8b8b95;
+  --color-faint: #5c5c66;
+
+  --radius-hatch: 2px;
+
   --animate-loading-bar: loading-bar 2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
   --animate-progress: progress linear infinite;
 
@@ -14,6 +25,26 @@
     }
     100% {
       transform: translateX(100%);
+    }
+  }
+
+  --animate-rise: rise 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-blink: blink 1.1s steps(1) infinite;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes blink {
+    50% {
+      opacity: 0;
     }
   }
 
@@ -91,6 +122,13 @@ body {
 }
 
 ::selection {
-  background: #ffffff;
-  color: #000000;
+  background: #c4b5fd;
+  color: #1b1233;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .animate-blink {
+    animation: none;
+  }
 }
