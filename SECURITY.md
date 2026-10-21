@@ -26,11 +26,11 @@ production use. Security fixes go to the latest `main` only.
 
 In scope:
 
-- Authentication, sessions, and CSRF protection (`apps/api/internal/auth/`)
+- Authentication, sessions, and CSRF protection (`internal/api/auth/`)
 - Storage and use of GitHub OAuth tokens
 - GitHub webhook signature verification
-  (`apps/api/internal/handlers/webhook.go`)
-- Encryption of stored secrets (`packages/secrets/`)
+  (`internal/api/handlers/webhook.go`)
+- Encryption of stored secrets (`internal/secrets/`)
 - Access to another user's projects, deployments, or logs
 - Handling of repositories and Dockerfiles during builds
 

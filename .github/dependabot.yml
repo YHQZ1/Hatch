@@ -1,13 +1,9 @@
 # Weekly dependency update PRs, grouped so minor and patch bumps arrive
-# together. Update the gomod directories when Phase 1 merges the modules.
+# together.
 version: 2
 updates:
   - package-ecosystem: gomod
-    directories:
-      - /apps/api
-      - /apps/builder
-      - /apps/deployer
-      - /packages/*
+    directory: /
     schedule:
       interval: weekly
     groups:
@@ -15,7 +11,7 @@ updates:
         update-types: [minor, patch]
 
   - package-ecosystem: npm
-    directory: /apps/web
+    directory: /web
     schedule:
       interval: weekly
     groups:
@@ -32,6 +28,7 @@ updates:
 
   - package-ecosystem: docker
     directories:
-      - /apps/*
+      - /
+      - /web
     schedule:
       interval: weekly

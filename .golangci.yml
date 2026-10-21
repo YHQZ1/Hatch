@@ -1,4 +1,4 @@
-# golangci-lint v2. Run from each Go module (see `make lint`).
+# golangci-lint v2. Run from the repository root (see `make lint-go`).
 version: "2"
 
 linters:

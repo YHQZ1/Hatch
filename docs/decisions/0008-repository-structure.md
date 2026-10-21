@@ -78,6 +78,22 @@ Mapping from the current layout:
 | `infra/` | removed (kept in git history) |
 | `go.work`, `go.work.sum`, 7 × `go.mod` | one root `go.mod` |
 
+### Interim layout after the move
+
+The move is behaviour-preserving, so code that later steps replace lands in a
+temporary home next to its owner instead of in its final package:
+
+| Package | Until |
+| --- | --- |
+| `cmd/hatch` with subcommands `api`, `builder`, `deployer` (one per former service) | The services merge into `serve`, `worker`, and `migrate` |
+| `internal/api/queue`, `internal/build/queue`, `internal/runtime/queue` (RabbitMQ) | River replaces RabbitMQ (`internal/jobs`, 0011) |
+| `internal/api/ws`, `internal/build/logs`, `internal/runtime/logs` (Redis and WebSocket) | SSE log streaming (`internal/stream`, 0012) |
+| `internal/api/{auth,handlers,middleware}` | GitHub code moves to `internal/github` with the GitHub App (0010) |
+| `internal/store/db` (sqlc package `db`), `internal/store` (connection) | Kept; regenerated for pgx (0011) |
+
+All subcommands read one `.env` in the repository root, and `go.mod` uses an
+`ignore` directive so `./...` skips the web app's `node_modules`.
+
 ### Sequencing
 
 Small, safe hygiene happens now (Phase 0) on the current layout. The move

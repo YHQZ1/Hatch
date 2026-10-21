@@ -1,5 +1,5 @@
-# Build context for the Go images (built from the repo root:
-#   docker build -f apps/api/Dockerfile .).
+# Build context for the hatch image (built from the repo root:
+#   docker build -t hatch .).
 # Patterns without a leading **/ only match at the root.
 
 # Secrets and local config: never send them to the Docker daemon.
@@ -21,5 +21,4 @@
 **/.next
 **/.terraform
 docs
-infra
-apps/web
+web

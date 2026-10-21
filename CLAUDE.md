@@ -42,26 +42,30 @@ Read, in order:
   API responses.
 - Go: `gofmt`, `go vet`, table-driven tests. Web: ESLint clean, no new
   1,000-line components.
-- Dependencies: add them in the module that imports them and run
-  `go mod tidy` there (each app and package is its own module until Phase 1).
-- Database: add a new migration in `packages/db/migrations/` named
+- Dependencies: one Go module at the root; run `go mod tidy` after adding
+  one.
+- Database: add a new migration in `internal/store/migrations/` named
   `NNNNNN_short_description.up.sql`, continuing the numbering; never edit a
-  merged migration. After changing migrations or `packages/db/queries/`, run
-  `cd packages/db && sqlc generate` and commit the generated code.
+  merged migration. After changing migrations or `internal/store/queries/`,
+  run `cd internal/store && sqlc generate` and commit the generated code.
 - Never commit `.env` files or credentials.
 
-## Commands (current layout, before Phase 1 consolidation)
+## Commands
 
 ```bash
 make infra                      # Postgres, Redis, RabbitMQ via Docker Compose
-make dev                        # infra + api, builder, deployer, web
+make dev                        # infra + hatch api, builder, deployer + web
 make migrate                    # apply migrations (needs golang-migrate)
+go run ./cmd/hatch help         # list subcommands
 
-make check                      # golangci-lint, ESLint, go test -race (all modules)
-cd apps/web && npm run build    # web production build
+make check                      # golangci-lint, ESLint, go test -race
+cd web && npm run build    # web production build
 ```
 
-After building the web app, restore `apps/web/next-env.d.ts` if it changed
-(`git checkout -- apps/web/next-env.d.ts`); Next.js rewrites it.
+Configuration for every subcommand is read from `.env` in the repository root
+(see `.env.example`).
+
+After building the web app, restore `web/next-env.d.ts` if it changed
+(`git checkout -- web/next-env.d.ts`); Next.js rewrites it.
 
 Update this section when Phase 1 changes the layout.
