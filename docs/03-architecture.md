@@ -302,7 +302,7 @@ New or changed tables (names provisional):
 |-------|--------|--------|
 | Language (backend) | Go | Keep |
 | HTTP router | Gin | Keep |
-| Database | PostgreSQL 16 | Keep |
+| Database | PostgreSQL 18 | Upgraded from 16 before any data existed |
 | Postgres driver | pgx v5 + pgxpool | Decided ([0011](decisions/0011-river-and-pgx.md)), replaces `lib/pq` |
 | Queries and migrations | sqlc + golang-migrate (embedded in the binary) | Keep |
 | Job queue | River on Postgres | Decided ([0011](decisions/0011-river-and-pgx.md)) |

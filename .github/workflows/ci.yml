@@ -17,6 +17,20 @@ jobs:
   go:
     name: Go
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: hatch
+          POSTGRES_PASSWORD: hatch
+          POSTGRES_DB: hatch
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hatch"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,6 +62,13 @@ jobs:
 
       - name: Test
         run: make test
+
+      - name: Apply all migrations to Postgres 18
+        run: >-
+          go run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1
+          -path internal/store/migrations
+          -database "postgres://hatch:hatch@localhost:5432/hatch?sslmode=disable"
+          up
 
       - name: Check for known vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
