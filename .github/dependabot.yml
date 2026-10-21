@@ -14,6 +14,14 @@ updates:
     directory: /web
     schedule:
       interval: weekly
+    ignore:
+      # Types follow the Node runtime, which stays on the 24 LTS line.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # TypeScript 7 drops the compiler API that typescript-eslint and
+      # next build use; revisit when they support it.
+      - dependency-name: typescript
+        versions: [">=7"]
     groups:
       npm-minor-and-patch:
         update-types: [minor, patch]
@@ -32,3 +40,7 @@ updates:
       - /web
     schedule:
       interval: weekly
+    ignore:
+      # Stay on Node 24 LTS until the next LTS line is chosen deliberately.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
