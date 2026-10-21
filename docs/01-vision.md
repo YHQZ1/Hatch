@@ -74,7 +74,10 @@ Hatch gives you the managed-platform experience on infrastructure you own.
 - No Dockerfile-less builds (buildpacks) in v1.
 - No teams, roles, or organizations in v1. One user owns their projects and
   connected accounts.
-- No databases or managed add-ons in v1. Hatch deploys stateless containers.
+- Web services only in v1: an app built from its Dockerfile that serves HTTP
+  (frontend or backend). No background workers, cron jobs, databases, or other
+  managed add-ons yet; see [ADR 0015](decisions/0015-v1-runs-web-services-only.md)
+  for what comes after v1.
 
 ## Success criteria for v1
 
