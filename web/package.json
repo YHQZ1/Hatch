@@ -10,10 +10,10 @@
   },
   "dependencies": {
     "lodash": "^4.18.1",
-    "next": "16.2.9",
+    "next": "16.4.2",
     "nextjs-toploader": "^3.9.17",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "overrides": {
     "postcss": "8.5.10",
@@ -23,12 +23,12 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/lodash": "^4.17.24",
+    "@types/lodash": "^4.17.26",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint-config-next": "16.4.2",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
