@@ -1,19 +1,23 @@
-import { useEffect } from "react";
-import { useNavigate } from "react-router";
+import { useCallback, useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router";
 import { apiFetch, clearClientSession } from "@/lib/api";
 import { useTheme } from "@/lib/theme";
+import type { Session } from "@/lib/types";
+import SuccessHatch from "./auth/SuccessHatch";
 
 /** The page GitHub's sign-in lands on: confirm the session, then open the console. */
 export default function AuthSuccess() {
   const navigate = useNavigate();
   const { theme } = useTheme();
+  const [user, setUser] = useState<Session | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     apiFetch("/api/me")
-      .then((res) => {
+      .then(async (res) => {
         if (!res.ok) throw new Error("Session verification failed");
-        if (!cancelled) navigate("/console", { replace: true });
+        const session = (await res.json()) as Session;
+        if (!cancelled) setUser(session);
       })
       .catch(() => {
         clearClientSession();
@@ -24,20 +28,27 @@ export default function AuthSuccess() {
     };
   }, [navigate]);
 
+  const openConsole = useCallback(() => navigate("/console", { replace: true }), [navigate]);
+
   return (
     <div
       data-theme={theme}
       style={{ colorScheme: theme }}
-      className="flex min-h-screen flex-col items-center justify-center bg-base text-ink"
+      className="bg-line-grid relative flex min-h-screen w-full flex-col overflow-hidden bg-base text-ink"
     >
-      <img src="/hatch.svg" alt="" className="theme-logo h-8 w-8" />
-      <p className="mt-6 text-lg font-medium tracking-tight">Signing you in</p>
-      <div
-        aria-hidden
-        className="relative mt-6 h-px w-56 overflow-hidden bg-line"
+      <Link
+        to="/"
+        className="absolute left-6 top-6 z-10 flex items-center gap-2.5 md:left-10 lg:left-16"
       >
-        <div className="absolute inset-0 animate-loading-bar bg-accent" />
-      </div>
+        <img src="/hatch.svg" alt="" className="theme-logo h-7 w-7" />
+        <span className="text-lg font-semibold tracking-tight">Hatch</span>
+      </Link>
+
+      <main className="relative z-10 flex flex-1 items-center justify-center px-6 py-16">
+        <div className="animate-rise flex w-full justify-center">
+          <SuccessHatch user={user} onDone={openConsole} />
+        </div>
+      </main>
     </div>
   );
 }
