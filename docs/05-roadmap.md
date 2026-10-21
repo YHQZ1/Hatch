@@ -53,7 +53,9 @@ Order matters: move files first, then the frontend, then backend changes.
 - [ ] Move the web UI to a React + Vite single-page app with React Router and
   TanStack Query, embedded in and served by the Go binary, with the Vite dev
   server proxying `/api` in development
-  ([ADR 0009](decisions/0009-react-spa-served-by-go.md)).
+  ([ADR 0009](decisions/0009-react-spa-served-by-go.md)). Fix the React
+  hook rule warnings (16 in six pages) and restore those rules to errors in
+  `eslint.config.mjs`.
 - [ ] Merge the API, builder, and deployer into one Go program
   (`hatch serve`, `hatch worker`, `hatch migrate`) with `log/slog`
   structured logging.
