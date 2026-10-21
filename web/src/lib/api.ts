@@ -147,7 +147,7 @@ export function pushFlashNotice(notice: {
   sessionStorage.setItem(FLASH_NOTICE_KEY, JSON.stringify(notice));
 }
 
-export function consumeFlashNotice(): {
+export function peekFlashNotice(): {
   type: "success" | "error" | "info";
   title: string;
   message?: string;
@@ -155,12 +155,16 @@ export function consumeFlashNotice(): {
   if (typeof window === "undefined") return null;
   const raw = sessionStorage.getItem(FLASH_NOTICE_KEY);
   if (!raw) return null;
-  sessionStorage.removeItem(FLASH_NOTICE_KEY);
   try {
     return JSON.parse(raw);
   } catch {
     return null;
   }
+}
+
+export function clearFlashNotice() {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem(FLASH_NOTICE_KEY);
 }
 
 export async function logout() {

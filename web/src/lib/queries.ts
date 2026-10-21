@@ -61,6 +61,13 @@ export const projectsQuery = () =>
         : false,
   });
 
+/** One project. */
+export const projectQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId],
+    queryFn: () => apiJson<Project>(`/api/projects/${projectId}`),
+  });
+
 /** A project's deployments, newest first; polls while one is in progress. */
 export const projectDeploymentsQuery = (projectId: string) =>
   queryOptions({

@@ -1,56 +1,30 @@
-/* eslint-disable react-hooks/exhaustive-deps */
+import {
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { useState, useEffect, useRef, useCallback } from "react";
-import { PageLoadingState } from "@/components/LoadingState";
-import {
-  AppShell,
-  Button,
-  PageTitle,
-  StatusText,
-} from "@/components/ui";
-import { cn } from "@/lib/cn";
-import {
-  NoticeToast,
-  type NoticePayload,
-} from "@/components/NoticeToast";
+import { NoticeToast } from "@/components/NoticeToast";
+import { AppShell, Button, PageTitle, StatusText } from "@/components/ui";
+import { useNotice } from "@/components/useNotice";
 import {
   apiFetch,
-  consumeFlashNotice,
+  apiJson,
   deploymentUrl,
   readApiError,
   redirectIfUnauthorized,
   websocketUrl,
 } from "@/lib/api";
-
-interface Project {
-  id: string;
-  repo_name: string;
-  repo_url: string;
-  branch: string;
-  port: number;
-  dockerfile_path: string;
-  subdomain: string | null;
-  auto_deploy: boolean;
-  created_at: string;
-}
-
-interface Deployment {
-  id: string;
-  project_id: string;
-  branch: string;
-  status: string;
-  commit_sha?: string | null;
-  commit_message?: string | null;
-  cpu: number;
-  memory_mb: number;
-  port: number;
-  health_check: string;
-  image_uri: string | null;
-  subdomain: string | null;
-  url: string | null;
-  created_at: string;
-  deployed_at: string | null;
-}
+import { cn } from "@/lib/cn";
+import {
+  ACTIVE_DEPLOYMENT_STATUSES,
+  NO_DEPLOYMENTS,
+  activityQuery,
+  projectDeploymentsQuery,
+  projectQuery,
+  projectsQuery,
+} from "@/lib/queries";
+import type { Deployment, Project } from "@/lib/types";
 
 interface LogLine {
   text: string;
@@ -58,216 +32,117 @@ interface LogLine {
   timestamp: string;
 }
 
-const CACHE_KEY_PREFIX = "hatch_project_";
-const CACHE_TTL = 2 * 60 * 1000;
+const EMPTY_LOGS: LogLine[] = [];
+const TERMINAL_STATUSES = new Set(["live", "failed", "canceled"]);
 
 export default function ProjectDetail() {
-  const params = useParams();
+  const { id: projectId = "" } = useParams();
   const navigate = useNavigate();
-  const projectId = params.id as string;
+  const queryClient = useQueryClient();
 
-  const [project, setProject] = useState<Project | null>(null);
-  const [deployments, setDeployments] = useState<Deployment[]>([]);
-  const [activeDeployment, setActiveDeployment] = useState<Deployment | null>(
-    null,
-  );
-  const [logs, setLogs] = useState<LogLine[]>([]);
+  const projectResult = useQuery(projectQuery(projectId));
+  const deploymentsResult = useQuery(projectDeploymentsQuery(projectId));
+  const project = projectResult.data ?? null;
+  const deployments = deploymentsResult.data ?? NO_DEPLOYMENTS;
+  const loading = projectResult.isPending || deploymentsResult.isPending;
+
+  // The deployment being viewed: the one the user picked, else the latest.
+  const [selectedDeploymentId, setSelectedDeploymentId] = useState<
+    string | null
+  >(null);
+  const activeDeployment =
+    deployments.find((deployment) => deployment.id === selectedDeploymentId) ??
+    deployments[0] ??
+    null;
+  const activeId = activeDeployment?.id ?? null;
+
+  const [logsById, setLogsById] = useState<Record<string, LogLine[]>>({});
+  const logs = (activeId && logsById[activeId]) || EMPTY_LOGS;
   const [deploying, setDeploying] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState<NoticePayload | null>(null);
+
+  const failedAt = projectResult.isError
+    ? projectResult.errorUpdatedAt
+    : deploymentsResult.isError
+      ? deploymentsResult.errorUpdatedAt
+      : null;
+  const { notice, setNotice, dismiss } = useNotice(
+    {
+      failedAt,
+      notice: {
+        type: "error",
+        title: "Project unavailable",
+        message: "We couldn't load the latest project state.",
+      },
+    },
+    { showFlash: true },
+  );
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const activeIdRef = useRef<string | null>(null);
 
-  const scrollToBottom = useCallback(() => {
+  useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
+  }, [logs.length]);
 
+  // Streams a deployment's logs while it is in progress, and loads them once
+  // otherwise. Only the deployment viewed matters here, not its later status
+  // changes, so the status is read from the query cache when this starts.
   useEffect(() => {
-    scrollToBottom();
-  }, [logs.length, scrollToBottom]);
+    if (!activeId) return;
+    const deploymentsKey = projectDeploymentsQuery(projectId).queryKey;
+    const status = queryClient
+      .getQueryData<Deployment[]>(deploymentsKey)
+      ?.find((deployment) => deployment.id === activeId)
+      ?.status.toLowerCase();
 
-  useEffect(() => {
-    setMounted(true);
-    const flash = consumeFlashNotice();
-    if (flash) {
-      setNotice(flash as NoticePayload);
-    }
-
-    const cacheKey = `${CACHE_KEY_PREFIX}${projectId}`;
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        if (Date.now() - (parsed.timestamp || 0) < CACHE_TTL) {
-          setProject(parsed.project);
-          setDeployments(parsed.deployments || []);
-          if (parsed.deployments?.length > 0)
-            setActiveDeployment(parsed.deployments[0]);
-          setLoading(false);
-        }
-      } catch {
-        // A corrupt cache entry is ignored.
-      }
-    }
-
-    const loadData = async () => {
-      try {
-        const [projRes, depsRes] = await Promise.all([
-          apiFetch(`/api/projects/${projectId}`),
-          apiFetch(`/api/projects/${projectId}/deployments`),
-        ]);
-        if (
-          redirectIfUnauthorized(projRes, navigate) ||
-          redirectIfUnauthorized(depsRes, navigate)
-        ) {
-          return;
-        }
-        const proj = await projRes.json();
-        const deps = await depsRes.json();
-        const depList: Deployment[] = Array.isArray(deps) ? deps : [];
-        setProject(proj);
-        setDeployments(depList);
-        if (depList.length > 0) setActiveDeployment(depList[0]);
-        localStorage.setItem(
-          cacheKey,
-          JSON.stringify({
-            project: proj,
-            deployments: depList,
-            timestamp: Date.now(),
-          }),
-        );
-      } catch {
-        setNotice({
-          type: "error",
-          title: "Project unavailable",
-          message: "We couldn't load the latest project state.",
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadData();
-  }, [projectId, navigate]);
-
-  useEffect(() => {
-    if (!notice) return;
-    const timeout = window.setTimeout(() => setNotice(null), 5000);
-    return () => window.clearTimeout(timeout);
-  }, [notice]);
-
-  useEffect(() => {
-    if (!activeDeployment) return;
-    const currentId = activeDeployment.id;
-    activeIdRef.current = currentId;
-    setLogs([]);
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    const s = activeDeployment.status.toLowerCase();
-    const isActive = ["building", "deploying", "queued"].includes(s);
-
-    if (isActive) {
-      const wsUrl = websocketUrl(`/ws/deployments/${currentId}`);
-      const ws = new WebSocket(wsUrl);
+    if (ACTIVE_DEPLOYMENT_STATUSES.has(status ?? "")) {
+      const ws = new WebSocket(websocketUrl(`/ws/deployments/${activeId}`));
       wsRef.current = ws;
       ws.onopen = () => {
+        setLogsById((prev) => ({ ...prev, [activeId]: [] }));
         ws.send("READY");
       };
       ws.onmessage = (event) => {
-        const line = event.data;
-        if (line === "READY" || activeIdRef.current !== currentId) return;
-        setLogs((prev) => [...prev, parseLogLine(line)]);
+        const line = String(event.data);
+        if (line === "READY") return;
+        setLogsById((prev) => ({
+          ...prev,
+          [activeId]: [...(prev[activeId] ?? []), parseLogLine(line)],
+        }));
 
+        // Show the stage right away; the API stays the source of truth.
         const nextStatus = statusFromLogLine(line);
-        if (nextStatus) {
-          updateDeploymentStatus(currentId, nextStatus);
-        }
-
-        const nextUrl = deploymentUrlFromLogLine(line);
-        if (nextUrl) {
-          updateDeploymentUrl(currentId, nextUrl);
-        }
-
-        if (
-          nextStatus &&
-          ["live", "failed", "canceled"].includes(nextStatus)
-        ) {
+        if (!nextStatus) return;
+        queryClient.setQueryData<Deployment[]>(deploymentsKey, (current) =>
+          current?.map((deployment) =>
+            deployment.id === activeId
+              ? { ...deployment, status: nextStatus }
+              : deployment,
+          ),
+        );
+        if (TERMINAL_STATUSES.has(nextStatus)) {
           ws.close();
+          void queryClient.invalidateQueries({ queryKey: deploymentsKey });
         }
       };
-    } else {
-      apiFetch(`/api/deployments/${currentId}/logs`)
-        .then((r) => r.json())
-        .then((history) => {
-          if (activeIdRef.current === currentId && Array.isArray(history)) {
-            setLogs(history.map(parseLogLine));
-          }
-        });
+      return () => ws.close();
     }
 
-    return () => wsRef.current?.close();
-  }, [activeDeployment?.id]);
-
-  const parseLogLine = (line: string): LogLine => {
-    const lower = line.toLowerCase();
-    const isSuccess =
-      line.includes("✓") ||
-      line.includes("successfully") ||
-      lower.includes("deployment live at") ||
-      lower.includes("target healthy");
-    const isError =
-      line.includes("✗") ||
-      lower.includes("error") ||
-      lower.includes("failed");
-    const isSystem = line.startsWith("[") || line.includes("STEP");
-    return {
-      text: line,
-      type: isSuccess
-        ? "success"
-        : isError
-          ? "error"
-          : isSystem
-            ? "system"
-            : "muted",
-      timestamp: new Date().toLocaleTimeString([], {
-        hour12: false,
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      }),
+    let cancelled = false;
+    apiJson<string[] | null>(`/api/deployments/${activeId}/logs`)
+      .then((history) => {
+        if (cancelled || !Array.isArray(history)) return;
+        setLogsById((prev) => ({ ...prev, [activeId]: history.map(parseLogLine) }));
+      })
+      .catch(() => {
+        // The panel stays empty if the history cannot be loaded.
+      });
+    return () => {
+      cancelled = true;
     };
-  };
-
-  const updateDeploymentStatus = (id: string, status: string) => {
-    setDeployments((prev) =>
-      prev.map((d) => (d.id === id ? { ...d, status } : d)),
-    );
-    if (activeIdRef.current === id)
-      setActiveDeployment((prev) => (prev ? { ...prev, status } : null));
-  };
-
-  const updateDeploymentUrl = (id: string, url: string) => {
-    setDeployments((prev) =>
-      prev.map((d) => (d.id === id ? { ...d, url } : d)),
-    );
-    if (activeIdRef.current === id) {
-      setActiveDeployment((prev) => (prev ? { ...prev, url } : null));
-    }
-  };
-
-  const clearProjectCaches = () => {
-    localStorage.removeItem(`${CACHE_KEY_PREFIX}${projectId}`);
-    localStorage.removeItem("hatch_projects_cache");
-    localStorage.removeItem("hatch_insights_cache");
-  };
+  }, [activeId, projectId, queryClient]);
 
   const handleCopyLogs = async () => {
     if (logs.length === 0 || copied) return;
@@ -300,11 +175,17 @@ export default function ProjectDetail() {
       });
       if (redirectIfUnauthorized(res, navigate)) return;
       if (res.ok) {
-        const newDep = await res.json();
-        setDeployments((prev) => [newDep, ...prev]);
-        setActiveDeployment(newDep);
-        setLogs([]);
-        clearProjectCaches();
+        const newDeployment = (await res.json()) as Deployment;
+        queryClient.setQueryData<Deployment[]>(
+          projectDeploymentsQuery(projectId).queryKey,
+          (current) => [newDeployment, ...(current ?? [])],
+        );
+        void queryClient.invalidateQueries({
+          queryKey: projectsQuery().queryKey,
+          exact: true,
+        });
+        void queryClient.invalidateQueries({ queryKey: activityQuery().queryKey });
+        setSelectedDeploymentId(newDeployment.id);
         setNotice({
           type: "success",
           title: "Deployment queued",
@@ -351,14 +232,28 @@ export default function ProjectDetail() {
         return;
       }
 
-      const canceled = await res.json();
-      setDeployments((prev) =>
-        prev.map((d) => (d.id === canceled.id ? canceled : d)),
+      const canceled = (await res.json()) as Deployment;
+      queryClient.setQueryData<Deployment[]>(
+        projectDeploymentsQuery(projectId).queryKey,
+        (current) =>
+          current?.map((deployment) =>
+            deployment.id === canceled.id ? canceled : deployment,
+          ),
       );
-      setActiveDeployment(canceled);
-      setLogs((prev) => [...prev, parseLogLine("Deployment canceled by user")]);
+      void queryClient.invalidateQueries({
+        queryKey: projectsQuery().queryKey,
+        exact: true,
+      });
+      void queryClient.invalidateQueries({ queryKey: activityQuery().queryKey });
+      setSelectedDeploymentId(canceled.id);
+      setLogsById((prev) => ({
+        ...prev,
+        [canceled.id]: [
+          ...(prev[canceled.id] ?? []),
+          parseLogLine("Deployment canceled by user"),
+        ],
+      }));
       wsRef.current?.close();
-      clearProjectCaches();
       setNotice({
         type: "success",
         title: "Deployment canceled",
@@ -368,8 +263,6 @@ export default function ProjectDetail() {
       setCanceling(false);
     }
   };
-
-  if (!mounted) return <PageLoadingState />;
 
   const activeStatus = activeDeployment?.status?.toLowerCase() ?? "";
   const isLive = activeStatus === "live";
@@ -390,7 +283,7 @@ export default function ProjectDetail() {
       className="xl:h-[calc(100vh-64px)] xl:overflow-hidden"
       contentClassName="xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:py-5"
     >
-      <NoticeToast notice={notice} onDismiss={() => setNotice(null)} />
+      <NoticeToast notice={notice} onDismiss={dismiss} />
       <PageTitle
         eyebrow="Service"
         title={loading ? "Loading..." : project?.repo_name || "Service"}
@@ -486,7 +379,7 @@ export default function ProjectDetail() {
             deployments={deployments}
             activeDeployment={activeDeployment}
             projectId={projectId}
-            onSelectDeployment={setActiveDeployment}
+            onSelectDeployment={(deployment) => setSelectedDeploymentId(deployment.id)}
           />
         </aside>
       </main>
@@ -924,6 +817,34 @@ function getStatusTone(
   return "default";
 }
 
+function parseLogLine(line: string): LogLine {
+  const lower = line.toLowerCase();
+  const isSuccess =
+    line.includes("✓") ||
+    line.includes("successfully") ||
+    lower.includes("deployment live at") ||
+    lower.includes("target healthy");
+  const isError =
+    line.includes("✗") || lower.includes("error") || lower.includes("failed");
+  const isSystem = line.startsWith("[") || line.includes("STEP");
+  return {
+    text: line,
+    type: isSuccess
+      ? "success"
+      : isError
+        ? "error"
+        : isSystem
+          ? "system"
+          : "muted",
+    timestamp: new Date().toLocaleTimeString([], {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
+  };
+}
+
 function statusFromLogLine(line: string): string | null {
   const lower = line.toLowerCase();
 
@@ -967,11 +888,6 @@ function statusFromLogLine(line: string): string | null {
   }
 
   return null;
-}
-
-function deploymentUrlFromLogLine(line: string): string | null {
-  if (!line.toLowerCase().includes("deployment live at")) return null;
-  return line.match(/https?:\/\/[^\s]+/)?.[0] ?? null;
 }
 
 function formatRelativeTime(dateStr: string): string {

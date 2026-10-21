@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { clearFlashNotice, peekFlashNotice } from "@/lib/api";
 import type { NoticePayload } from "./NoticeToast";
 
 const AUTO_DISMISS_MS = 5000;
@@ -10,18 +11,26 @@ const AUTO_DISMISS_MS = 5000;
  * few seconds or when dismissed.
  *
  * Pass the error's time (from a query's errorUpdatedAt) as failedAt, or null
- * when nothing failed.
+ * when nothing failed. With showFlash, a notice left by the previous page
+ * (see pushFlashNotice) is shown once.
  */
-export function useNotice(loadError?: {
-  failedAt: number | null;
-  notice: NoticePayload;
-}) {
-  const [notice, setNotice] = useState<NoticePayload | null>(null);
+export function useNotice(
+  loadError?: { failedAt: number | null; notice: NoticePayload },
+  { showFlash = false }: { showFlash?: boolean } = {},
+) {
+  const [notice, setNotice] = useState<NoticePayload | null>(() =>
+    showFlash ? (peekFlashNotice() as NoticePayload | null) : null,
+  );
   const [errorDismissedAt, setErrorDismissedAt] = useState(0);
 
   const errorVisible =
     loadError?.failedAt != null && loadError.failedAt > errorDismissedAt;
   const shownNotice = notice ?? (errorVisible ? loadError!.notice : null);
+
+  // Reading the flash notice is repeatable; it is cleared once shown.
+  useEffect(() => {
+    if (showFlash) clearFlashNotice();
+  }, [showFlash]);
 
   useEffect(() => {
     if (!notice) return;
