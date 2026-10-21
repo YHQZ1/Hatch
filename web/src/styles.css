@@ -16,6 +16,7 @@
   --color-line-strong: #34343d;
   --color-muted: #8b8b95;
   --color-faint: #5c5c66;
+  --color-danger: #fca5a5;
 
   --radius-hatch: 2px;
 
@@ -167,6 +168,7 @@ body {
   --color-line-strong: #d2d2dc;
   --color-muted: #646471;
   --color-faint: #9494a0;
+  --color-danger: #b42318;
   --color-accent: #6d4fe0;
   --color-accent-hover: #5a3ecb;
   --color-accent-ink: #ffffff;

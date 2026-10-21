@@ -19,7 +19,11 @@ export const router = createBrowserRouter([
     HydrateFallback: InitialLoad,
     children: [
       { index: true, ...page(() => import("./routes/Landing")) },
-      { path: "auth", ...page(() => import("./routes/Auth")) },
+      {
+        path: "auth",
+        handle: { title: "Sign in" },
+        ...page(() => import("./routes/Auth")),
+      },
       { path: "auth/success", ...page(() => import("./routes/AuthSuccess")) },
       {
         Component: ProtectedLayout,

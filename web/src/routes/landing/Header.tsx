@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
+import ThemeToggle from "@/components/ThemeToggle";
+import type { Theme } from "@/lib/theme";
 import { scrollToSection } from "@/lib/smoothScroll";
 import Button from "./Button";
 import Container from "./Container";
-import ThemeToggle from "./ThemeToggle";
-import type { Theme } from "./useTheme";
+
 
 const NAV = [
   { id: "product", label: "Product" },

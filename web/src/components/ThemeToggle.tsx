@@ -1,6 +1,6 @@
-import type { Theme } from "./useTheme";
+import type { Theme } from "@/lib/theme";
 
-/** Switches the landing page theme; the change spreads out from this button. */
+/** Switches the page theme; the change spreads out from this button. */
 export default function ThemeToggle({
   theme,
   onToggle,

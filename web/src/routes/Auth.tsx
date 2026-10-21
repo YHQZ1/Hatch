@@ -1,212 +1,190 @@
-import { useEffect, useState } from "react";
-import { siGithub, siGitlab } from "simple-icons";
-import { Link } from "react-router";
+import { useState } from "react";
+import { siGithub } from "simple-icons";
+import { Link, useSearchParams } from "react-router";
 import BrandIcon from "@/components/BrandIcon";
+import ThemeToggle from "@/components/ThemeToggle";
+import { logout } from "@/lib/api";
+import { authErrorMessage } from "@/lib/authErrors";
+import { useTheme } from "@/lib/theme";
+import { useSignedInUser } from "@/lib/useSignedInUser";
+import Backdrop from "./landing/Backdrop";
+import Badge, { type Status } from "./landing/Badge";
+import Button from "./landing/Button";
+import Container from "./landing/Container";
+import Frame from "./landing/Frame";
+
+const NEXT_STEPS: { title: string; body: string; status: Status }[] = [
+  {
+    title: "Choose your repositories",
+    body: "Install the Hatch GitHub App on the repositories Hatch may read. Access is read-only.",
+    status: "development",
+  },
+  {
+    title: "Connect your AWS account",
+    body: "One click to grant Hatch a scoped role. No access keys to copy or store.",
+    status: "planned",
+  },
+  {
+    title: "Deploy",
+    body: "Review the cost estimate, then deploy a Dockerfile and watch the build.",
+    status: "development",
+  },
+];
 
 export default function AuthPage() {
+  const { theme, toggle } = useTheme();
+
   return (
-    <div className="min-h-screen w-full bg-[#030303] text-white flex flex-col relative overflow-hidden selection:bg-white selection:text-black font-sans">
-      <div className="fixed inset-0 z-0 pointer-events-none">
-        <div className="absolute inset-0 bg-grid-pattern opacity-10 [mask-image:radial-gradient(ellipse_at_center,black,transparent_80%)]" />
-        <div className="absolute left-[40%] top-0 bottom-0 w-px bg-[#1f1f1f]" />
-        <div className="absolute top-[30%] left-0 right-0 h-px bg-[#1f1f1f]" />
-      </div>
-
-      <div className="fixed bottom-8 right-8 text-right opacity-[0.03] select-none pointer-events-none z-0">
-        <div className="text-9xl font-bold leading-none tracking-tighter uppercase">
-          Hatch
-        </div>
-      </div>
-
-      <header className="relative z-20 p-8 lg:p-12 flex items-center justify-between">
-        <div className="flex items-center gap-6 px-12 group cursor-default">
-          <span className="font-mono text-[14px] uppercase tracking-[0.4em] text-[#888]">
-            Hatch / Authentication
-          </span>
-        </div>
+    <div
+      data-theme={theme}
+      style={{ colorScheme: theme }}
+      className="flex min-h-screen w-full flex-col bg-base text-ink"
+    >
+      <header className="border-b border-line">
+        <Container className="flex h-16 items-center justify-between">
+          <Link to="/" className="flex items-center gap-2.5">
+            <img src="/hatch.svg" alt="" className="theme-logo h-6 w-6" />
+            <span className="text-lg font-semibold tracking-tight">Hatch</span>
+          </Link>
+          <ThemeToggle theme={theme} onToggle={toggle} />
+        </Container>
       </header>
 
-      <main className="relative z-10 flex-grow flex flex-col lg:flex-row px-8 lg:px-24 h-full">
-        <div className="w-full lg:w-[450px] flex flex-col justify-center gap-10 py-12 lg:py-0 h-full">
-          <Link
-            to="/"
-            className="font-mono text-[12px] text-[#333] hover:text-white transition-colors uppercase tracking-[0.3em] cursor-pointer w-fit"
-          >
-            [ Go Back ]
-          </Link>
-
-          <div className="space-y-4">
-            <h1 className="text-5xl lg:text-7xl font-medium tracking-tighter leading-[0.8] mb-4">
-              Identify <br /> User.
-            </h1>
-            <p className="text-[#888] text-base font-light leading-relaxed max-w-sm">
-              Sign in to start deploying your services to the cloud.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-8">
-            <div className="grid grid-cols-2 gap-px bg-[#1f1f1f] border border-[#1f1f1f]">
-              <a
-                href="/auth/github"
-                className="flex items-center justify-center gap-3 py-4 bg-[#030303] hover:bg-white hover:text-black transition-all group cursor-pointer"
-              >
-                <BrandIcon
-                  icon={siGithub}
-                  color="FFFFFF"
-                  className="w-4 h-4 group-hover:invert transition-all"
-                />
-                <span className="font-mono text-[9px] uppercase tracking-widest font-bold">
-                  GitHub
-                </span>
-              </a>
-              <button
-                disabled
-                className="flex items-center justify-center gap-3 py-4 bg-[#030303] opacity-40 cursor-not-allowed"
-              >
-                <BrandIcon icon={siGitlab} className="w-4 h-4" />
-                <span className="font-mono text-[9px] uppercase tracking-widest font-bold text-[#888]">
-                  GitLab
-                </span>
-              </button>
-            </div>
-
-            <div className="space-y-6">
-              <div className="flex items-center gap-4">
-                <span className="font-mono text-[9px] uppercase text-[#333] tracking-[0.3em] whitespace-nowrap">
-                  Email Login
-                </span>
-                <div className="h-px w-full bg-[#111]" />
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-px bg-[#1f1f1f] border border-[#1f1f1f] opacity-40">
-                  <input
-                    type="email"
-                    placeholder="Email Address"
-                    disabled
-                    className="w-full h-12 bg-[#030303] px-4 text-sm outline-none placeholder-[#444] border-b border-[#1f1f1f] cursor-not-allowed"
-                  />
-                  <input
-                    type="password"
-                    placeholder="Password"
-                    disabled
-                    className="w-full h-12 bg-[#030303] px-4 text-sm outline-none placeholder-[#444] cursor-not-allowed"
-                  />
-                </div>
-                <button
-                  disabled
-                  className="w-full h-14 bg-white text-black font-bold text-xs uppercase tracking-[0.2em] opacity-40 cursor-not-allowed"
-                >
-                  Please use GitHub
-                </button>
-              </div>
+      <main className="grid flex-1 lg:grid-cols-2">
+        <section className="relative flex items-center overflow-hidden">
+          <Backdrop />
+          <div className="relative w-full px-6 py-16 md:px-10 lg:px-16 lg:py-24">
+            <div className="animate-rise mx-auto w-full max-w-md">
+              <SignInCard />
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="hidden lg:flex flex-grow items-center justify-center h-full">
-          <div className="w-[550px] border border-[#1f1f1f] bg-[#050505]/50 flex flex-col relative overflow-hidden shadow-2xl">
-            <div className="p-6 border-b border-[#1f1f1f] flex justify-between items-center bg-[#030303]">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-white animate-pulse" />
-                <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-white">
-                  Production_Cluster_01
-                </span>
-              </div>
-              <span className="font-mono text-[9px] text-[#444] uppercase tracking-widest">
-                Region: US-EAST-1
-              </span>
-            </div>
-
-            <div className="flex flex-grow">
-              <div className="w-1/3 border-r border-[#1f1f1f] p-6 flex flex-col gap-4 overflow-hidden relative">
-                <span className="font-mono text-[9px] text-[#333] uppercase tracking-widest block mb-2">
-                  Live_Pipelines
-                </span>
-                {[...Array(6)].map((_, i) => (
-                  <div key={i} className="space-y-2 opacity-80">
-                    <div className="flex justify-between font-mono text-[8px] text-[#444]">
-                      <span>P-{100 + i}</span>
-                      <span className="text-[#10b981]">OK</span>
-                    </div>
-                    <div className="h-[2px] bg-[#111] relative overflow-hidden">
-                      <div
-                        className="absolute inset-0 bg-white/40 animate-progress"
-                        style={{
-                          animationDelay: `${i * 0.5}s`,
-                          animationDuration: "3s",
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-                <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#050505] to-transparent pointer-events-none" />
-              </div>
-
-              <div className="flex-grow p-8 flex flex-col justify-between relative bg-[#030303]/20">
-                <div className="space-y-6">
-                  <div className="flex justify-between items-center">
-                    <span className="font-mono text-[9px] text-[#333] uppercase tracking-widest">
-                      Global_Edge_Network
-                    </span>
-                    <span className="font-mono text-[10px] text-[#888]">
-                      12.4K req/s
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-12 gap-1 w-full">
-                    {[...Array(120)].map((_, i) => (
-                      <ActivityPip key={i} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-8 border-t border-[#1f1f1f] bg-[#030303] grid grid-cols-3 gap-8">
-              <TelemetryStat label="CPU_CORE_01" value="32%" />
-              <TelemetryStat label="RAM_ALLOC" value="1.2GB" />
-              <TelemetryStat label="I/O_SPEED" value="840MB/S" />
+        <aside className="border-t border-line bg-panel lg:border-l lg:border-t-0">
+          <div className="px-6 py-16 md:px-10 lg:px-16 lg:py-24">
+            <div className="mx-auto w-full max-w-md">
+              <h2 className="text-xl font-semibold tracking-tight">
+                What happens next
+              </h2>
+              <p className="mt-2 leading-relaxed text-muted">
+                Signing in is the first of three steps. Here is the rest of the
+                way to a running service.
+              </p>
+              <Frame className="mt-8">
+                <ol className="divide-y divide-line rounded-hatch border border-line bg-base">
+                  {NEXT_STEPS.map((step, i) => (
+                    <li key={step.title} className="flex gap-4 p-5">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-hatch border border-line-strong text-sm text-muted">
+                        {i + 1}
+                      </span>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                          <h3 className="font-medium">{step.title}</h3>
+                          <Badge status={step.status} />
+                        </div>
+                        <p className="mt-1.5 text-sm leading-relaxed text-muted">
+                          {step.body}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </Frame>
             </div>
           </div>
-        </div>
+        </aside>
       </main>
     </div>
   );
 }
 
-function ActivityPip() {
-  const [active, setActive] = useState(false);
+function SignInCard() {
+  const user = useSignedInUser();
+  const [params] = useSearchParams();
+  const error = authErrorMessage(params.get("error"));
 
-  useEffect(() => {
-    const interval = setInterval(
-      () => {
-        setActive(Math.random() > 0.85);
-      },
-      1000 + Math.random() * 2000,
-    );
-    return () => clearInterval(interval);
-  }, []);
+  if (user.status === "checking") {
+    return <div className="h-72" aria-hidden />;
+  }
+  if (user.status === "signed-in") {
+    return <SignedIn username={user.user.username} onSignedOut={user.refresh} />;
+  }
 
   return (
-    <div
-      className={`aspect-square border border-white/[0.03] transition-colors duration-700 ${active ? "bg-white/40" : "bg-white/[0.03]"}`}
-    />
+    <div>
+      <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+        Sign in to Hatch
+      </h1>
+      <p className="mt-3 leading-relaxed text-muted">
+        Continue with your GitHub account. If you are new, signing in creates
+        your account.
+      </p>
+
+      {error && (
+        <div
+          role="alert"
+          className="mt-8 rounded-hatch border border-danger/40 bg-danger/10 px-4 py-3 text-sm leading-relaxed text-danger"
+        >
+          {error}
+        </div>
+      )}
+
+      <Button
+        href="/auth/github"
+        sameTab
+        className="mt-8 h-12 w-full text-base"
+        icon={<BrandIcon icon={siGithub} color="currentColor" className="h-5 w-5" />}
+      >
+        Continue with GitHub
+      </Button>
+
+      <p className="mt-6 text-sm leading-relaxed text-muted">
+        Hatch learns your GitHub username and nothing else about you. It can
+        read a repository only after you install the Hatch App on it, and then
+        only to read.
+      </p>
+      <Link
+        to="/"
+        className="mt-8 inline-block text-sm text-muted transition-colors hover:text-ink"
+      >
+        Back to home
+      </Link>
+    </div>
   );
 }
 
-function TelemetryStat({ label, value }: { label: string; value: string }) {
+function SignedIn({
+  username,
+  onSignedOut,
+}: {
+  username: string;
+  onSignedOut: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
   return (
-    <div className="space-y-2">
-      <span className="font-mono text-[8px] text-[#333] uppercase tracking-widest block">
-        {label}
-      </span>
-      <div className="flex items-end gap-2">
-        <span className="font-mono text-xs text-white leading-none">
-          {value}
-        </span>
-        <div className="flex-grow h-[1px] bg-[#111] mb-1" />
-      </div>
+    <div>
+      <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+        You are signed in
+      </h1>
+      <p className="mt-3 leading-relaxed text-muted">
+        Signed in as <span className="font-medium text-ink">@{username}</span>.
+      </p>
+      <Button to="/console" className="mt-8 h-12 w-full text-base">
+        Continue to the console
+      </Button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          await logout();
+          onSignedOut();
+        }}
+        className="mt-6 text-sm text-muted transition-colors hover:text-ink disabled:opacity-50"
+      >
+        Not you? Sign out
+      </button>
     </div>
   );
 }

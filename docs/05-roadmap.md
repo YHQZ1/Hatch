@@ -11,8 +11,8 @@ _Update this section at the end of every working session._
 | --- | --- |
 | Current phase | 1, Simplify the core and build the local target |
 | Branch | `feat/landing-page` (pull request to `main`) |
-| Last done | Landing page rewritten: Render-style positioning, cost guardrails, Available / In development / Planned badges, a light purple accent, scroll effects, a light theme with a circular switch, and eased scrolling (Lenis, landing only). Before that, foundation finished: pgx driver with real-Postgres tests for every query group, structured logging with slog, and Hatch as one program (`serve`, `worker`, `migrate`). Before that: React + Vite UI embedded in the binary |
-| Next | Sign-in with a GitHub App (needs one created by the owner). The 2px corner radius and the accent have not been applied to the console pages yet |
+| Last done | Sign-in: GitHub App sign-in, server-side sessions, and the new sign-in page (branch `feat/sign-in`, stacked on the landing page, nothing pushed). Before that, landing page rewritten: Render-style positioning, cost guardrails, Available / In development / Planned badges, a light purple accent, scroll effects, a light theme with a circular switch, and eased scrolling (Lenis, landing only). Before that, foundation finished: pgx driver with real-Postgres tests for every query group, structured logging with slog, and Hatch as one program (`serve`, `worker`, `migrate`). Before that: React + Vite UI embedded in the binary |
+| Next | The "see and create a service" slice: install the GitHub App, list repositories, create a service. The 2px corner radius and the accent have not been applied to the console pages yet |
 | Blockers | None. No AWS access (by design until Phase 6) |
 
 ## Phase 0: Foundation
@@ -71,11 +71,16 @@ something that can be demonstrated on a laptop.
 
 **Slice: sign in**
 
-- [ ] GitHub App for sign-in, repository access, and webhooks
-  ([ADR 0010](decisions/0010-github-app.md)) and server-side sessions
-  ([ADR 0013](decisions/0013-server-side-sessions.md)), replacing the OAuth App
-  and JWT cookie. Needs a GitHub App created by the owner. Touches the auth
-  pages, navbar, and sign-out.
+- [x] Sign-in with a GitHub App ([ADR 0010](decisions/0010-github-app.md)) and
+  server-side sessions ([ADR 0013](decisions/0013-server-side-sessions.md)),
+  replacing the OAuth App and JWT cookie; a new sign-in page that shows why a
+  sign-in failed and what comes next. Setup is in
+  [07-github-app-setup.md](07-github-app-setup.md).
+- [ ] Still to do for repository access (next slice): refresh the GitHub App
+  user token (it expires after 8 hours), list repositories through the App's
+  installations, send users to install the App, and drop per-project webhooks
+  and the stored token ([ADR 0010](decisions/0010-github-app.md)). The console
+  pages still use the old look until their slices rebuild them.
 
 **Slice: see and create a service**
 
@@ -192,7 +197,8 @@ Planned, in priority order ([ADR 0015](decisions/0015-v1-runs-web-services-only.
    caches last.
 
 Later: preview environments per pull request, Dockerfile-less builds, teams
-and roles, more clouds.
+and roles, more clouds, and documented, supported self-hosting (Hatch is
+hosted-first; anyone can run the code, but it is not a supported path yet).
 
 ## Testing without AWS
 

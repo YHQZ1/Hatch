@@ -19,6 +19,8 @@ export default function Button({
   to,
   href,
   icon,
+  sameTab = false,
+  className: extraClass = "",
   children,
 }: {
   variant?: Variant;
@@ -26,9 +28,13 @@ export default function Button({
   href?: string;
   /** Shown before the label. */
   icon?: ReactNode;
+  /** Opens `href` in this tab instead of a new one. */
+  sameTab?: boolean;
+  /** Extra classes, for example to make the button fill its row. */
+  className?: string;
   children: ReactNode;
 }) {
-  const className = `${BASE} ${VARIANTS[variant]}`;
+  const className = `${BASE} ${VARIANTS[variant]} ${extraClass}`;
   if (to) {
     return (
       <Link to={to} className={className}>
@@ -40,8 +46,7 @@ export default function Button({
   return (
     <a
       href={href}
-      target="_blank"
-      rel="noopener noreferrer"
+      {...(sameTab ? {} : { target: "_blank", rel: "noopener noreferrer" })}
       className={className}
     >
       {icon}

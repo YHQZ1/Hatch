@@ -1,4 +1,5 @@
 import { useSmoothScroll } from "@/lib/smoothScroll";
+import { useTheme } from "@/lib/theme";
 import Footer from "./landing/Footer";
 import Guardrails from "./landing/Guardrails";
 import Header from "./landing/Header";
@@ -7,7 +8,7 @@ import HowItWorks from "./landing/HowItWorks";
 import Product from "./landing/Product";
 import Roadmap from "./landing/Roadmap";
 import Workloads from "./landing/Workloads";
-import { useTheme } from "./landing/useTheme";
+
 
 export default function Landing() {
   useSmoothScroll();

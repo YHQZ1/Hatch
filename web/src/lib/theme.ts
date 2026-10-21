@@ -4,7 +4,7 @@ import { prefersReducedMotion } from "@/lib/motion";
 
 export type Theme = "dark" | "light";
 
-const STORAGE_KEY = "hatch-landing-theme";
+const STORAGE_KEY = "hatch-theme";
 const DURATION_MS = 450;
 
 function readStoredTheme(): Theme {
@@ -16,7 +16,7 @@ function readStoredTheme(): Theme {
 }
 
 /**
- * The landing page theme. Switching uses the View Transitions API so the new
+ * The theme of the landing and sign-in pages. Switching uses the View Transitions API so the new
  * theme spreads from the click point as a circle, with every element changing
  * together; without the API (or with reduced motion) it switches instantly.
  */
