@@ -2,6 +2,7 @@ import { Link } from "react-router";
 import AuthScene from "./auth/AuthScene";
 import SignInCard from "./auth/SignInCard";
 import Frame from "./landing/Frame";
+import Logo from "@/components/Logo";
 
 export default function AuthPage() {
   // The theme is whatever the visitor chose on the landing page; it is applied
@@ -14,7 +15,7 @@ export default function AuthPage() {
         to="/"
         className="absolute left-6 top-6 z-10 flex items-center gap-2.5 md:left-10 lg:left-16"
       >
-        <img src="/hatch.svg" alt="" className="theme-logo h-7 w-7" />
+        <Logo className="h-7 w-7" />
         <span className="text-lg font-semibold tracking-tight">Hatch</span>
       </Link>
 

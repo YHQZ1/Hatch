@@ -4,6 +4,7 @@ import type { Theme } from "@/lib/theme";
 import { scrollToSection } from "@/lib/smoothScroll";
 import Button from "./Button";
 import Container from "@/components/Container";
+import Logo from "@/components/Logo";
 
 
 const NAV = [
@@ -56,7 +57,7 @@ export default function Header({
             }}
             className="flex items-center gap-2.5"
           >
-            <img src="/hatch.svg" alt="" className="theme-logo h-6 w-6" />
+            <Logo className="h-6 w-6" />
             <span className="text-lg font-semibold tracking-tight">Hatch</span>
           </a>
           <nav className="hidden items-center gap-7 text-sm md:flex">

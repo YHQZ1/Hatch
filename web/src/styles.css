@@ -186,9 +186,20 @@ body {
   --color-accent-ink: #ffffff;
 }
 
-/* The placeholder logo is white; flip it on the light theme. */
-[data-theme="light"] .theme-logo {
-  filter: invert(1);
+/* The logo (components/Logo, drawn from public/hatch.svg) uses two colours: white
+   lines and a lavender glow. Here each follows the theme, so the lines are the
+   text colour and the glow is the accent: unchanged on dark, and dark lines with
+   the light theme's purple on light. If the file's colours change, change the
+   selectors and components/logoColours.ts to match; a colour nothing matches is
+   simply drawn as the file has it. */
+.hatch-logo [stroke="#fff"] {
+  stroke: var(--color-ink);
+}
+.hatch-logo [stroke="#c4b5fd"] {
+  stroke: var(--color-accent);
+}
+.hatch-logo [fill="#c4b5fd"] {
+  fill: var(--color-accent);
 }
 
 /* Circular theme switch: the new theme is revealed by an expanding circle. */

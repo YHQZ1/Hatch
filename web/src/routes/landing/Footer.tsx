@@ -11,6 +11,7 @@ import {
   REPO_URL,
   ROADMAP_URL,
 } from "./links";
+import Logo from "@/components/Logo";
 
 const EXTERNAL = [
   { label: "Documentation", href: DOCS_URL },
@@ -46,7 +47,7 @@ export default function Footer() {
         <Container className="grid gap-10 py-14 sm:grid-cols-[1.5fr_1fr_1fr]">
           <div>
             <div className="flex items-center gap-2.5">
-              <img src="/hatch.svg" alt="" className="theme-logo h-5 w-5" />
+              <Logo className="h-5 w-5" />
               <span className="font-semibold tracking-tight">Hatch</span>
             </div>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted">
