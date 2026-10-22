@@ -3,7 +3,8 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { PageLoadingState } from "@/components/LoadingState";
 import { NoticeToast, type NoticePayload } from "@/components/NoticeToast";
 import { useNotice } from "@/components/useNotice";
-import { AppShell, PageTitle } from "@/components/ui";
+import PageHeading from "@/components/PageHeading";
+import { AppShell } from "@/components/ui";
 import { clearClientSession, logout } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { meQuery } from "@/lib/queries";
@@ -63,11 +64,12 @@ export default function SettingsPage() {
   if (me.isPending) return <PageLoadingState />;
 
   return (
-    <AppShell>
+    <AppShell contentClassName="py-8">
       <NoticeToast notice={notice} onDismiss={dismiss} />
-      <PageTitle
+      <PageHeading
         title="Settings"
         description="Your account, and how Hatch connects to GitHub and AWS."
+        className="mb-6"
       />
 
       <div className="grid gap-8 lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-12">
