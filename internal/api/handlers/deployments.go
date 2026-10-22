@@ -167,7 +167,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		branch = project.Branch
 	}
 
-	healthCheck, err := normalizeHealthCheckPath(body.HealthCheck)
+	healthCheck, err := effectiveHealthCheck(body.HealthCheck, project.HealthCheck)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -479,6 +479,15 @@ func firstCommitLine(message string) string {
 		}
 	}
 	return message
+}
+
+// effectiveHealthCheck is the health check path a request asks for, or the
+// project's own when it asks for none.
+func effectiveHealthCheck(requested, projectDefault string) (string, error) {
+	if strings.TrimSpace(requested) == "" {
+		requested = projectDefault
+	}
+	return normalizeHealthCheckPath(requested)
 }
 
 func normalizeHealthCheckPath(raw string) (string, error) {

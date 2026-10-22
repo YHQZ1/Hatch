@@ -150,7 +150,10 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 	if project.Subdomain != nil && *project.Subdomain != "" {
 		resourceName = *project.Subdomain
 	}
-	healthCheck := h.latestHealthCheck(c.Request.Context(), project.ID)
+	healthCheck, err := effectiveHealthCheck("", project.HealthCheck)
+	if err != nil {
+		healthCheck = "/"
+	}
 
 	tx, err := h.pool.Begin(c.Request.Context())
 	if err != nil {
@@ -250,24 +253,6 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		"status": "deploying",
 		"id":     deployment.ID,
 	})
-}
-
-func (h *WebhookHandler) latestHealthCheck(ctx context.Context, projectID uuid.UUID) string {
-	var healthCheck string
-	err := h.pool.QueryRow(
-		ctx,
-		`
-			SELECT health_check
-			FROM deployments
-			WHERE project_id = $1
-			ORDER BY created_at DESC
-			LIMIT 1`,
-		projectID,
-	).Scan(&healthCheck)
-	if err != nil || strings.TrimSpace(healthCheck) == "" {
-		return "/"
-	}
-	return healthCheck
 }
 
 func (h *WebhookHandler) matchWebhookProject(ctx context.Context, projects []dbpkg.Project, body []byte, signature string) (dbpkg.Project, bool) {

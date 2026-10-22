@@ -56,7 +56,7 @@ func createProject(t *testing.T, q *dbpkg.Queries, user dbpkg.User, subdomain st
 	project, err := q.CreateProject(context.Background(), dbpkg.CreateProjectParams{
 		UserID: user.ID, RepoName: "octo/" + subdomain, RepoUrl: "https://github.com/octo/" + subdomain,
 		Branch: "main", DockerfilePath: "Dockerfile", Port: 8080,
-		Subdomain: str(subdomain), WebhookSecret: str("secret"),
+		Subdomain: str(subdomain), WebhookSecret: str("secret"), HealthCheck: "/",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -185,12 +185,12 @@ func TestProjectUpdates(t *testing.T) {
 
 	updated, err := q.UpdateProjectSettings(ctx, dbpkg.UpdateProjectSettingsParams{
 		ID: project.ID, UserID: user.ID, RepoName: "octo/renamed", Branch: "release",
-		DockerfilePath: "api/Dockerfile", Port: 9000, AutoDeploy: false,
+		DockerfilePath: "api/Dockerfile", Port: 9000, AutoDeploy: false, HealthCheck: "/ready",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.RepoName != "octo/renamed" || updated.Branch != "release" || updated.Port != 9000 || updated.AutoDeploy {
+	if updated.RepoName != "octo/renamed" || updated.Branch != "release" || updated.Port != 9000 || updated.AutoDeploy || updated.HealthCheck != "/ready" {
 		t.Fatalf("settings not applied: %+v", updated)
 	}
 

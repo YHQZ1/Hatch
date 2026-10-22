@@ -44,6 +44,7 @@ type ProjectResponse struct {
 	Branch            string  `json:"branch"`
 	DockerfilePath    string  `json:"dockerfile_path"`
 	Port              int32   `json:"port"`
+	HealthCheck       string  `json:"health_check"`
 	Subdomain         *string `json:"subdomain"`
 	Status            string  `json:"status"`
 	DeleteRequestedAt *string `json:"delete_requested_at"`
@@ -95,6 +96,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		Branch         string            `json:"branch"`
 		DockerfilePath string            `json:"dockerfile_path" binding:"required"`
 		Port           int32             `json:"port" binding:"required"`
+		HealthCheck    string            `json:"health_check"`
 		EnvVars        map[string]string `json:"env_vars"`
 	}
 
@@ -127,6 +129,12 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 	}
 	if body.Port < 1 || body.Port > 65535 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "port must be between 1 and 65535"})
+		return
+	}
+
+	healthCheck, err := normalizeHealthCheckPath(body.HealthCheck)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -168,6 +176,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		Port:           body.Port,
 		Subdomain:      ptr(subdomain),
 		WebhookSecret:  ptr(storedSecret),
+		HealthCheck:    healthCheck,
 	})
 
 	if err != nil {
@@ -274,6 +283,7 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 		Branch         string `json:"branch"`
 		DockerfilePath string `json:"dockerfile_path"`
 		Port           int32  `json:"port"`
+		HealthCheck    string `json:"health_check"`
 		AutoDeploy     *bool  `json:"auto_deploy"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -315,6 +325,12 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 	}
 	if port < 1 || port > 65535 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "port must be between 1 and 65535"})
+		return
+	}
+
+	healthCheck, err := effectiveHealthCheck(body.HealthCheck, current.HealthCheck)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -413,6 +429,7 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 		DockerfilePath: dockerfilePath,
 		Port:           port,
 		AutoDeploy:     autoDeploy,
+		HealthCheck:    healthCheck,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update project"})
@@ -712,6 +729,7 @@ func toProjectResponse(project dbpkg.Project) ProjectResponse {
 		Branch:         project.Branch,
 		DockerfilePath: project.DockerfilePath,
 		Port:           project.Port,
+		HealthCheck:    project.HealthCheck,
 		Status:         project.Status,
 		CreatedAt:      project.CreatedAt.Format(time.RFC3339),
 	}

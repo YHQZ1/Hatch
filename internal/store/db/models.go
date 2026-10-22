@@ -67,6 +67,7 @@ type Project struct {
 	DeleteRequestedAt *time.Time `json:"delete_requested_at"`
 	DeleteError       *string    `json:"delete_error"`
 	CreatedAt         time.Time  `json:"created_at"`
+	HealthCheck       string     `json:"health_check"`
 }
 
 type ProjectEnvVar struct {
