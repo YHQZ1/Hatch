@@ -74,6 +74,15 @@ Read, in order:
   The UI makes no third-party requests (the CSP in `internal/api/spa` forbids
   them), so bundle fonts and icons. Deployed-app addresses come from
   `GET /api/config`, never from build-time variables.
+- Web wording: a deployable repository is a **project** in everything users read
+  (the database and API already say so); do not bring back "service" in
+  user-facing copy. A project's icon comes from `GET /api/projects/:id/icon`,
+  which fetches the favicon from the running app itself and never from an
+  address the page names; the UI falls back to the Hatch logo,
+  `public/hatch.svg`, drawn by `components/Logo`, which is also what every other
+  logo on the site uses. Never hardcode the logo or use an `<img>` for it: it is
+  drawn inline so its two colours follow the theme (see `.hatch-logo` in
+  `styles.css`).
 - Web styling: colours are design tokens (`text-ink`, `text-muted`, `bg-base`,
   `border-line`, `text-accent`; see `styles.css`), never fixed grays or hex
   values, so both themes work. `base` is a *colour* token, so `text-base` sets

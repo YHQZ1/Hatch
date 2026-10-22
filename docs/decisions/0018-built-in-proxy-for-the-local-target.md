@@ -47,3 +47,15 @@ laptop with nothing to install beyond Docker. Browsers resolve `*.localhost` to
   traffic.
 - This changes where the architecture doc's "Local proxy" row points; that row
   is updated with this record.
+
+## Traffic counts (added 2026-10-22)
+
+Because every request to an app passes through the proxy, the proxy counts them:
+per app, per minute, for the last hour (requests, 5xx responses, time to first
+byte), in memory, in `proxy.Stats`. `GET /api/traffic` serves them to the
+console's Overview, limited to the signed-in user's apps. The counts start from
+zero when Hatch starts and are not shared between processes, so the API and the
+proxy must run in one process (`hatch serve`); on the AWS target nothing counts
+and the endpoint says it is unavailable. The time of an app's last request is
+kept beyond the hour, as the basis for idle detection in the cost guardrails
+(Phase 4).

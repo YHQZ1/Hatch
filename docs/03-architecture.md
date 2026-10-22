@@ -311,6 +311,12 @@ New or changed tables (names provisional):
   ([0018](decisions/0018-built-in-proxy-for-the-local-target.md)). Browsers
   resolve `*.localhost` to 127.0.0.1, so no DNS setup is needed for
   development.
+- Project icons: `GET /api/projects/:id/icon` fetches the favicon the running
+  app declares (its `<link rel="icon">`, then `/favicon.ico`), only from the app
+  itself, and the console falls back to Hatch's mark when there is none.
+- Traffic: the proxy counts requests per app for the last hour (in memory) and
+  the API serves them at `GET /api/traffic`, so the console shows traffic with
+  no extra component ([0018](decisions/0018-built-in-proxy-for-the-local-target.md#traffic-counts-added-2026-10-22)).
 - Cost estimate: shows `$0 (local)`; guardrails such as expiry and idle pause
   still apply, so the flow is identical to AWS.
 
