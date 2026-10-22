@@ -25,13 +25,35 @@ export const router = createBrowserRouter([
         ...page(() => import("./routes/Auth")),
       },
       { path: "auth/success", ...page(() => import("./routes/AuthSuccess")) },
+      // The Overview used to live at /console.
+      { path: "console", element: <Navigate to="/overview" replace /> },
       {
         Component: ProtectedLayout,
         children: [
           {
-            path: "console",
-            handle: { title: "Deployment Console" },
-            ...page(() => import("./routes/Console")),
+            path: "overview",
+            handle: { title: "Overview" },
+            ...page(() => import("./routes/Overview")),
+          },
+          {
+            path: "services",
+            handle: { title: "Services" },
+            ...page(() => import("./routes/Services")),
+          },
+          {
+            path: "deployments",
+            handle: { title: "Deployments" },
+            ...page(() => import("./routes/Deployments")),
+          },
+          {
+            path: "cost",
+            handle: { title: "Cost" },
+            ...page(() => import("./routes/Cost")),
+          },
+          {
+            path: "resources",
+            handle: { title: "Resources" },
+            ...page(() => import("./routes/Resources")),
           },
           {
             path: "insights",
@@ -40,7 +62,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "activity",
-            handle: { title: "Your Activity" },
+            handle: { title: "Activity" },
             ...page(() => import("./routes/Activity")),
           },
           {
@@ -50,7 +72,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "projects/:id",
-            handle: { title: "Deployment Console" },
+            handle: { title: "Service" },
             ...page(() => import("./routes/Project")),
           },
           {
@@ -64,10 +86,12 @@ export const router = createBrowserRouter([
             ...page(() => import("./routes/Deployment")),
           },
           {
-            path: "u/:id",
-            handle: { title: "Account Settings" },
-            ...page(() => import("./routes/User")),
+            path: "settings",
+            handle: { title: "Settings" },
+            ...page(() => import("./routes/Settings")),
           },
+          // Settings used to live at /u/<username>.
+          { path: "u/:id", element: <Navigate to="/settings" replace /> },
           {
             path: "infrastructure",
             element: <Navigate to="/insights" replace />,

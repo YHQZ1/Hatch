@@ -146,9 +146,9 @@ export default function DeploymentDetailClient() {
 
   if (!deployment) {
     return (
-      <div className="flex h-[calc(100vh-64px)] items-center justify-center bg-[#050505] text-zinc-600">
+      <div className="flex h-[calc(100vh-64px)] items-center justify-center bg-base text-faint">
         <div className="text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-700">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-faint">
             Deployment unavailable
           </p>
           <Button
@@ -219,7 +219,7 @@ export default function DeploymentDetailClient() {
         }
       />
 
-      <div className="mb-7 grid grid-cols-2 gap-x-8 gap-y-4 border-b border-white/[0.08] pb-7 sm:flex sm:items-end sm:gap-12 xl:mb-5 xl:shrink-0 xl:pb-5">
+      <div className="mb-7 grid grid-cols-2 gap-x-8 gap-y-4 border-b border-line pb-7 sm:flex sm:items-end sm:gap-12 xl:mb-5 xl:shrink-0 xl:pb-5">
         <SummaryMetric label="Status" value={resultLabel} tone={statusTone} />
         <SummaryMetric label="Deployment" value={shortDeploymentId} />
         <SummaryMetric label="Commit" value={commitLabel} />
@@ -263,7 +263,7 @@ export default function DeploymentDetailClient() {
 
             <InfoCard title="Recent Logs">
               {recentLogs.length === 0 ? (
-                <p className="font-mono text-sm text-zinc-700">
+                <p className="font-mono text-sm text-faint">
                   No log lines recorded for this deployment.
                 </p>
               ) : (
@@ -283,7 +283,7 @@ export default function DeploymentDetailClient() {
 
           <aside className="space-y-7 pb-8">
             <InfoCard title="Deployment ID">
-              <code className="block break-all font-mono text-sm leading-relaxed text-zinc-400">
+              <code className="block break-all font-mono text-sm leading-relaxed text-muted">
                 {deployment.id}
               </code>
               <div className="mt-5 space-y-3">
@@ -303,7 +303,7 @@ export default function DeploymentDetailClient() {
                       href={liveUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[#5cc98f] hover:underline"
+                      className="text-success hover:underline"
                     >
                       {liveUrl.replace(/^https?:\/\//, "")}
                     </a>
@@ -335,8 +335,8 @@ function InfoCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="border-y border-white/[0.08] py-5">
-      <p className="mb-5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+    <section className="border-y border-line py-5">
+      <p className="mb-5 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">
         {title}
       </p>
       <div className="space-y-4">{children}</div>
@@ -358,16 +358,16 @@ function HeroPanel({
   active: boolean;
 }) {
   return (
-    <section className="rounded-xl border border-white/[0.08] bg-white/[0.018] p-5 sm:p-6">
+    <section className="rounded-hatch border border-line bg-ink/[0.018] p-5 sm:p-6">
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <StatusText tone={statusTone} pulse={active}>
           {resultLabel}
         </StatusText>
-        <span className="font-mono text-[10px] text-zinc-700">
+        <span className="font-mono text-[11px] text-faint">
           {formatDateTime(deployment.created_at)}
         </span>
       </div>
-      <h2 className="max-w-4xl text-2xl font-medium leading-tight tracking-tight text-white sm:text-3xl">
+      <h2 className="max-w-4xl text-2xl font-medium leading-tight tracking-tight text-ink sm:text-3xl">
         {deployment.commit_message ||
           `Deployment for ${project?.repo_name || "service"}`}
       </h2>
@@ -398,7 +398,7 @@ function PipelinePanel({
   deployment: Deployment;
 }) {
   return (
-    <section className="grid overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.018] lg:grid-cols-4">
+    <section className="grid overflow-hidden rounded-hatch border border-line bg-ink/[0.018] lg:grid-cols-4">
       {PIPELINE_STEPS.map((step, index) => {
         const done = !isFailed && !isCanceled && pipelineIndex >= index;
         const current = active && pipelineIndex === index;
@@ -414,10 +414,10 @@ function PipelinePanel({
         return (
           <div
             key={step.key}
-            className="border-b border-white/[0.08] p-5 last:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0"
+            className="border-b border-line p-5 last:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0"
           >
             <div className="mb-4 flex items-center justify-between gap-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-600">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-faint">
                 Step {String(index + 1).padStart(2, "0")}
               </p>
               <StatusText tone={tone} pulse={current}>
@@ -426,16 +426,16 @@ function PipelinePanel({
             </div>
             <p
               className={cn(
-                "text-base font-medium",
-                done && "text-white",
-                current && "text-[#d8ad4f]",
-                terminalProblem && "text-[#d86666]",
-                !done && !current && !terminalProblem && "text-zinc-700",
+                "text-[1rem] font-medium",
+                done && "text-ink",
+                current && "text-warning",
+                terminalProblem && "text-danger",
+                !done && !current && !terminalProblem && "text-faint",
               )}
             >
               {step.label}
             </p>
-            <p className="mt-2 font-mono text-[10px] text-zinc-700">
+            <p className="mt-2 font-mono text-[11px] text-faint">
               {step.key === "queued"
                 ? formatTime(deployment.created_at)
                 : step.key === "live" && deployment.deployed_at
@@ -463,16 +463,16 @@ function SummaryMetric({
   tone?: DeploymentTone;
 }) {
   const colors = {
-    default: "text-white",
-    success: "text-[#5cc98f]",
-    warning: "text-[#d8ad4f]",
-    danger: "text-[#d86666]",
-    muted: "text-zinc-500",
+    default: "text-ink",
+    success: "text-success",
+    warning: "text-warning",
+    danger: "text-danger",
+    muted: "text-muted",
   } satisfies Record<DeploymentTone, string>;
 
   return (
     <div className="min-w-0">
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+      <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-faint">
         {label}
       </p>
       <p className={cn("truncate font-mono text-sm", colors[tone])}>{value}</p>
@@ -483,10 +483,10 @@ function SummaryMetric({
 function MiniKv({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-faint">
         {label}
       </span>
-      <span className="truncate text-right font-mono text-xs text-zinc-500">
+      <span className="truncate text-right font-mono text-xs text-muted">
         {value}
       </span>
     </div>
@@ -495,11 +495,11 @@ function MiniKv({ label, value }: { label: string; value: string }) {
 
 function StaticMini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-lg border border-white/[0.08] bg-black px-4 py-3">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+    <div className="min-w-0 rounded-hatch border border-line bg-base px-4 py-3">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-faint">
         {label}
       </p>
-      <p className="truncate font-mono text-sm text-zinc-400">{value}</p>
+      <p className="truncate font-mono text-sm text-muted">{value}</p>
     </div>
   );
 }
@@ -517,10 +517,10 @@ function Kv({
     <div
       className={`grid gap-3 ${wide ? "grid-cols-1" : "grid-cols-[120px_minmax(0,1fr)]"}`}
     >
-      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-faint">
         {label}
       </span>
-      <span className="min-w-0 truncate text-right font-mono text-xs text-zinc-500">
+      <span className="min-w-0 truncate text-right font-mono text-xs text-muted">
         {value}
       </span>
     </div>
@@ -548,11 +548,11 @@ function deploymentStatusTone(status: string): DeploymentTone {
 
 function logColor(text: string) {
   const lower = text.toLowerCase();
-  if (lower.includes("failed") || lower.includes("error")) return "text-[#d86666]";
+  if (lower.includes("failed") || lower.includes("error")) return "text-danger";
   if (lower.includes("success") || lower.includes("live at") || lower.includes("healthy")) {
-    return "text-[#5cc98f]";
+    return "text-success";
   }
-  return "text-zinc-600";
+  return "text-faint";
 }
 
 function repoLabel(repoUrl?: string) {

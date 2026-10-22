@@ -292,7 +292,7 @@ export default function ProjectDetail() {
         className="xl:mb-5 xl:pb-5"
         actions={
           <>
-            <Button variant="ghost" href="/console">
+            <Button variant="ghost" href="/overview">
               Back
             </Button>
             {liveUrl && (
@@ -314,7 +314,7 @@ export default function ProjectDetail() {
         }
       />
 
-      <div className="mb-6 grid grid-cols-2 overflow-hidden rounded-md border border-white/[0.09] bg-[#080808] sm:grid-cols-4 xl:mb-5 xl:shrink-0">
+      <div className="mb-6 grid grid-cols-2 overflow-hidden rounded-hatch border border-line bg-base sm:grid-cols-4 xl:mb-5 xl:shrink-0">
         <ServiceMetric
           label="Status"
           value={activeDeployment?.status || "Idle"}
@@ -431,18 +431,18 @@ function CurrentRunPanel({
               href={liveUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-4 flex min-w-0 items-center justify-between gap-3 rounded-md border border-white/[0.09] bg-black/40 px-3 py-2.5 text-[11px] text-zinc-400 transition-colors hover:border-white/20 hover:text-white"
+              className="mt-4 flex min-w-0 items-center justify-between gap-3 rounded-hatch border border-line bg-base/40 px-3 py-2.5 text-[11px] text-muted transition-colors hover:border-line-strong hover:text-ink"
             >
               <span className="truncate font-mono">
                 {liveUrl.replace(/^https?:\/\//, "")}
               </span>
-              <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-zinc-700">
+              <span className="shrink-0 font-mono text-[11px] uppercase tracking-[0.12em] text-faint">
                 Open
               </span>
             </a>
           )}
 
-          <div className="mt-5 divide-y divide-white/[0.065] border-y border-white/[0.065]">
+          <div className="mt-5 divide-y divide-line border-y border-line">
             <DetailRow label="Branch" value={activeDeployment.branch} mono />
             <DetailRow label="Port" value={String(activeDeployment.port)} />
             <DetailRow
@@ -463,7 +463,7 @@ function CurrentRunPanel({
         </div>
       ) : (
         <div className="py-2">
-          <p className="text-sm leading-6 text-zinc-600">
+          <p className="text-sm leading-6 text-faint">
             No deployments have been created for this service yet.
           </p>
         </div>
@@ -530,13 +530,13 @@ function HistoryPanel({
         <div className="space-y-4 py-1">
           {Array.from({ length: 3 }).map((_, index) => (
             <div key={index} className="space-y-2 opacity-70">
-              <div className="h-2 w-20 animate-pulse rounded-full bg-zinc-900" />
-              <div className="h-2 w-32 animate-pulse rounded-full bg-zinc-900/70" />
+              <div className="h-2 w-20 animate-pulse rounded-full bg-line" />
+              <div className="h-2 w-32 animate-pulse rounded-full bg-line/70" />
             </div>
           ))}
         </div>
       ) : deployments.length === 0 ? (
-        <p className="py-2 text-sm text-zinc-700">No deployments yet.</p>
+        <p className="py-2 text-sm text-faint">No deployments yet.</p>
       ) : (
         <div className="-mx-4 max-h-[330px] overflow-y-auto">
           {deployments.map((deployment, index) => {
@@ -549,10 +549,10 @@ function HistoryPanel({
               <div
                 key={deployment.id}
                 className={cn(
-                  "group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-white/[0.055] px-4 py-3 transition-colors first:border-t-0",
+                  "group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-line px-4 py-3 transition-colors first:border-t-0",
                   isActive
-                    ? "bg-white/[0.045]"
-                    : "hover:bg-white/[0.025]",
+                    ? "bg-ink/[0.045]"
+                    : "hover:bg-ink/[0.025]",
                 )}
               >
                 <button
@@ -568,28 +568,28 @@ function HistoryPanel({
                       {deployment.status}
                     </StatusText>
                     {index === 0 && (
-                      <span className="font-mono text-[8px] uppercase tracking-[0.14em] text-zinc-700">
+                      <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
                         latest
                       </span>
                     )}
                   </div>
-                  <div className="mt-1.5 flex min-w-0 items-center gap-2 font-mono text-[10px] text-zinc-700">
+                  <div className="mt-1.5 flex min-w-0 items-center gap-2 font-mono text-[11px] text-faint">
                     <span>{deployment.id.slice(0, 8)}</span>
-                    <span className="text-zinc-800">/</span>
+                    <span className="text-faint">/</span>
                     <span className="truncate">{deployment.branch}</span>
                     <span className="ml-auto shrink-0">
                       {formatRelativeTime(deployment.created_at)}
                     </span>
                   </div>
                   {deployment.commit_message && (
-                    <p className="mt-1 truncate text-[10px] text-zinc-700">
+                    <p className="mt-1 truncate text-[11px] text-faint">
                       {deployment.commit_message}
                     </p>
                   )}
                 </button>
                 <Link
                   to={`/projects/${projectId}/deployments/${deployment.id}`}
-                  className="font-mono text-[9px] uppercase tracking-[0.14em] text-zinc-700 transition-colors group-hover:text-zinc-500 hover:!text-white"
+                  className="font-mono text-[11px] uppercase tracking-[0.14em] text-faint transition-colors group-hover:text-muted hover:!text-ink"
                 >
                   View
                 </Link>
@@ -612,13 +612,13 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-md border border-white/[0.09] bg-[#080808]">
-      <div className="flex min-h-12 items-center justify-between gap-4 border-b border-white/[0.08] px-4">
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+    <section className="overflow-hidden rounded-hatch border border-line bg-base">
+      <div className="flex min-h-12 items-center justify-between gap-4 border-b border-line px-4">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
           {title}
         </h3>
         {meta && (
-          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-zinc-700">
+          <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
             {meta}
           </span>
         )}
@@ -644,16 +644,16 @@ function ServiceMetric({
   pulse?: boolean;
 }) {
   const color = {
-    default: "text-zinc-200",
-    success: "text-[#5cc98f]",
-    warning: "text-[#d8ad4f]",
-    danger: "text-[#d86666]",
-    muted: "text-zinc-500",
+    default: "text-ink",
+    success: "text-success",
+    warning: "text-warning",
+    danger: "text-danger",
+    muted: "text-muted",
   } satisfies Record<typeof tone, string>;
 
   return (
-    <div className="min-w-0 border-b border-r border-white/[0.07] px-4 py-4 even:border-r-0 [&:nth-child(3)]:border-b-0 [&:nth-child(4)]:border-b-0 sm:border-b-0 sm:even:border-r sm:last:border-r-0">
-      <p className="mb-2 text-[9px] font-semibold uppercase tracking-[0.17em] text-zinc-700">
+    <div className="min-w-0 border-b border-r border-line px-4 py-4 even:border-r-0 [&:nth-child(3)]:border-b-0 [&:nth-child(4)]:border-b-0 sm:border-b-0 sm:even:border-r sm:last:border-r-0">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.17em] text-faint">
         {label}
       </p>
       {status ? (
@@ -686,10 +686,10 @@ function DetailRow({
 }) {
   return (
     <div className="flex min-h-10 items-center justify-between gap-5">
-      <span className="text-[11px] text-zinc-600">{label}</span>
+      <span className="text-[11px] text-faint">{label}</span>
       <span
         className={cn(
-          "max-w-[62%] truncate text-right text-[11px] text-zinc-300",
+          "max-w-[62%] truncate text-right text-[11px] text-ink",
           mono && "font-mono",
         )}
       >
@@ -715,11 +715,11 @@ function LogPanel({
   logsEndRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
-    <section className="overflow-hidden rounded-md border border-white/[0.09] bg-[#070707] xl:flex xl:h-full xl:min-h-0 xl:flex-col">
-      <div className="flex flex-col gap-4 border-b border-white/[0.08] px-5 py-4 sm:flex-row sm:items-center sm:justify-between xl:shrink-0">
+    <section className="overflow-hidden rounded-hatch border border-line bg-base xl:flex xl:h-full xl:min-h-0 xl:flex-col">
+      <div className="flex flex-col gap-4 border-b border-line px-5 py-4 sm:flex-row sm:items-center sm:justify-between xl:shrink-0">
         <div className="min-w-0">
           <div className="flex items-center gap-3">
-            <h2 className="text-sm font-medium text-white">
+            <h2 className="text-sm font-medium text-ink">
               Deployment logs
             </h2>
             {activeDeployment && (
@@ -732,12 +732,12 @@ function LogPanel({
             )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-700">
+            <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-faint">
               {activeDeployment
                 ? `deploy/${activeDeployment.id.slice(0, 8)}`
                 : "No deployment"}
             </span>
-            <span className="font-mono text-[10px] text-zinc-700">
+            <span className="font-mono text-[11px] text-faint">
               {logs.length} line{logs.length === 1 ? "" : "s"}
             </span>
           </div>
@@ -757,11 +757,11 @@ function LogPanel({
       <div className="h-[580px] min-h-[420px] overflow-y-auto px-3 py-4 font-mono xl:h-auto xl:min-h-0 xl:flex-1">
         {logs.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.28em] text-zinc-700">
+            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.28em] text-faint">
               {isBuilding ? "Waiting for output" : "No log output"}
             </p>
             {!isBuilding && activeDeployment && (
-              <p className="text-xs text-zinc-700">
+              <p className="text-xs text-faint">
                 Logs may not be available for older deployments.
               </p>
             )}
@@ -771,9 +771,9 @@ function LogPanel({
             {logs.map((log, index) => (
               <div
                 key={`${log.timestamp}-${index}`}
-                className="grid grid-cols-[70px_minmax(0,1fr)] gap-4 rounded-md px-2 py-1.5 transition-colors hover:bg-white/[0.025]"
+                className="grid grid-cols-[70px_minmax(0,1fr)] gap-4 rounded-hatch px-2 py-1.5 transition-colors hover:bg-ink/[0.025]"
               >
-                <span className="select-none pt-px text-[10px] tabular-nums text-zinc-800">
+                <span className="select-none pt-px text-[11px] tabular-nums text-faint">
                   {log.timestamp}
                 </span>
                 <p
@@ -797,7 +797,7 @@ function ActivityDots() {
       {[0, 1, 2].map((index) => (
         <span
           key={index}
-          className="h-1 w-1 rounded-full bg-[#d8ad4f] animate-pulse"
+          className="h-1 w-1 rounded-full bg-warning animate-pulse"
           style={{ animationDelay: `${index * 150}ms` }}
         />
       ))}
@@ -915,7 +915,7 @@ function renderLogText(text: string) {
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-[#74c69d] underline underline-offset-3 decoration-[#74c69d]/30 hover:decoration-[#74c69d] transition-all"
+        className="text-success underline underline-offset-3 decoration-success/30 hover:decoration-success transition-all"
       >
         {part}
       </a>
@@ -928,12 +928,12 @@ function renderLogText(text: string) {
 function getLogTypeColor(type: string): string {
   switch (type) {
     case "success":
-      return "text-[#74c69d]";
+      return "text-success";
     case "error":
-      return "text-[#c56b6b]";
+      return "text-danger";
     case "system":
-      return "text-zinc-500 font-bold";
+      return "text-muted font-bold";
     default:
-      return "text-zinc-600";
+      return "text-faint";
   }
 }

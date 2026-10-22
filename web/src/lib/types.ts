@@ -58,3 +58,24 @@ export interface Deployment {
   deployed_at: string | null;
   failed_at: string | null;
 }
+
+/** A repository the Hatch GitHub App can read (GET /api/github/repos). */
+export interface GitHubRepo {
+  id: number;
+  name: string;
+  full_name: string;
+  private: boolean;
+  html_url: string;
+  description: string;
+  language: string;
+  updated_at: string;
+  default_branch?: string;
+}
+
+/** An account the Hatch GitHub App is installed on (GET /api/github/repos). */
+export interface GitHubInstallation {
+  id: number;
+  /** The GitHub login the App is installed on. */
+  account: string;
+  type: "User" | "Organization" | string;
+}

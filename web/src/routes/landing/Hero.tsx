@@ -1,7 +1,7 @@
 import Backdrop from "./Backdrop";
 import Button from "./Button";
 import GitHubButton from "./GitHubButton";
-import Container from "./Container";
+import Container from "@/components/Container";
 import { DOCS_URL } from "./links";
 import Terminal from "./Terminal";
 

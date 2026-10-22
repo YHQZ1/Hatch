@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 
-/** Page gutter: content runs close to the edges, capped on very wide screens. */
+/**
+ * Page gutter, shared by the landing page and the console so their edges line
+ * up: content runs close to the edges, capped on very wide screens.
+ */
 export default function Container({
   children,
   className = "",

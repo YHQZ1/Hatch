@@ -1,4 +1,5 @@
 import type { NavigateFunction } from "react-router";
+import { clearPersistedQueryCache } from "./queryPersistence";
 import { safeHttpUrl } from "./url";
 
 // Earlier versions of the UI cached API data in localStorage under these
@@ -130,6 +131,7 @@ export async function readApiError(
 }
 
 export function clearClientSession() {
+  clearPersistedQueryCache();
   CACHE_KEYS.forEach((key) => localStorage.removeItem(key));
   sessionStorage.removeItem(CSRF_STORAGE_KEY);
 

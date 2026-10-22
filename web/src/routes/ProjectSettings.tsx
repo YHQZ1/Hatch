@@ -264,7 +264,7 @@ export default function ProjectSettingsClient() {
           ? "Hatch is retrying the failed cloud cleanup."
           : "Hatch will remove the service after cloud cleanup finishes.",
       });
-      navigate("/console");
+      navigate("/overview");
     } catch (err) {
       setNotice({
         type: "error",
@@ -427,7 +427,7 @@ export default function ProjectSettingsClient() {
         }
       />
 
-      <div className="mb-7 flex flex-col gap-5 border-b border-white/[0.08] pb-6 lg:flex-row lg:items-end lg:justify-between xl:mb-5 xl:shrink-0 xl:pb-5">
+      <div className="mb-7 flex flex-col gap-5 border-b border-line pb-6 lg:flex-row lg:items-end lg:justify-between xl:mb-5 xl:shrink-0 xl:pb-5">
         <nav className="flex gap-2 overflow-x-auto pb-1">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.key;
@@ -437,16 +437,16 @@ export default function ProjectSettingsClient() {
                 type="button"
                 onClick={() => setActiveTab(tab.key)}
                 className={cn(
-                  "shrink-0 cursor-pointer rounded-lg border px-4 py-3 text-left transition-colors",
+                  "shrink-0 cursor-pointer rounded-hatch border px-4 py-3 text-left transition-colors",
                   isActive
-                    ? "border-white/20 bg-white/[0.07] text-white"
-                    : "border-white/[0.08] text-zinc-500 hover:border-white/15 hover:bg-white/[0.035] hover:text-zinc-300",
+                    ? "border-line-strong bg-ink/[0.07] text-ink"
+                    : "border-line text-muted hover:border-line-strong hover:bg-ink/[0.035] hover:text-ink",
                 )}
               >
-                <span className="block text-[10px] font-semibold uppercase tracking-[0.16em]">
+                <span className="block text-[11px] font-semibold uppercase tracking-[0.16em]">
                   {tab.label}
                 </span>
-                <span className="mt-1 block max-w-[210px] truncate text-xs text-zinc-600">
+                <span className="mt-1 block max-w-[210px] truncate text-xs text-faint">
                   {tab.caption}
                 </span>
               </button>
@@ -467,10 +467,10 @@ export default function ProjectSettingsClient() {
       <main className="grid gap-8 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section className="min-w-0 xl:pb-8">
           <div className="mb-6">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-600">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-faint">
               {activeTabMeta.label}
             </p>
-            <h2 className="mt-2 text-2xl font-medium tracking-tight text-white">
+            <h2 className="mt-2 text-2xl font-medium tracking-tight text-ink">
               {activeTabMeta.caption}
             </h2>
           </div>
@@ -522,13 +522,13 @@ export default function ProjectSettingsClient() {
                   <Input value={port} onChange={setPort} placeholder="80" type="number" />
                 </Field>
 
-                <div className="rounded-xl border border-white/[0.08] bg-white/[0.018] p-5">
+                <div className="rounded-hatch border border-line bg-ink/[0.018] p-5">
                   <div className="flex items-center justify-between gap-5">
                     <div>
-                      <p className="text-sm font-medium text-zinc-200">
+                      <p className="text-sm font-medium text-ink">
                         Auto-deploy
                       </p>
-                      <p className="mt-1 max-w-lg text-sm leading-6 text-zinc-600">
+                      <p className="mt-1 max-w-lg text-sm leading-6 text-faint">
                         When enabled, Hatch queues a deployment when the configured branch receives a GitHub push.
                       </p>
                     </div>
@@ -537,14 +537,14 @@ export default function ProjectSettingsClient() {
                       onClick={toggleAutoDeploy}
                       className={`flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border p-1 transition-colors ${
                         autoDeploy
-                          ? "border-[#5cc98f]/40 bg-[#5cc98f]/15"
-                          : "border-white/[0.12] bg-black"
+                          ? "border-success/40 bg-success/15"
+                          : "border-line-strong bg-base"
                       } ${autoDeploy ? "justify-end" : "justify-start"}`}
                       aria-pressed={autoDeploy}
                     >
                       <span
                         className={`h-4 w-4 rounded-full transition-colors ${
-                          autoDeploy ? "bg-[#5cc98f]" : "bg-zinc-600"
+                          autoDeploy ? "bg-success" : "bg-faint"
                         }`}
                       />
                     </button>
@@ -558,19 +558,19 @@ export default function ProjectSettingsClient() {
                 title="Environment Variables"
                 description="Variables are stored at the project level and snapshotted into each new deployment."
               >
-                <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.018]">
-                  <div className="grid grid-cols-[minmax(120px,220px)_1fr_92px] border-b border-white/[0.08] px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+                <div className="overflow-hidden rounded-hatch border border-line bg-ink/[0.018]">
+                  <div className="grid grid-cols-[minmax(120px,220px)_1fr_92px] border-b border-line px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-faint">
                     <span>Key</span>
                     <span>Value</span>
                     <span className="text-right">Actions</span>
                   </div>
 
                   {envVars.length === 0 ? (
-                    <p className="px-4 py-6 font-mono text-sm text-zinc-700">
+                    <p className="px-4 py-6 font-mono text-sm text-faint">
                       No variables defined.
                     </p>
                   ) : (
-                    <div className="divide-y divide-white/[0.06]">
+                    <div className="divide-y divide-line">
                       {envVars.map((envVar, index) => (
                         <div
                           key={`${envVar.key}-${index}`}
@@ -583,7 +583,7 @@ export default function ProjectSettingsClient() {
                                 key: normalizeEnvKey(event.target.value),
                               })
                             }
-                            className="min-w-0 bg-transparent font-mono text-sm text-zinc-300 outline-none placeholder:text-zinc-800"
+                            className="min-w-0 bg-transparent font-mono text-sm text-ink outline-none placeholder:text-faint"
                             placeholder="KEY"
                           />
                           <input
@@ -592,7 +592,7 @@ export default function ProjectSettingsClient() {
                               updateEnvVar(index, { value: event.target.value })
                             }
                             type={envVar.visible ? "text" : "password"}
-                            className="min-w-0 bg-transparent font-mono text-sm text-zinc-500 outline-none placeholder:text-zinc-800"
+                            className="min-w-0 bg-transparent font-mono text-sm text-muted outline-none placeholder:text-faint"
                             placeholder="value"
                           />
                           <div className="flex justify-end gap-3">
@@ -600,13 +600,13 @@ export default function ProjectSettingsClient() {
                               onClick={() =>
                                 updateEnvVar(index, { visible: !envVar.visible })
                               }
-                              className="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-600 hover:text-zinc-300"
+                              className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.14em] text-faint hover:text-ink"
                             >
                               {envVar.visible ? "Hide" : "Show"}
                             </button>
                             <button
                               onClick={() => removeEnvVar(index)}
-                              className="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.14em] text-[#d86666] hover:text-[#e18a8a]"
+                              className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.14em] text-danger hover:text-danger"
                             >
                               Remove
                             </button>
@@ -617,8 +617,8 @@ export default function ProjectSettingsClient() {
                   )}
                 </div>
 
-                <div className="rounded-xl border border-white/[0.08] bg-black p-5">
-                  <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+                <div className="rounded-hatch border border-line bg-base p-5">
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-faint">
                     Add variable
                   </p>
                   <div className="grid gap-3 md:grid-cols-[minmax(120px,220px)_1fr_auto]">
@@ -627,7 +627,7 @@ export default function ProjectSettingsClient() {
                       onChange={(event) => setNewKey(event.target.value)}
                       onKeyDown={(event) => event.key === "Enter" && addEnvVar()}
                       placeholder="VARIABLE_NAME"
-                      className="rounded-lg border border-white/[0.09] bg-black px-3 py-2.5 font-mono text-sm text-zinc-300 outline-none transition-colors placeholder:text-zinc-800 focus:border-white/30"
+                      className="rounded-hatch border border-line bg-base px-3 py-2.5 font-mono text-sm text-ink outline-none transition-colors placeholder:text-faint focus:border-line-strong"
                     />
                     <input
                       value={newValue}
@@ -635,29 +635,29 @@ export default function ProjectSettingsClient() {
                       onKeyDown={(event) => event.key === "Enter" && addEnvVar()}
                       placeholder="value"
                       type="password"
-                      className="rounded-lg border border-white/[0.09] bg-black px-3 py-2.5 font-mono text-sm text-zinc-300 outline-none transition-colors placeholder:text-zinc-800 focus:border-white/30"
+                      className="rounded-hatch border border-line bg-base px-3 py-2.5 font-mono text-sm text-ink outline-none transition-colors placeholder:text-faint focus:border-line-strong"
                     />
                     <button
                       onClick={addEnvVar}
                       disabled={!normalizeEnvKey(newKey)}
-                      className="cursor-pointer rounded-md border border-white/[0.11] px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400 transition-colors hover:border-white/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                      className="cursor-pointer rounded-hatch border border-line-strong px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
                     >
                       Add
                     </button>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-white/[0.08] bg-black p-5">
+                <div className="rounded-hatch border border-line bg-base p-5">
                   <div className="mb-3 flex items-center justify-between gap-4">
                     <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-faint">
                         Bulk import
                       </p>
-                      <p className="mt-1 text-sm leading-6 text-zinc-600">
+                      <p className="mt-1 text-sm leading-6 text-faint">
                         Paste a .env file or upload one. Imported keys replace matching staged keys.
                       </p>
                     </div>
-                    <label className="shrink-0 cursor-pointer rounded-md border border-white/[0.11] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400 transition-colors hover:border-white/25 hover:text-white">
+                    <label className="shrink-0 cursor-pointer rounded-hatch border border-line-strong px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted transition-colors hover:border-line-strong hover:text-ink">
                       Upload file
                       <input
                         type="file"
@@ -671,12 +671,12 @@ export default function ProjectSettingsClient() {
                     value={bulkEnvText}
                     onChange={(event) => setBulkEnvText(event.target.value)}
                     placeholder={"DATABASE_URL=postgres://...\nREDIS_URL=redis://..."}
-                    className="min-h-32 w-full resize-y rounded-lg border border-white/[0.09] bg-black px-3 py-2.5 font-mono text-sm leading-relaxed text-zinc-300 outline-none transition-colors placeholder:text-zinc-800 focus:border-white/30"
+                    className="min-h-32 w-full resize-y rounded-hatch border border-line bg-base px-3 py-2.5 font-mono text-sm leading-relaxed text-ink outline-none transition-colors placeholder:text-faint focus:border-line-strong"
                   />
                   <button
                     onClick={() => mergeEnvVarsFromText(bulkEnvText)}
                     disabled={!bulkEnvText.trim()}
-                    className="mt-3 cursor-pointer rounded-md border border-white/[0.11] px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400 transition-colors hover:border-white/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                    className="mt-3 cursor-pointer rounded-hatch border border-line-strong px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     Import pasted variables
                   </button>
@@ -689,20 +689,20 @@ export default function ProjectSettingsClient() {
                 title="Danger Zone"
                 description="Permanent actions for this service. This area should stay small and deliberate."
               >
-                <div className="mb-5 rounded-xl border border-white/[0.08] bg-white/[0.018] p-5">
+                <div className="mb-5 rounded-hatch border border-line bg-ink/[0.018] p-5">
                   <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <p className="text-sm font-medium text-zinc-200">
+                      <p className="text-sm font-medium text-ink">
                         Runtime control
                       </p>
-                      <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
+                      <p className="mt-2 max-w-2xl text-sm leading-6 text-faint">
                         Suspend stops the ECS service by setting desired count
                         to 0. Resume starts it again without deleting project
                         settings, history, or environment variables.
                       </p>
-                      <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-600">
+                      <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.16em] text-faint">
                         Status{" "}
-                        <span className="text-zinc-300">
+                        <span className="text-ink">
                           {project?.status || "active"}
                         </span>
                       </p>
@@ -717,7 +717,7 @@ export default function ProjectSettingsClient() {
                           project?.status === "deleting" ||
                           project?.status === "resume_failed"
                         }
-                        className="cursor-pointer rounded-md border border-[#d8ad4f]/20 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#d8ad4f] transition-colors hover:border-[#d8ad4f]/40 hover:bg-[#d8ad4f]/5 disabled:cursor-not-allowed disabled:opacity-30"
+                        className="cursor-pointer rounded-hatch border border-warning/20 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-warning transition-colors hover:border-warning/40 hover:bg-warning/5 disabled:cursor-not-allowed disabled:opacity-30"
                       >
                         {project?.status === "suspend_failed"
                           ? "Retry suspend"
@@ -734,7 +734,7 @@ export default function ProjectSettingsClient() {
                           project?.status === "deleting" ||
                           project?.status === "suspend_failed"
                         }
-                        className="cursor-pointer rounded-md border border-[#5cc98f]/20 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#5cc98f] transition-colors hover:border-[#5cc98f]/40 hover:bg-[#5cc98f]/5 disabled:cursor-not-allowed disabled:opacity-30"
+                        className="cursor-pointer rounded-hatch border border-success/20 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-success transition-colors hover:border-success/40 hover:bg-success/5 disabled:cursor-not-allowed disabled:opacity-30"
                       >
                         {project?.status === "resume_failed"
                           ? "Retry resume"
@@ -746,46 +746,46 @@ export default function ProjectSettingsClient() {
                   </div>
                   {(project?.status === "suspend_failed" ||
                     project?.status === "resume_failed") && (
-                    <p className="mt-4 text-sm leading-6 text-[#d86666]">
+                    <p className="mt-4 text-sm leading-6 text-danger">
                       The last runtime operation failed. Check the deployer
                       worker logs, then retry the action.
                     </p>
                   )}
                 </div>
 
-                <div className="rounded-xl border border-[#d86666]/20 bg-[#d86666]/[0.025] p-5">
-                  <p className="text-sm font-medium text-zinc-200">
+                <div className="rounded-hatch border border-danger/20 bg-danger/[0.025] p-5">
+                  <p className="text-sm font-medium text-ink">
                     Delete service
                   </p>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-faint">
                     This marks the service for deletion, queues cloud cleanup, and removes the project after the AWS resources are gone.
                   </p>
-                  <p className="mt-5 text-xs font-medium tracking-[0.04em] text-zinc-600">
-                    Type <span className="text-zinc-300">{project?.repo_name}</span> to confirm
+                  <p className="mt-5 text-xs font-medium tracking-[0.04em] text-faint">
+                    Type <span className="text-ink">{project?.repo_name}</span> to confirm
                   </p>
                   <input
                     value={deleteConfirm}
                     onChange={(event) => setDeleteConfirm(event.target.value)}
                     placeholder={project?.repo_name}
-                    className="mt-2 w-full rounded-lg border border-[#d86666]/15 bg-black px-3 py-2.5 font-mono text-sm text-zinc-300 outline-none transition-colors placeholder:text-zinc-800 focus:border-[#d86666]/40"
+                    className="mt-2 w-full rounded-hatch border border-danger/15 bg-base px-3 py-2.5 font-mono text-sm text-ink outline-none transition-colors placeholder:text-faint focus:border-danger/40"
                   />
                   <button
                     onClick={() => handleDelete()}
                     disabled={deleteConfirm !== project?.repo_name || deleting}
-                    className="mt-4 w-full cursor-pointer rounded-md border border-[#d86666]/25 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#d86666] transition-colors hover:border-[#d86666]/45 hover:bg-[#d86666]/5 disabled:cursor-not-allowed disabled:opacity-30"
+                    className="mt-4 w-full cursor-pointer rounded-hatch border border-danger/25 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-danger transition-colors hover:border-danger/45 hover:bg-danger/5 disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     {deleting ? "Queueing cleanup" : "Delete service"}
                   </button>
                   {project?.status === "delete_failed" && (
-                    <div className="mt-4 flex flex-col gap-3 rounded-lg border border-[#d86666]/15 bg-black p-4 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-sm leading-6 text-[#d86666]">
+                    <div className="mt-4 flex flex-col gap-3 rounded-hatch border border-danger/15 bg-base p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-sm leading-6 text-danger">
                         Previous cleanup failed. Check the deployer worker logs,
                         then retry the cleanup job.
                       </p>
                       <button
                         onClick={() => handleDelete({ retry: true })}
                         disabled={deleting}
-                        className="shrink-0 cursor-pointer rounded-md border border-[#d86666]/25 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#d86666] transition-colors hover:border-[#d86666]/45 hover:bg-[#d86666]/5 disabled:cursor-not-allowed disabled:opacity-30"
+                        className="shrink-0 cursor-pointer rounded-hatch border border-danger/25 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-danger transition-colors hover:border-danger/45 hover:bg-danger/5 disabled:cursor-not-allowed disabled:opacity-30"
                       >
                         {deleting ? "Retrying" : "Retry cleanup"}
                       </button>
@@ -812,12 +812,12 @@ export default function ProjectSettingsClient() {
           </SidePanel>
 
           <SidePanel title="Applies On Next Deploy">
-            <p className="text-sm leading-6 text-zinc-600">
+            <p className="text-sm leading-6 text-faint">
               Build settings and environment variables are saved immediately, then snapshotted into the next deployment.
             </p>
             <div className="mt-4">
               <Button href={`/projects/${id}`} variant="secondary" className="w-full">
-                View Deployment Console
+                View service
               </Button>
             </div>
           </SidePanel>
@@ -838,11 +838,11 @@ function Section({
 }) {
   return (
     <section className="space-y-6">
-      <div className="border-b border-white/[0.08] pb-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+      <div className="border-b border-line pb-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">
           {title}
         </p>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-faint">
           {description}
         </p>
       </div>
@@ -862,10 +862,10 @@ function Field({
 }) {
   return (
     <label className="block space-y-2">
-      <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+      <span className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
         {label}
       </span>
-      <span className="block text-sm leading-6 text-zinc-600">
+      <span className="block text-sm leading-6 text-faint">
         {description}
       </span>
       {children}
@@ -890,7 +890,7 @@ function Input({
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
-      className="w-full rounded-lg border border-white/[0.09] bg-black px-3 py-2.5 font-mono text-sm text-zinc-300 outline-none transition-colors placeholder:text-zinc-800 hover:border-white/15 focus:border-white/30"
+      className="w-full rounded-hatch border border-line bg-base px-3 py-2.5 font-mono text-sm text-ink outline-none transition-colors placeholder:text-faint hover:border-line-strong focus:border-line-strong"
     />
   );
 }
@@ -902,10 +902,10 @@ function ReadOnlyGrid({ children }: { children: React.ReactNode }) {
 function MetaStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+      <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-faint">
         {label}
       </p>
-      <p className="truncate font-mono text-sm text-zinc-300">{value}</p>
+      <p className="truncate font-mono text-sm text-ink">{value}</p>
     </div>
   );
 }
@@ -918,8 +918,8 @@ function SidePanel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="border-y border-white/[0.08] py-5">
-      <h3 className="mb-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+    <section className="border-y border-line py-5">
+      <h3 className="mb-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">
         {title}
       </h3>
       {children}
@@ -937,8 +937,8 @@ function StaticValue({
   asLink?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-white/[0.018] p-4">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+    <div className="rounded-hatch border border-line bg-ink/[0.018] p-4">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-faint">
         {label}
       </p>
       {asLink ? (
@@ -946,12 +946,12 @@ function StaticValue({
           href={safeHttpUrl(value) ?? undefined}
           target="_blank"
           rel="noopener noreferrer"
-          className="block truncate font-mono text-sm text-[#5cc98f] hover:underline"
+          className="block truncate font-mono text-sm text-success hover:underline"
         >
           {value.replace(/^https?:\/\//, "")}
         </a>
       ) : (
-        <p className="truncate font-mono text-sm text-zinc-400">{value}</p>
+        <p className="truncate font-mono text-sm text-muted">{value}</p>
       )}
     </div>
   );
@@ -960,10 +960,10 @@ function StaticValue({
 function MetaRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4 py-1.5">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-faint">
         {label}
       </span>
-      <span className="truncate font-mono text-xs text-zinc-500">{value}</span>
+      <span className="truncate font-mono text-xs text-muted">{value}</span>
     </div>
   );
 }

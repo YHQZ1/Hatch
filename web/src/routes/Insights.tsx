@@ -288,10 +288,10 @@ function InsightsHeader({
       actions={
         <>
           <div className="mr-1 min-w-24 text-left sm:text-right">
-            <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-zinc-700 font-bold">
+            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-faint font-bold">
               {refreshing ? "Refreshing" : "Last synced"}
             </p>
-            <p className="mt-1 text-[11px] text-zinc-600">
+            <p className="mt-1 text-[11px] text-faint">
               {lastSyncedAt
                 ? formatRelativeTime(lastSyncedAt.toISOString())
                 : "—"}
@@ -316,14 +316,14 @@ function ServiceSelector({
   onSelect: (id: string) => void;
 }) {
   return (
-    <div className="overflow-x-auto border-b border-white/[0.08] pb-5">
+    <div className="overflow-x-auto border-b border-line pb-5">
       <div className="flex min-w-max items-center gap-2">
         <button
           onClick={() => onSelect("all")}
-          className={`h-9 px-3.5 rounded-md text-[10px] uppercase tracking-[0.16em] font-semibold transition-all cursor-pointer ${
+          className={`h-9 px-3.5 rounded-hatch text-[11px] uppercase tracking-[0.16em] font-semibold transition-all cursor-pointer ${
             selectedProjectId === "all"
-              ? "bg-white text-black"
-              : "text-zinc-500 hover:text-white hover:bg-white/[0.045]"
+              ? "bg-accent text-accent-ink"
+              : "text-muted hover:text-ink hover:bg-ink/[0.045]"
           }`}
         >
           All Services
@@ -332,10 +332,10 @@ function ServiceSelector({
           <button
             key={service.project.id}
             onClick={() => onSelect(service.project.id)}
-            className={`h-9 px-3.5 rounded-md text-[10px] uppercase tracking-[0.16em] font-semibold transition-all cursor-pointer flex items-center gap-2 ${
+            className={`h-9 px-3.5 rounded-hatch text-[11px] uppercase tracking-[0.16em] font-semibold transition-all cursor-pointer flex items-center gap-2 ${
               selectedProjectId === service.project.id
-                ? "bg-white text-black"
-                : "text-zinc-500 hover:text-white hover:bg-white/[0.045]"
+                ? "bg-accent text-accent-ink"
+                : "text-muted hover:text-ink hover:bg-ink/[0.045]"
             }`}
           >
             <span
@@ -374,7 +374,7 @@ function OverallDashboard({
 
   return (
     <div className="space-y-7">
-      <div className="grid grid-cols-2 gap-x-8 gap-y-4 border-b border-white/[0.08] pb-7 sm:flex sm:items-end sm:gap-12">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-4 border-b border-line pb-7 sm:flex sm:items-end sm:gap-12">
         <MetricCard label="Services" value={String(overview.totalServices)} />
         <MetricCard
           label="Healthy"
@@ -451,19 +451,19 @@ function ServiceDashboard({
 
   return (
     <div className="space-y-7">
-      <div className="border-b border-white/[0.08] pb-7">
+      <div className="border-b border-line pb-7">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
           <div className="min-w-0">
             <div className="flex items-center gap-3 mb-3">
               <HealthText health={service.health} />
-              <span className="text-[10px] text-zinc-700 font-mono">
+              <span className="text-[11px] text-faint font-mono">
                 {formatRepoSlug(service.project.repo_url)}
               </span>
             </div>
-            <h2 className="text-3xl md:text-4xl font-medium tracking-tight text-white truncate">
+            <h2 className="text-3xl md:text-4xl font-medium tracking-tight text-ink truncate">
               {service.project.repo_name}
             </h2>
-            <p className="text-[12px] text-zinc-600 mt-2 tracking-wide max-w-xl">
+            <p className="text-[12px] text-faint mt-2 tracking-wide max-w-xl">
               {latest?.commit_message ||
                 "Deployment and health summary for this service."}
             </p>
@@ -475,14 +475,14 @@ function ServiceDashboard({
                 href={service.liveUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="h-9 px-3.5 border border-white/[0.11] rounded-md text-[11px] uppercase tracking-[0.14em] font-semibold text-zinc-300 hover:text-white hover:border-white/25 hover:bg-white/[0.045] transition-all cursor-pointer flex items-center"
+                className="h-9 px-3.5 border border-line-strong rounded-hatch text-[11px] uppercase tracking-[0.14em] font-semibold text-ink hover:text-ink hover:border-line-strong hover:bg-ink/[0.045] transition-all cursor-pointer flex items-center"
               >
                 Open
               </a>
             )}
             <Link
               to={`/projects/${service.project.id}`}
-              className="h-9 px-3.5 bg-white text-black rounded-md text-[11px] uppercase tracking-[0.14em] font-semibold hover:bg-zinc-200 transition-colors flex items-center cursor-pointer"
+              className="h-9 px-3.5 bg-accent text-accent-ink rounded-hatch text-[11px] uppercase tracking-[0.14em] font-semibold hover:bg-accent-hover transition-colors flex items-center cursor-pointer"
             >
               Details
             </Link>
@@ -490,7 +490,7 @@ function ServiceDashboard({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-x-8 gap-y-4 border-b border-white/[0.08] pb-7 sm:flex sm:items-end sm:gap-12">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-4 border-b border-line pb-7 sm:flex sm:items-end sm:gap-12">
         <MetricCard label="Deployments" value={String(deployments.length)} />
         <MetricCard label="Success Rate" value={`${successRate}%`} />
         <MetricCard
@@ -558,18 +558,18 @@ function TelemetrySection({
   const timeZone = getBrowserTimeZone();
 
   return (
-    <section className="border-y border-white/[0.08]">
-      <div className="py-4 border-b border-white/[0.08] flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <section className="border-y border-line">
+      <div className="py-4 border-b border-line flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h3 className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-semibold">
+            <h3 className="text-[11px] uppercase tracking-[0.2em] text-muted font-semibold">
               {title}
             </h3>
             <StatusText tone={hasMetrics ? "success" : "muted"}>
               CloudWatch
             </StatusText>
           </div>
-          <p className="text-[11px] text-zinc-700 mt-1">
+          <p className="text-[11px] text-faint mt-1">
             {scope} ·{" "}
             {hasMetrics
               ? `live CloudWatch metrics, shown in ${timeZone}.`
@@ -579,7 +579,7 @@ function TelemetrySection({
         <RangeControl value={timeRange} onChange={onTimeRangeChange} />
       </div>
 
-      <div className="grid grid-cols-2 gap-x-8 gap-y-4 border-b border-white/[0.08] py-5 sm:grid-cols-3 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-4 border-b border-line py-5 sm:grid-cols-3 xl:grid-cols-5">
         <MetricCard
           label="Requests"
           value={formatCompactNumber(telemetry.summary.requests)}
@@ -660,15 +660,15 @@ function RangeControl({
   onChange: (range: TimeRange) => void;
 }) {
   return (
-    <div className="inline-flex items-center gap-1 rounded-md border border-white/[0.11] bg-transparent p-1 w-fit">
+    <div className="inline-flex items-center gap-1 rounded-hatch border border-line-strong bg-transparent p-1 w-fit">
       {TIME_RANGES.map((range) => (
         <button
           key={range.value}
           onClick={() => onChange(range.value)}
-          className={`h-7 px-3 rounded text-[9px] uppercase tracking-[0.18em] font-semibold transition-all cursor-pointer ${
+          className={`h-7 px-3 rounded text-[11px] uppercase tracking-[0.18em] font-semibold transition-all cursor-pointer ${
             value === range.value
-              ? "bg-white text-black"
-              : "text-zinc-600 hover:text-white hover:bg-white/[0.045]"
+              ? "bg-accent text-accent-ink"
+              : "text-faint hover:text-ink hover:bg-ink/[0.045]"
           }`}
         >
           {range.label}
@@ -709,21 +709,21 @@ function LineChart({
   const { linePath, areaPath } = chartPaths(values, yTicks.min, yTicks.max);
 
   return (
-    <div className="min-w-0 border-t border-white/[0.08] pt-4">
+    <div className="min-w-0 border-t border-line pt-4">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500 font-semibold">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted font-semibold">
             {title}
           </p>
-          <p className="text-[10px] text-zinc-700 mt-1">{meta}</p>
+          <p className="text-[11px] text-faint mt-1">{meta}</p>
         </div>
         <div className="text-right">
-          <p className="font-mono text-xl text-white tracking-tight">
+          <p className="font-mono text-xl text-ink tracking-tight">
             {hasData ? formatter(latest) : "—"}
           </p>
           <p
-            className={`font-mono text-[10px] mt-1 ${
-              delta > 0 ? "text-[#3fba78]" : delta < 0 ? "text-[#d05252]" : "text-zinc-700"
+            className={`font-mono text-[11px] mt-1 ${
+              delta > 0 ? "text-success" : delta < 0 ? "text-danger" : "text-faint"
             }`}
           >
             {hasData
@@ -816,17 +816,17 @@ function ResourceChart({
 }) {
   const xTicks = axisTickIndexes(data.length);
   return (
-    <div className="min-w-0 border-t border-white/[0.08] pt-4">
+    <div className="min-w-0 border-t border-line pt-4">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500 font-semibold">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted font-semibold">
             Resources
           </p>
-          <p className="text-[10px] text-zinc-700 mt-1">CPU and memory pressure</p>
+          <p className="text-[11px] text-faint mt-1">CPU and memory pressure</p>
         </div>
-        <div className="flex items-center gap-4 font-mono text-[10px]">
-          <span className="text-[#6ea8fe]">CPU</span>
-          <span className="text-zinc-500">MEM</span>
+        <div className="flex items-center gap-4 font-mono text-[11px]">
+          <span className="text-accent">CPU</span>
+          <span className="text-muted">MEM</span>
         </div>
       </div>
       {data.length === 0 ? (
@@ -904,19 +904,19 @@ function EmptyChart({ reason }: { reason?: string }) {
         {Array.from({ length: 7 }).map((_, item) => (
           <div
             key={item}
-            className="absolute left-0 right-0 border-t border-white/[0.055]"
+            className="absolute left-0 right-0 border-t border-line"
             style={{ top: `${10 + item * 13}%` }}
           />
         ))}
         {Array.from({ length: 9 }).map((_, item) => (
           <div
             key={`v-${item}`}
-            className="absolute bottom-8 top-4 border-l border-white/[0.035]"
+            className="absolute bottom-8 top-4 border-l border-line"
             style={{ left: `${8 + item * 11}%` }}
           />
         ))}
       </div>
-      <p className="relative max-w-xs text-center text-[11px] leading-5 text-zinc-700">
+      <p className="relative max-w-xs text-center text-[11px] leading-5 text-faint">
         {reason || "No metrics in this time range."}
       </p>
     </div>
@@ -985,16 +985,16 @@ function MetricCard({
 }) {
   const color =
     accent === "green"
-      ? "text-[#5cc98f]"
+      ? "text-success"
       : accent === "red"
-        ? "text-[#d86666]"
+        ? "text-danger"
         : accent === "amber"
-          ? "text-[#d8ad4f]"
-          : "text-white";
+          ? "text-warning"
+          : "text-ink";
 
   return (
     <div className="min-w-0">
-      <p className="mb-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600">
+      <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.16em] text-faint">
         {label}
       </p>
       <p
@@ -1018,13 +1018,13 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="border-y border-white/[0.08]">
-      <div className="py-4 border-b border-white/[0.08] flex items-center justify-between gap-4">
-        <h3 className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-semibold">
+    <section className="border-y border-line">
+      <div className="py-4 border-b border-line flex items-center justify-between gap-4">
+        <h3 className="text-[11px] uppercase tracking-[0.2em] text-muted font-semibold">
           {title}
         </h3>
         {meta && (
-          <span className="text-[9px] uppercase tracking-[0.18em] text-zinc-700 font-mono">
+          <span className="text-[11px] uppercase tracking-[0.18em] text-faint font-mono">
             {meta}
           </span>
         )}
@@ -1060,26 +1060,26 @@ function DeploymentOutcomes({ deployments }: { deployments: Deployment[] }) {
         />
         <MetricCard label="Canceled" value={String(outcomes.canceled)} />
       </div>
-      <div className="border-t border-white/[0.055] pt-4">
-        <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-700">
+      <div className="border-t border-line pt-4">
+        <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-faint">
           Latest deployment
         </p>
         {latest ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <p className="truncate text-sm text-zinc-300">
+              <p className="truncate text-sm text-ink">
                 {latest.commit_message ||
                   latest.commit_sha?.slice(0, 7) ||
                   latest.id.slice(0, 8)}
               </p>
-              <p className="mt-1 font-mono text-[10px] text-zinc-700">
+              <p className="mt-1 font-mono text-[11px] text-faint">
                 {formatRelativeTime(latest.created_at)} · {latest.branch}
               </p>
             </div>
             <HealthText health={getHealth(latest.status)} />
           </div>
         ) : (
-          <p className="text-sm text-zinc-700">No deployment history.</p>
+          <p className="text-sm text-faint">No deployment history.</p>
         )}
       </div>
     </div>
@@ -1088,15 +1088,15 @@ function DeploymentOutcomes({ deployments }: { deployments: Deployment[] }) {
 
 function ServiceHealthRow({ service }: { service: ServiceInsight }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-white/[0.055] py-3 last:border-b-0">
+    <div className="flex items-center justify-between gap-4 border-b border-line py-3 last:border-b-0">
       <div className="min-w-0">
         <Link
           to={`/projects/${service.project.id}`}
-          className="text-[13px] text-zinc-200 hover:text-white transition-colors cursor-pointer truncate block"
+          className="text-[13px] text-ink hover:text-ink transition-colors cursor-pointer truncate block"
         >
           {service.project.repo_name}
         </Link>
-        <p className="text-[10px] text-zinc-700 font-mono mt-0.5 truncate">
+        <p className="text-[11px] text-faint font-mono mt-0.5 truncate">
           {service.latest?.commit_sha?.slice(0, 7) || service.project.branch}
         </p>
       </div>
@@ -1126,14 +1126,14 @@ function DeploymentList({
         return (
           <div
             key={deployment.id}
-            className="border-b border-white/[0.055] py-3 last:border-b-0"
+            className="border-b border-line py-3 last:border-b-0"
           >
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-[13px] text-zinc-200 truncate">
+                <p className="text-[13px] text-ink truncate">
                   {service?.project.repo_name || deployment.project_id.slice(0, 8)}
                 </p>
-                <p className="text-[10px] text-zinc-700 mt-1 truncate">
+                <p className="text-[11px] text-faint mt-1 truncate">
                   {deployment.commit_message ||
                     deployment.commit_sha?.slice(0, 7) ||
                     deployment.branch}
@@ -1141,7 +1141,7 @@ function DeploymentList({
               </div>
               <HealthText health={health} />
             </div>
-            <div className="mt-3 flex items-center justify-between gap-4 font-mono text-[10px] text-zinc-700">
+            <div className="mt-3 flex items-center justify-between gap-4 font-mono text-[11px] text-faint">
               <span>{deployment.branch}</span>
               <span>{formatRelativeTime(deployment.created_at)}</span>
             </div>
@@ -1162,12 +1162,12 @@ function ActivityList({ activity }: { activity: ActivityEvent[] }) {
       {activity.map((event) => (
         <div
           key={event.id}
-          className="border-b border-white/[0.055] py-3 last:border-b-0"
+          className="border-b border-line py-3 last:border-b-0"
         >
-          <p className="text-[13px] text-zinc-300 leading-relaxed">
+          <p className="text-[13px] text-ink leading-relaxed">
             {event.message}
           </p>
-          <div className="mt-3 flex items-center justify-between gap-4 font-mono text-[10px] text-zinc-700">
+          <div className="mt-3 flex items-center justify-between gap-4 font-mono text-[11px] text-faint">
             <span>{event.type}</span>
             <span>{formatRelativeTime(event.created_at)}</span>
           </div>
@@ -1179,11 +1179,11 @@ function ActivityList({ activity }: { activity: ActivityEvent[] }) {
 
 function MiniInfo({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 border-b border-white/[0.055] py-3">
-      <p className="text-[9px] uppercase tracking-[0.18em] text-zinc-700 font-bold mb-1.5">
+    <div className="min-w-0 border-b border-line py-3">
+      <p className="text-[11px] uppercase tracking-[0.18em] text-faint font-bold mb-1.5">
         {label}
       </p>
-      <p className="text-[13px] text-zinc-300 truncate">{value}</p>
+      <p className="text-[13px] text-ink truncate">{value}</p>
     </div>
   );
 }
@@ -1193,7 +1193,7 @@ function HealthText({ health }: { health: HealthState }) {
   return (
     <div className="flex items-center gap-2 shrink-0">
       <span className={`h-1.5 w-1.5 rounded-full ${colors.dot}`} />
-      <span className={`text-[10px] uppercase tracking-widest font-bold ${colors.text}`}>
+      <span className={`text-[11px] uppercase tracking-widest font-bold ${colors.text}`}>
         {health.label}
       </span>
     </div>
@@ -1203,7 +1203,7 @@ function HealthText({ health }: { health: HealthState }) {
 function EmptyInline({ text }: { text: string }) {
   return (
     <div className="min-h-36 flex items-center justify-center text-center">
-      <p className="text-[10px] text-zinc-700 font-mono uppercase tracking-[0.25em]">
+      <p className="text-[11px] text-faint font-mono uppercase tracking-[0.25em]">
         {text}
       </p>
     </div>
@@ -1213,18 +1213,18 @@ function EmptyInline({ text }: { text: string }) {
 function InsightsSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="h-14 border border-[#1a1a1a] rounded-[6px] bg-[#030303] animate-pulse" />
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-px bg-[#1a1a1a] border border-[#1a1a1a] rounded-[6px] overflow-hidden">
+      <div className="h-14 border border-line rounded-hatch bg-base animate-pulse" />
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-px bg-line border border-line rounded-hatch overflow-hidden">
         {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="bg-[#080808] px-5 py-4">
-            <div className="h-2 w-20 bg-zinc-900 rounded-full mb-3 animate-pulse" />
-            <div className="h-7 w-14 bg-zinc-900 rounded-full animate-pulse" />
+          <div key={index} className="bg-base px-5 py-4">
+            <div className="h-2 w-20 bg-line rounded-full mb-3 animate-pulse" />
+            <div className="h-7 w-14 bg-line rounded-full animate-pulse" />
           </div>
         ))}
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div className="h-80 border border-[#1a1a1a] rounded-[6px] bg-[#030303] animate-pulse" />
-        <div className="h-80 border border-[#1a1a1a] rounded-[6px] bg-[#030303] animate-pulse" />
+        <div className="h-80 border border-line rounded-hatch bg-base animate-pulse" />
+        <div className="h-80 border border-line rounded-hatch bg-base animate-pulse" />
       </div>
     </div>
   );
@@ -1432,11 +1432,11 @@ function getHealth(status?: string | null): HealthState {
 
 function healthColors(kind: HealthKind) {
   const map = {
-    healthy: { dot: "bg-[#2f9d63]", text: "text-[#3fba78]" },
-    active: { dot: "bg-[#facc15] animate-pulse", text: "text-[#facc15]" },
-    failed: { dot: "bg-[#b83a3a]", text: "text-[#d05252]" },
-    canceled: { dot: "bg-zinc-500", text: "text-zinc-500" },
-    idle: { dot: "bg-zinc-800", text: "text-zinc-700" },
+    healthy: { dot: "bg-success", text: "text-success" },
+    active: { dot: "bg-warning animate-pulse", text: "text-warning" },
+    failed: { dot: "bg-danger", text: "text-danger" },
+    canceled: { dot: "bg-faint", text: "text-muted" },
+    idle: { dot: "bg-line-strong", text: "text-faint" },
   } satisfies Record<HealthKind, { dot: string; text: string }>;
   return map[kind];
 }

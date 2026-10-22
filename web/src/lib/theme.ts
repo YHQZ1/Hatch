@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { prefersReducedMotion } from "@/lib/motion";
 
@@ -21,7 +21,20 @@ function resyncAnimations() {
   }
 }
 
+// Also read by public/theme-init.js before the app loads; keep them in step.
 const STORAGE_KEY = "hatch-theme";
+
+/**
+ * The theme lives on <html>, not on a page wrapper: that is what the page
+ * canvas, scrollbars, form controls and the view-transition snapshot are drawn
+ * from. public/theme-init.js sets it before the first paint; this keeps it in
+ * step afterwards.
+ */
+function applyToRoot(theme: Theme) {
+  const root = document.documentElement;
+  root.setAttribute("data-theme", theme);
+  root.style.colorScheme = theme;
+}
 const DURATION_MS = 450;
 
 function readStoredTheme(): Theme {
@@ -39,6 +52,10 @@ function readStoredTheme(): Theme {
  */
 export function useTheme() {
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
+
+  // A layout effect, so it also runs inside the flushSync below: the view
+  // transition's new snapshot is taken with <html> already switched.
+  useLayoutEffect(() => applyToRoot(theme), [theme]);
 
   const toggle = useCallback(
     (origin: { x: number; y: number }) => {

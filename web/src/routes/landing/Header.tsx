@@ -3,7 +3,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import type { Theme } from "@/lib/theme";
 import { scrollToSection } from "@/lib/smoothScroll";
 import Button from "./Button";
-import Container from "./Container";
+import Container from "@/components/Container";
 
 
 const NAV = [

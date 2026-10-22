@@ -2,6 +2,17 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      Paint the right page colour from the first frame. The app's styles load
+      with its JavaScript, so without this a reload shows a blank canvas first.
+      Keep the colours in step with --color-base and --color-ink in
+      src/styles.css.
+    -->
+    <style>
+      html { background: #0b0b0e; color: #fff; }
+      html[data-theme="light"] { background: #eeeef1; color: #0d0d12; }
+    </style>
+    <script src="/theme-init.js"></script>
     <link rel="icon" type="image/svg+xml" href="/hatch.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
@@ -12,7 +23,7 @@
     <meta name="author" content="Uttkarsh Ruparel" />
     <title>Hatch — Deploys in your own AWS account</title>
   </head>
-  <body class="min-h-screen flex flex-col relative bg-black text-white font-sans selection:bg-accent selection:text-accent-ink">
+  <body class="min-h-screen flex flex-col relative bg-base text-ink font-sans selection:bg-accent selection:text-accent-ink">
     <div id="root" class="flex flex-1 flex-col"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

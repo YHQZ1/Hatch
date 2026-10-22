@@ -1,7 +1,7 @@
 import { scrollToSection } from "@/lib/smoothScroll";
 import Backdrop from "./Backdrop";
 import Button from "./Button";
-import Container from "./Container";
+import Container from "@/components/Container";
 import GitHubButton from "./GitHubButton";
 import Reveal from "./Reveal";
 import {

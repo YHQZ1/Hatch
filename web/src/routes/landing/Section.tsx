@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Backdrop from "./Backdrop";
-import Container from "./Container";
+import Container from "@/components/Container";
 import Reveal from "./Reveal";
 
 const TONES = { base: "bg-base", raised: "bg-panel", tint: "bg-tint" };

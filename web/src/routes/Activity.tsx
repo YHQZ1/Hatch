@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { NO_ACTIVITY, activityQuery } from "@/lib/queries";
 import type { ActivityEvent } from "@/lib/types";
+import { activityKind, activityMeta } from "./services/activity";
 import {
   AppShell,
   Button,
@@ -10,8 +11,6 @@ import {
   PageTitle,
   Panel,
 } from "@/components/ui";
-
-type ActivityKind = "create" | "delete" | "deploy" | "system";
 
 export default function ActivityClient() {
   const activity = useQuery(activityQuery());
@@ -42,7 +41,7 @@ export default function ActivityClient() {
       />
 
       {!loading && events.length > 0 && (
-        <div className="mb-7 grid grid-cols-2 gap-x-8 gap-y-4 border-b border-white/[0.08] pb-7 sm:flex sm:items-end sm:gap-12">
+        <div className="mb-7 grid grid-cols-2 gap-x-8 gap-y-4 border-b border-line pb-7 sm:flex sm:items-end sm:gap-12">
           <MetricCard label="Events" value={stats.total.toString()} />
           <MetricCard
             label="Deploys"
@@ -93,10 +92,10 @@ function ActivityHeader({
       actions={
         <>
           <div className="mr-1 min-w-24 text-left sm:text-right">
-            <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-zinc-700 font-bold">
+            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-faint font-bold">
               {refreshing ? "Refreshing" : "Last synced"}
             </p>
-            <p className="mt-1 text-[11px] text-zinc-600">
+            <p className="mt-1 text-[11px] text-faint">
               {lastSyncedAt
                 ? formatRelativeTime(lastSyncedAt.toISOString())
                 : "—"}
@@ -113,11 +112,11 @@ function ActivityHeader({
 
 function ActivityTableHeader() {
   return (
-    <div className="hidden lg:grid grid-cols-[0.75fr_0.8fr_2.7fr_0.75fr] border-b border-white/[0.08] px-1">
+    <div className="hidden lg:grid grid-cols-[0.75fr_0.8fr_2.7fr_0.75fr] border-b border-line px-1">
       {["Time", "Type", "Event", "Reference"].map((header, index) => (
         <div
           key={header}
-          className={`py-3 text-[9px] uppercase tracking-[0.18em] text-zinc-700 font-bold ${
+          className={`py-3 text-[11px] uppercase tracking-[0.18em] text-faint font-bold ${
             index === 3 ? "text-right" : ""
           }`}
         >
@@ -133,19 +132,19 @@ function ActivityRow({ event }: { event: ActivityEvent }) {
   const meta = activityMeta(kind);
 
   return (
-    <article className="border-b border-white/[0.055] last:border-b-0 hover:bg-white/[0.018] transition-colors">
+    <article className="border-b border-line last:border-b-0 hover:bg-ink/[0.018] transition-colors">
       <div className="hidden lg:grid grid-cols-[0.75fr_0.8fr_2.7fr_0.75fr] px-1 py-4 items-center">
         <TimeCell date={event.created_at} />
         <TypeCell type={event.type} meta={meta} />
         <div className="min-w-0">
-          <p className="text-[13px] text-zinc-300 tracking-tight truncate">
+          <p className="text-[13px] text-ink tracking-tight truncate">
             {event.message}
           </p>
-          <p className="text-[10px] text-zinc-700 font-mono mt-0.5">
+          <p className="text-[11px] text-faint font-mono mt-0.5">
             {formatDate(event.created_at)}
           </p>
         </div>
-        <div className="text-right font-mono text-[10px] text-zinc-700">
+        <div className="text-right font-mono text-[11px] text-faint">
           {event.id.split("-")[0]}
         </div>
       </div>
@@ -154,15 +153,15 @@ function ActivityRow({ event }: { event: ActivityEvent }) {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <TypeCell type={event.type} meta={meta} />
-            <p className="text-[13px] text-zinc-200 tracking-tight mt-3 leading-relaxed">
+            <p className="text-[13px] text-ink tracking-tight mt-3 leading-relaxed">
               {event.message}
             </p>
           </div>
-          <span className="font-mono text-[10px] text-zinc-700 shrink-0">
+          <span className="font-mono text-[11px] text-faint shrink-0">
             {event.id.split("-")[0]}
           </span>
         </div>
-        <div className="mt-4 flex items-center justify-between gap-4 text-[10px] text-zinc-700 font-mono">
+        <div className="mt-4 flex items-center justify-between gap-4 text-[11px] text-faint font-mono">
           <span>{formatTime(event.created_at)}</span>
           <span>{formatDate(event.created_at)}</span>
         </div>
@@ -182,7 +181,7 @@ function TypeCell({
     <div className="flex items-center gap-2 min-w-0">
       <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${meta.dot}`} />
       <span
-        className={`text-[10px] font-bold uppercase tracking-widest truncate ${meta.text}`}
+        className={`text-[11px] font-bold uppercase tracking-widest truncate ${meta.text}`}
       >
         {type}
       </span>
@@ -192,7 +191,7 @@ function TypeCell({
 
 function TimeCell({ date }: { date: string }) {
   return (
-    <div className="font-mono text-[11px] text-zinc-500">
+    <div className="font-mono text-[11px] text-muted">
       {formatTime(date)}
     </div>
   );
@@ -204,13 +203,13 @@ function ActivitySkeleton() {
       {Array.from({ length: 5 }).map((_, index) => (
         <div
           key={index}
-          className="grid lg:grid-cols-[0.75fr_0.8fr_2.7fr_0.75fr] px-1 py-4 border-b border-white/[0.055] items-center last:border-b-0 gap-4"
+          className="grid lg:grid-cols-[0.75fr_0.8fr_2.7fr_0.75fr] px-1 py-4 border-b border-line items-center last:border-b-0 gap-4"
           style={{ opacity: 1 - index * 0.13 }}
         >
-          <div className="h-2 w-16 bg-zinc-900/70 rounded-full animate-pulse" />
-          <div className="h-2 w-14 bg-zinc-900/70 rounded-full animate-pulse" />
-          <div className="h-2.5 w-full max-w-lg bg-zinc-900 rounded-full animate-pulse" />
-          <div className="hidden lg:block h-2 w-16 bg-zinc-900/50 rounded-full animate-pulse ml-auto" />
+          <div className="h-2 w-16 bg-line/70 rounded-full animate-pulse" />
+          <div className="h-2 w-14 bg-line/70 rounded-full animate-pulse" />
+          <div className="h-2.5 w-full max-w-lg bg-line rounded-full animate-pulse" />
+          <div className="hidden lg:block h-2 w-16 bg-line/50 rounded-full animate-pulse ml-auto" />
         </div>
       ))}
     </div>
@@ -224,31 +223,6 @@ function EmptyState() {
       description="Create a service, trigger a deployment, or change infrastructure to start building an audit trail."
     />
   );
-}
-
-function activityKind(type: string): ActivityKind {
-  const normalized = type.toLowerCase();
-  if (normalized.includes("delete") || normalized.includes("destroy")) {
-    return "delete";
-  }
-  if (normalized.includes("create") || normalized.includes("init")) {
-    return "create";
-  }
-  if (normalized.includes("deploy")) {
-    return "deploy";
-  }
-  return "system";
-}
-
-function activityMeta(kind: ActivityKind) {
-  const map = {
-    create: { dot: "bg-[#2f9d63]", text: "text-[#3fba78]" },
-    delete: { dot: "bg-[#b83a3a]", text: "text-[#d05252]" },
-    deploy: { dot: "bg-[#facc15]", text: "text-[#facc15]" },
-    system: { dot: "bg-zinc-500", text: "text-zinc-500" },
-  } satisfies Record<ActivityKind, { dot: string; text: string }>;
-
-  return map[kind];
 }
 
 function formatTime(dateStr: string) {

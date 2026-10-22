@@ -1,19 +1,13 @@
 import { Link } from "react-router";
-import { useTheme } from "@/lib/theme";
 import AuthScene from "./auth/AuthScene";
 import SignInCard from "./auth/SignInCard";
 import Frame from "./landing/Frame";
 
 export default function AuthPage() {
-  // The theme is whatever the visitor chose on the landing page.
-  const { theme } = useTheme();
-
+  // The theme is whatever the visitor chose on the landing page; it is applied
+  // to <html> before the first paint (see public/theme-init.js).
   return (
-    <div
-      data-theme={theme}
-      style={{ colorScheme: theme }}
-      className="relative flex min-h-screen w-full flex-col overflow-hidden bg-base text-ink"
-    >
+    <div className="relative flex min-h-screen w-full flex-col overflow-hidden bg-base text-ink">
       <AuthScene />
 
       <Link

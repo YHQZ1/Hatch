@@ -40,7 +40,7 @@ export default function SignInCard() {
       <Button
         href="/auth/github"
         sameTab
-        className="mt-7 h-12 w-full text-base"
+        className="mt-7 h-12 w-full text-[1rem]"
         icon={<BrandIcon icon={siGithub} color="currentColor" className="h-5 w-5" />}
       >
         Continue with GitHub
@@ -76,8 +76,8 @@ function SignedIn({
       <p className="mt-3 leading-relaxed text-muted">
         Signed in as <span className="font-medium text-ink">@{username}</span>.
       </p>
-      <Button to="/console" className="mt-7 h-12 w-full text-base">
-        Continue to the console
+      <Button to="/overview" className="mt-7 h-12 w-full text-[1rem]">
+        Continue to your overview
       </Button>
       <button
         type="button"

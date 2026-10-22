@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { apiFetch, clearClientSession } from "@/lib/api";
-import { useTheme } from "@/lib/theme";
 import type { Session } from "@/lib/types";
 import SuccessHatch from "./auth/SuccessHatch";
 
-/** The page GitHub's sign-in lands on: confirm the session, then open the console. */
+/** The page GitHub's sign-in lands on: confirm the session, then open the overview. */
 export default function AuthSuccess() {
   const navigate = useNavigate();
-  const { theme } = useTheme();
   const [user, setUser] = useState<Session | null>(null);
 
   useEffect(() => {
@@ -28,14 +26,10 @@ export default function AuthSuccess() {
     };
   }, [navigate]);
 
-  const openConsole = useCallback(() => navigate("/console", { replace: true }), [navigate]);
+  const openOverview = useCallback(() => navigate("/overview", { replace: true }), [navigate]);
 
   return (
-    <div
-      data-theme={theme}
-      style={{ colorScheme: theme }}
-      className="bg-line-grid relative flex min-h-screen w-full flex-col overflow-hidden bg-base text-ink"
-    >
+    <div className="bg-line-grid relative flex min-h-screen w-full flex-col overflow-hidden bg-base text-ink">
       <Link
         to="/"
         className="absolute left-6 top-6 z-10 flex items-center gap-2.5 md:left-10 lg:left-16"
@@ -46,7 +40,7 @@ export default function AuthSuccess() {
 
       <main className="relative z-10 flex flex-1 items-center justify-center px-6 py-16">
         <div className="animate-rise flex w-full justify-center">
-          <SuccessHatch user={user} onDone={openConsole} />
+          <SuccessHatch user={user} onDone={openOverview} />
         </div>
       </main>
     </div>

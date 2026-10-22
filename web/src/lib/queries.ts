@@ -3,6 +3,8 @@ import { apiJson } from "./api";
 import type {
   ActivityEvent,
   Deployment,
+  GitHubInstallation,
+  GitHubRepo,
   Project,
   ProjectEnvVar,
   Session,
@@ -127,4 +129,31 @@ export const projectDeploymentsQuery = (projectId: string) =>
       )
         ? POLL_MS
         : false,
+  });
+
+export const NO_REPOS: GitHubRepo[] = [];
+export const NO_INSTALLATIONS: GitHubInstallation[] = [];
+
+/**
+ * The repositories the user has given the Hatch GitHub App access to, and the
+ * accounts it is installed on. `installed` is false until the App is installed
+ * on at least one account.
+ */
+export const githubReposQuery = () =>
+  queryOptions({
+    queryKey: ["github", "repos"],
+    queryFn: async () => {
+      const data = await apiJson<{
+        installed?: boolean;
+        installations?: GitHubInstallation[] | null;
+        repos?: GitHubRepo[] | null;
+      } | null>("/api/github/repos");
+      return {
+        installed: data?.installed === true,
+        installations: Array.isArray(data?.installations)
+          ? data.installations
+          : NO_INSTALLATIONS,
+        repos: Array.isArray(data?.repos) ? data.repos : NO_REPOS,
+      };
+    },
   });

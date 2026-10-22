@@ -15,11 +15,7 @@ export default function Landing() {
   const { theme, toggle } = useTheme();
 
   return (
-    <div
-      data-theme={theme}
-      style={{ colorScheme: theme }}
-      className="w-full bg-base text-ink"
-    >
+    <div className="w-full bg-base text-ink">
       <Header theme={theme} onToggleTheme={toggle} />
       <Hero />
       <Product />

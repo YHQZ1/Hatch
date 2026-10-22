@@ -3,29 +3,66 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { logout } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { useAwsConnection } from "@/lib/aws";
 import { meQuery } from "@/lib/queries";
+import type { Theme } from "@/lib/theme";
+import Container from "./Container";
+import ThemeToggle from "./ThemeToggle";
 import { Button } from "./ui";
 
-export default function Navbar() {
+interface NavItem {
+  label: string;
+  href: string;
+  /** Whether the current path belongs to this section. */
+  active: (pathname: string) => boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { label: "Overview", href: "/overview", active: (p) => p === "/overview" },
+  {
+    label: "Services",
+    href: "/services",
+    active: (p) => p === "/services" || p === "/new" || p.startsWith("/projects/"),
+  },
+  { label: "Deployments", href: "/deployments", active: (p) => p === "/deployments" },
+  { label: "Activity", href: "/activity", active: (p) => p === "/activity" },
+  { label: "Cost", href: "/cost", active: (p) => p === "/cost" },
+  { label: "Resources", href: "/resources", active: (p) => p === "/resources" },
+  { label: "Settings", href: "/settings", active: (p) => p.startsWith("/settings") },
+];
+
+export default function Navbar({
+  theme,
+  onToggleTheme,
+}: {
+  theme: Theme;
+  onToggleTheme: (origin: { x: number; y: number }) => void;
+}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pathname = useLocation().pathname;
-  const me = useQuery(meQuery()).data;
-  const user = me
-    ? { username: me.username, avatar: `https://github.com/${me.username}.png` }
-    : null;
+  const username = useQuery(meQuery()).data?.username;
+  const aws = useAwsConnection();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
+    const close = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
   }, []);
+
+  // With seven tabs the bar can scroll: keep the current one in view.
+  useEffect(() => {
+    tabsRef.current
+      ?.querySelector('[aria-current="page"]')
+      ?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [pathname]);
 
   const handleSignOut = async () => {
     await logout();
@@ -34,103 +71,94 @@ export default function Navbar() {
   };
 
   return (
-    <nav className="sticky top-0 z-50 w-full border-b border-white/[0.07] bg-black/70 backdrop-blur-xl">
-      <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-10 flex items-center justify-between h-16">
-        <div className="flex items-center h-full gap-10">
+    <header className="sticky top-0 z-50 border-b border-line bg-base/80 backdrop-blur-md">
+      <Container className="flex h-16 items-center justify-between">
+        {/* Seven tabs can outgrow the bar on a small screen, so the tabs scroll. */}
+        <nav
+          ref={tabsRef}
+          className="flex h-full min-w-0 items-center gap-6 overflow-x-auto text-sm [scrollbar-width:none] max-md:[mask-image:linear-gradient(to_right,#000_88%,transparent)] md:gap-7 [&::-webkit-scrollbar]:hidden"
+        >
+          {NAV_ITEMS.map((item) => (
+            <NavLink key={item.label} href={item.href} active={item.active(pathname)}>
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+
+        <div className="relative flex shrink-0 items-center gap-3 pl-4" ref={menuRef}>
           <Link
-            to="/console"
-            className="flex items-center gap-3.5 group cursor-pointer"
+            to="/settings?section=aws"
+            className="hidden h-10 items-center gap-2 rounded-hatch border border-line-strong px-3 text-sm text-muted transition-colors hover:border-ink/40 hover:text-ink xl:flex"
           >
-            <div className="w-8 h-8 flex items-center justify-center">
-              <img
-                src="/hatch.svg"
-                alt="Hatch Logo"
-                className="w-full h-full"
-              />
-            </div>
-            <span className="font-bold tracking-tighter text-xl uppercase text-white">
-              Hatch
-            </span>
+            <span
+              aria-hidden
+              className={cn("h-1.5 w-1.5 rounded-full", aws.connected ? "bg-success" : "bg-faint")}
+            />
+            {aws.connected ? "AWS connected" : "AWS not connected"}
           </Link>
-
-          <div className="hidden md:flex items-center h-full gap-1">
-            <NavLink href="/console" active={pathname === "/console"}>
-              Console
-            </NavLink>
-            <NavLink href="/activity" active={pathname === "/activity"}>
-              Activity
-            </NavLink>
-            <NavLink
-              href="/insights"
-              active={pathname === "/insights"}
-            >
-              Insights
-            </NavLink>
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+          <div className="hidden sm:block">
+            <Button href="/new" variant="primary" className="h-10">
+              New service
+            </Button>
           </div>
-        </div>
-
-        <div className="flex items-center h-full gap-3 sm:gap-5 relative" ref={menuRef}>
-          <Button href="/new" variant="primary" className="hidden sm:inline-flex">
-            <span className="text-sm">+</span>
-            New
-          </Button>
-
-          <div className="hidden sm:block h-5 w-px bg-white/[0.08]" />
 
           <button
+            type="button"
+            aria-label="Account menu"
+            aria-expanded={menuOpen}
             onClick={() => setMenuOpen(!menuOpen)}
-            className="flex items-center gap-4 group cursor-pointer outline-none bg-transparent border-none p-0 appearance-none"
-          >
-            <div className="text-right hidden sm:block">
-              {/* Bumped user name size to 13px */}
-              <p className="text-[13px] font-medium text-zinc-400 group-hover:text-white transition-colors tracking-tight">
-                {user?.username ?? "Guest"}
-              </p>
-            </div>
-            {user?.avatar && (
-              <div className="relative">
-                <img
-                  src={user.avatar}
-                  className={`w-8 h-8 rounded-md border transition-all duration-200 ${
-                    menuOpen
-                      ? "border-white"
-                      : "border-white/[0.1] group-hover:border-white/35"
-                  }`}
-                  alt="Profile"
-                />
-              </div>
+            className={cn(
+              "flex h-10 items-center gap-3 rounded-hatch border px-1.5 pr-3 transition-colors",
+              menuOpen ? "border-accent" : "border-line-strong hover:border-ink/40",
             )}
+          >
+            {username ? (
+              <img
+                src={`https://github.com/${username}.png?size=64`}
+                alt=""
+                className="h-7 w-7 rounded-[2px]"
+              />
+            ) : (
+              <span className="h-7 w-7 rounded-[2px] bg-line" />
+            )}
+            <span className="hidden text-sm text-muted xl:block">{username ?? "…"}</span>
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-[calc(100%+10px)] w-60 bg-[#090909]/95 border border-white/[0.08] shadow-2xl py-2 z-[60] rounded-xl overflow-hidden backdrop-blur-xl">
-              <div className="px-5 py-4 border-b border-white/[0.07] mb-1">
-                <p className="text-[13px] font-semibold text-white truncate">
-                  {user?.username}
-                </p>
-                <p className="text-[10px] text-zinc-500 uppercase mt-0.5 tracking-widest font-mono">
-                  Personal Account
+            <div className="absolute right-0 top-[calc(100%+10px)] z-[60] w-60 overflow-hidden rounded-hatch border border-line-strong bg-base shadow-2xl">
+              <div className="border-b border-line px-4 py-3.5">
+                <p className="truncate text-sm font-medium">{username}</p>
+                <p className="mt-0.5 font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
+                  Personal account
                 </p>
               </div>
-              <DropdownLink
-                href={`/u/${user?.username}`}
-                label="Account Settings"
+              <Link
+                to="/new"
                 onClick={() => setMenuOpen(false)}
-              />
-
-              <div className="h-px bg-white/[0.07] my-1" />
-
-              <button
-                onClick={handleSignOut}
-                className="w-full text-left px-5 py-2.5 text-[12px] text-zinc-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer font-medium"
+                className="block px-4 py-2.5 text-sm text-accent transition-colors hover:bg-ink/5 hover:text-accent-hover sm:hidden"
               >
-                Sign Out
+                New service
+              </Link>
+              <Link
+                to="/settings"
+                onClick={() => setMenuOpen(false)}
+                className="block px-4 py-2.5 text-sm text-muted transition-colors hover:bg-ink/5 hover:text-ink"
+              >
+                Settings
+              </Link>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="w-full border-t border-line px-4 py-2.5 text-left text-sm text-muted transition-colors hover:bg-ink/5 hover:text-ink"
+              >
+                Sign out
               </button>
             </div>
           )}
         </div>
-      </div>
-    </nav>
+      </Container>
+    </header>
   );
 }
 
@@ -141,39 +169,20 @@ function NavLink({
 }: {
   href: string;
   children: React.ReactNode;
-  active?: boolean;
+  active: boolean;
 }) {
   return (
     <Link
       to={href}
+      aria-current={active ? "page" : undefined}
       className={cn(
-        "relative flex h-9 items-center px-3 text-sm font-medium tracking-tight transition-colors cursor-pointer",
+        "relative flex h-full shrink-0 items-center whitespace-nowrap transition-colors",
         active
-          ? "text-white after:absolute after:inset-x-3 after:bottom-0 after:h-px after:bg-white"
-          : "text-zinc-500 hover:text-white",
+          ? "text-ink after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-accent"
+          : "text-muted hover:text-ink",
       )}
     >
       {children}
-    </Link>
-  );
-}
-
-function DropdownLink({
-  href,
-  label,
-  onClick,
-}: {
-  href: string;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <Link
-      to={href}
-      onClick={onClick}
-      className="flex items-center px-5 py-2.5 text-[12px] text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer font-medium"
-    >
-      {label}
     </Link>
   );
 }
