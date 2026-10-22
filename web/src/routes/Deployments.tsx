@@ -1,176 +1,205 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Link } from "react-router";
-import { AppShell, Button, EmptyStateBlock, PageTitle, Panel } from "@/components/ui";
-import { cn } from "@/lib/cn";
-import { projectsQuery } from "@/lib/queries";
-import Frame from "./landing/Frame";
-import { ServiceSkeleton, StatusBadge } from "./services/ServiceTable";
+import { useSearchParams } from "react-router";
+import { NoticeToast } from "@/components/NoticeToast";
+import PageHeading from "@/components/PageHeading";
+import SelectField from "@/components/SelectField";
+import { AppShell, Button } from "@/components/ui";
+import { useNotice } from "@/components/useNotice";
+import { useNow } from "@/lib/useNow";
+import ActivityChart from "./deployments/ActivityChart";
+import DeploymentRow from "./deployments/DeploymentRow";
 import {
-  type StatusKind,
-  formatCommit,
-  formatDeploymentDuration,
-  formatRelativeTime,
-  getStatusMeta,
-} from "./services/service";
-import { type FeedItem, useDeploymentFeed } from "./services/useDeploymentFeed";
+  ROW_HEIGHT,
+  TABS,
+  TAB_LABELS,
+  countByTab,
+  currentIds,
+  matchesSearch,
+  matchesTab,
+  parseTab,
+  stateOf,
+} from "./deployments/deployments";
+import Toolbar from "./overview/Toolbar";
+import { useProjectActions } from "./overview/useProjectActions";
+import { useSearchShortcut } from "./overview/useSearchShortcut";
+import { useDeploymentFeed } from "./services/useDeploymentFeed";
 
-/** How many deployments are listed; older ones are on each project's page. */
-const SHOWN = 100;
+/** How many deployments are listed at first, and how many each "Show more" adds. */
+const PAGE = 50;
 
-const FILTERS = [
-  { id: "all", label: "All", kinds: null },
-  { id: "live", label: "Live", kinds: ["live"] },
-  { id: "building", label: "Building", kinds: ["active"] },
-  { id: "failed", label: "Failed", kinds: ["failed"] },
-] as const satisfies readonly { id: string; label: string; kinds: StatusKind[] | null }[];
+const ALL_PROJECTS = "all";
 
-type FilterId = (typeof FILTERS)[number]["id"];
-
-const COLUMNS =
-  "xl:grid-cols-[minmax(0,1.2fr)_130px_minmax(0,2fr)_minmax(0,1fr)_110px_100px]";
-
-/** Every build and release across all projects, newest first. */
+/**
+ * Everything that has been shipped, across all projects: a two-week chart with
+ * the numbers that summarise it, then one line per deployment, newest first.
+ * Search, the project and the status are kept in the address.
+ */
 export default function DeploymentsPage() {
-  const queryClient = useQueryClient();
-  const { items, loading, refreshing, projectCount } = useDeploymentFeed();
-  const [filter, setFilter] = useState<FilterId>("all");
+  const { items, loading, projectCount } = useDeploymentFeed();
+  const { notice, setNotice, dismiss } = useNotice();
+  const actions = useProjectActions(setNotice);
+  const minute = useNow(60_000);
+  const now = useMemo(() => new Date(minute), [minute]);
+  const searchRef = useSearchShortcut();
+  const [shown, setShown] = useState(PAGE);
 
-  const withStatus = useMemo(
-    () => items.map((item) => ({ ...item, status: getStatusMeta(item.deployment.status) })),
-    [items],
+  const [params, setParams] = useSearchParams();
+  const query = params.get("q") ?? "";
+  const projectId = params.get("project") ?? ALL_PROJECTS;
+  const tab = parseTab(params.get("status"));
+  const setParam = (key: string, value: string, fallback = "") => {
+    setShown(PAGE);
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value && value !== fallback) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  // Which deployment is current depends on a project's whole history, so it is
+  // worked out before anything is filtered away.
+  const current = useMemo(() => currentIds(items), [items]);
+  const projects = useMemo(() => {
+    const byId = new Map(items.map(({ project }) => [project.id, project]));
+    return [...byId.values()].sort((a, b) => (a.subdomain || a.repo_name).localeCompare(b.subdomain || b.repo_name));
+  }, [items]);
+
+  const ofProject = useMemo(
+    () => (projectId === ALL_PROJECTS ? items : items.filter(({ project }) => project.id === projectId)),
+    [items, projectId],
   );
-  const counts = useMemo(() => {
-    const out: Record<FilterId, number> = { all: withStatus.length, live: 0, building: 0, failed: 0 };
-    for (const item of withStatus) {
-      if (item.status.kind === "live") out.live += 1;
-      if (item.status.kind === "active") out.building += 1;
-      if (item.status.kind === "failed") out.failed += 1;
-    }
-    return out;
-  }, [withStatus]);
+  const searched = useMemo(() => ofProject.filter((item) => matchesSearch(item, query)), [ofProject, query]);
+  const counts = useMemo(() => countByTab(searched), [searched]);
+  const matching = useMemo(() => searched.filter((item) => matchesTab(item, tab)), [searched, tab]);
+  const visible = useMemo(() => matching.slice(0, shown), [matching, shown]);
+  // A project's icon is asked for once per redeploy, not once per row: every row
+  // of a project shares the version of its newest deployment.
+  const iconVersion = useMemo(() => {
+    const newest = new Map<string, string>();
+    for (const { project, deployment } of items) if (!newest.has(project.id)) newest.set(project.id, deployment.id);
+    return newest;
+  }, [items]);
+  const liveProjects = useMemo(
+    () => new Set(items.filter(({ deployment }) => current.has(deployment.id)).map(({ project }) => project.id)),
+    [items, current],
+  );
 
-  const active = FILTERS.find((item) => item.id === filter)!;
-  const visible = withStatus
-    .filter((item) => !active.kinds || (active.kinds as readonly StatusKind[]).includes(item.status.kind))
-    .slice(0, SHOWN);
+  const clear = () => setParams({}, { replace: true });
+  const filtering = query.trim() !== "" || projectId !== ALL_PROJECTS || tab !== "all";
 
   return (
-    <AppShell>
-      <PageTitle
-        title="Deployments"
-        description="Every build and release across your projects, newest first."
-        actions={
-          <Button
-            disabled={refreshing}
-            onClick={() => void queryClient.invalidateQueries({ queryKey: projectsQuery().queryKey })}
-            className="h-10"
-          >
-            Refresh
-          </Button>
-        }
-      />
+    <AppShell contentClassName="py-8">
+      <div className="space-y-6">
+        <PageHeading title="Deployments" />
 
-      {(loading || items.length > 0) && (
-        <div className="mb-6 flex flex-wrap gap-2" role="tablist" aria-label="Filter by status">
-          {FILTERS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={filter === item.id}
-              onClick={() => setFilter(item.id)}
-              className={cn(
-                "h-9 rounded-hatch border px-3.5 text-sm transition-colors",
-                filter === item.id
-                  ? "border-accent bg-accent/10 text-ink"
-                  : "border-line-strong text-muted hover:border-ink/40 hover:text-ink",
-              )}
-            >
-              {item.label}
-              {!loading && <span className="ml-2 font-mono text-xs text-faint">{counts[item.id]}</span>}
-            </button>
-          ))}
-        </div>
-      )}
+        {(loading || items.length > 0) && (
+          <Toolbar
+            query={query}
+            onQuery={(value) => setParam("q", value)}
+            searchRef={searchRef}
+            placeholder="Search deployments…"
+            leading={
+              <>
+                <SelectField
+                  label="Show deployments of"
+                  value={projectId}
+                  onChange={(value) => setParam("project", value, ALL_PROJECTS)}
+                  className="w-36 sm:w-48"
+                  options={[
+                    { value: ALL_PROJECTS, label: "All projects" },
+                    ...projects.map((p) => ({ value: p.id, label: p.subdomain || p.repo_name })),
+                  ]}
+                />
+                <SelectField
+                  label="Show deployments with status"
+                  value={tab}
+                  onChange={(value) => setParam("status", value, "all")}
+                  className="hidden w-44 sm:block"
+                  options={TABS.map((t) => ({
+                    value: t,
+                    label: t === "all" ? "All statuses" : `${TAB_LABELS[t]} (${counts[t]})`,
+                  }))}
+                />
+              </>
+            }
+          />
+        )}
 
-      <Frame>
-        <Panel className="overflow-hidden">
-          {(loading || items.length > 0) && <Header />}
-          {loading ? (
-            <ServiceSkeleton />
-          ) : items.length === 0 ? (
-            <EmptyStateBlock
-              title="No deployments yet"
-              description={
-                projectCount === 0
-                  ? "Deploy a project and its builds and releases will be listed here."
-                  : "None of your projects has been deployed yet."
-              }
-              action={
-                <Button href="/new" variant="primary" className="h-10">
-                  New project
-                </Button>
-              }
-            />
-          ) : visible.length === 0 ? (
-            <p className="px-5 py-12 text-center text-sm text-muted">
-              No {active.label.toLowerCase()} deployments.
+        {(loading || items.length > 0) && <ActivityChart items={ofProject} now={now} loading={loading} />}
+
+        {loading ? (
+          <Skeleton />
+        ) : items.length === 0 ? (
+          <div className="flex flex-col items-start gap-4 rounded-hatch border border-dashed border-line-strong px-6 py-12">
+            <p className="text-xl font-semibold tracking-tight">No deployments yet</p>
+            <p className="max-w-md leading-relaxed text-muted">
+              {projectCount === 0
+                ? "Add a project and its builds and releases will be listed here, newest first."
+                : "None of your projects has been deployed yet."}
             </p>
-          ) : (
-            visible.map((item) => <Row key={item.deployment.id} item={item} />)
-          )}
-        </Panel>
-      </Frame>
+            <Button href="/new" variant="primary" className="h-10">
+              New project
+            </Button>
+          </div>
+        ) : matching.length === 0 ? (
+          <div className="flex flex-col items-start gap-3 rounded-hatch border border-dashed border-line-strong px-6 py-10">
+            <p className="text-lg font-semibold tracking-tight">No deployments match</p>
+            <p className="text-sm text-muted">Try a different word, project or status.</p>
+            {filtering && (
+              <Button variant="secondary" onClick={clear}>
+                Clear search and filters
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <ul className="rounded-hatch border border-line-strong bg-base">
+              {visible.map((item) => (
+                <DeploymentRow
+                  key={item.deployment.id}
+                  item={item}
+                  info={stateOf(item, current)}
+                  iconVersion={iconVersion.get(item.project.id) ?? ""}
+                  projectLive={liveProjects.has(item.project.id)}
+                  actions={actions}
+                />
+              ))}
+            </ul>
+
+            <div className="flex flex-col items-center gap-2">
+              {matching.length > shown && (
+                <Button variant="secondary" onClick={() => setShown((n) => n + PAGE)}>
+                  Show more
+                </Button>
+              )}
+              <p className="text-xs text-faint">
+                {Math.min(shown, matching.length)} of {matching.length} deployments
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <NoticeToast notice={notice} onDismiss={dismiss} />
     </AppShell>
   );
 }
 
-function Header() {
+/** Holds the list's space while it loads. */
+function Skeleton() {
   return (
-    <div className={cn("hidden gap-4 border-b border-line bg-panel px-5 py-3 xl:grid", COLUMNS)}>
-      {["Project", "Status", "Commit", "Branch", "Started", "Duration"].map((label) => (
-        <div key={label} className="font-mono text-[11px] uppercase tracking-[0.16em] text-faint">
-          {label}
-        </div>
+    <ul aria-hidden className="rounded-hatch border border-line-strong bg-base">
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <li key={i} className={`${ROW_HEIGHT} flex items-center gap-4 border-b border-line px-5 last:border-b-0`}>
+          <div className="h-7 w-7 animate-pulse rounded-hatch bg-line" />
+          <div className="h-4 w-28 animate-pulse rounded-hatch bg-line" />
+          <div className="hidden h-4 w-1/3 animate-pulse rounded-hatch bg-line/60 lg:block" />
+        </li>
       ))}
-    </div>
-  );
-}
-
-function Row({ item }: { item: FeedItem & { status: ReturnType<typeof getStatusMeta> } }) {
-  const { deployment, project, status } = item;
-  const commit = formatCommit(deployment);
-  const href = `/projects/${project.id}/deployments/${deployment.id}`;
-
-  return (
-    <Link
-      to={href}
-      className="block border-b border-line px-5 py-4 transition-colors last:border-b-0 hover:bg-ink/[0.03]"
-    >
-      <div className={cn("hidden items-center gap-4 xl:grid", COLUMNS)}>
-        <span className="truncate text-sm font-medium">{project.repo_name}</span>
-        <StatusBadge status={status} />
-        <div className="min-w-0">
-          <p className="truncate text-sm">{commit.message ?? "No commit message"}</p>
-          <p className="font-mono text-xs text-faint">{commit.short}</p>
-        </div>
-        <span className="truncate font-mono text-xs text-muted">{deployment.branch}</span>
-        <span className="text-sm text-muted">{formatRelativeTime(deployment.created_at)}</span>
-        <span className="font-mono text-xs text-muted">{formatDeploymentDuration(deployment)}</span>
-      </div>
-
-      <div className="xl:hidden">
-        <div className="flex items-start justify-between gap-4">
-          <span className="min-w-0 truncate text-sm font-medium">{project.repo_name}</span>
-          <StatusBadge status={status} />
-        </div>
-        <p className="mt-2 truncate text-sm text-muted">{commit.message ?? "No commit message"}</p>
-        <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
-          {commit.short} · {deployment.branch} · {formatRelativeTime(deployment.created_at)} ·{" "}
-          {formatDeploymentDuration(deployment)}
-        </p>
-      </div>
-    </Link>
+    </ul>
   );
 }
