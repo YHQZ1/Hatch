@@ -16,7 +16,8 @@ export default function ProtectedLayout() {
         className="bg-line-grid pointer-events-none absolute inset-x-0 top-0 h-[520px] [mask-image:linear-gradient(to_bottom,#000,transparent)]"
       />
       <Navbar theme={theme} onToggleTheme={toggle} />
-      <main className="relative z-10 flex-grow overflow-x-hidden">
+      {/* clip, not hidden: hidden makes this a scroll container, which stops position: sticky inside pages from sticking to the window. */}
+      <main className="relative z-10 flex-grow overflow-x-clip">
         <Outlet />
       </main>
     </div>
