@@ -71,7 +71,7 @@ export default function ProjectRow({
                 <span className="truncate">{commit.message ?? `Deployment ${commit.short}`}</span>
               </p>
               <p className="mt-1 flex min-w-0 items-center gap-1.5 text-[13px] leading-5 text-muted">
-                <RepoLink row={row} />
+                <RepoLink url={project.repo_url} slug={row.repoSlug} />
                 <span className="shrink-0">· {formatRelativeTime(row.updatedAtRaw)}</span>
                 {note && <span className={cn("shrink-0", NOTE_TEXT[note.tone])}>· {note.text}</span>}
               </p>
@@ -80,7 +80,7 @@ export default function ProjectRow({
             <>
               <p className="text-[15px] leading-5 text-muted">No deployments yet</p>
               <p className="mt-1 flex min-w-0 items-center text-[13px] leading-5 text-muted">
-                <RepoLink row={row} />
+                <RepoLink url={project.repo_url} slug={row.repoSlug} />
               </p>
             </>
           )}

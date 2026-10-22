@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { NoticeToast } from "@/components/NoticeToast";
+import SelectField from "@/components/SelectField";
 import { AppShell, Button } from "@/components/ui";
 import { PlusIcon } from "./overview/Glyphs";
 import { useNotice } from "@/components/useNotice";
@@ -162,31 +163,12 @@ export default function OverviewPage() {
             searchRef={searchRef}
             className="order-2 lg:col-span-2"
             leading={
-              <label className="relative block shrink-0">
-                <span className="sr-only">Sort projects</span>
-                <select
-                  value={sort}
-                  onChange={(e) => setParam("sort", e.target.value, "activity")}
-                  className="h-10 cursor-pointer appearance-none rounded-hatch border border-line-strong bg-base pl-3 pr-9 text-sm text-ink focus:border-accent focus:outline-none"
-                >
-                  {SORTS.map((key) => (
-                    <option key={key} value={key}>
-                      {SORT_LABELS[key]}
-                    </option>
-                  ))}
-                </select>
-                {/* The browser's own arrow sits against the edge; this one is inset and follows the theme. */}
-                <svg
-                  viewBox="0 0 16 16"
-                  aria-hidden
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
-                >
-                  <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </label>
+              <SelectField
+                label="Sort projects"
+                value={sort}
+                onChange={(value) => setParam("sort", value, "activity")}
+                options={SORTS.map((key) => ({ value: key, label: SORT_LABELS[key] }))}
+              />
             }
             trailing={
               <Button href="/new" variant="primary" className="h-10 shrink-0 px-4">

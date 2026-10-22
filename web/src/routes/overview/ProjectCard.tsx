@@ -69,11 +69,8 @@ export default function ProjectCard({
         />
       </div>
 
-      <p className="pointer-events-none relative z-10 mt-4 flex max-w-full text-xs">
-        <RepoLink
-          row={row}
-          className="h-6 max-w-full rounded-full border border-line-strong px-2.5 text-muted hover:border-ink/40"
-        />
+      <p className="pointer-events-none relative z-10 mt-3 flex max-w-full text-[13px] leading-5 text-muted">
+        <RepoLink url={project.repo_url} slug={row.repoSlug} className="max-w-full" />
       </p>
 
       <div className="pointer-events-none relative z-10 mt-auto pt-4">

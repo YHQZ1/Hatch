@@ -1,5 +1,6 @@
 import { cn } from "@/lib/cn";
 import { SearchIcon } from "./Glyphs";
+import Tabs from "./Tabs";
 import { FILTERS, FILTER_LABELS, type StatusFilter } from "./overview";
 
 export type ViewMode = "grid" | "list";
@@ -16,13 +17,16 @@ export default function Toolbar({
   searchRef,
   leading,
   trailing,
+  placeholder = "Search projects…",
   className,
 }: {
   query: string;
   onQuery: (value: string) => void;
-  view: ViewMode;
-  onView: (value: ViewMode) => void;
+  /** The grid/list switch is shown only when both are given. */
+  view?: ViewMode;
+  onView?: (value: ViewMode) => void;
   searchRef: React.RefObject<HTMLInputElement | null>;
+  placeholder?: string;
   /** Controls placed between the search and the layout switch. */
   leading?: React.ReactNode;
   /** Controls placed after the layout switch, such as the primary action. */
@@ -32,7 +36,7 @@ export default function Toolbar({
   return (
     <div className={cn("flex items-center gap-3", className)}>
       <label className="relative block min-w-0 flex-1">
-        <span className="sr-only">Search projects</span>
+        <span className="sr-only">{placeholder.replace("…", "")}</span>
         <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
         <input
           ref={searchRef}
@@ -45,7 +49,7 @@ export default function Toolbar({
               e.currentTarget.blur();
             }
           }}
-          placeholder="Search projects…"
+          placeholder={placeholder}
           className="h-10 w-full rounded-hatch border border-line-strong bg-base pl-10 pr-10 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none [&::-webkit-search-cancel-button]:hidden"
         />
         {!query && (
@@ -57,6 +61,7 @@ export default function Toolbar({
 
       {leading}
 
+      {view && onView && (
       <div role="group" aria-label="Layout" className="flex shrink-0 overflow-hidden rounded-hatch border border-line-strong">
         {(["grid", "list"] as const).map((mode) => (
           <button
@@ -86,6 +91,7 @@ export default function Toolbar({
           </button>
         ))}
       </div>
+      )}
 
       {trailing}
     </div>
@@ -103,22 +109,15 @@ export function FilterTabs({
   counts: Record<StatusFilter, number>;
 }) {
   return (
-    <div role="group" aria-label="Filter by status" className="flex flex-wrap gap-x-5 gap-y-1 border-b border-line">
-      {FILTERS.filter((f) => f === "all" || counts[f] > 0 || f === filter).map((f) => (
-        <button
-          key={f}
-          type="button"
-          aria-pressed={filter === f}
-          onClick={() => onFilter(f)}
-          className={cn(
-            "-mb-px flex h-10 items-center gap-2 border-b-2 text-sm transition-colors",
-            filter === f ? "border-ink text-ink" : "border-transparent text-muted hover:text-ink",
-          )}
-        >
-          {FILTER_LABELS[f]}
-          <span className="text-xs tabular-nums text-faint">{counts[f]}</span>
-        </button>
-      ))}
-    </div>
+    <Tabs
+      label="Filter by status"
+      value={filter}
+      onChange={onFilter}
+      options={FILTERS.filter((f) => f === "all" || counts[f] > 0 || f === filter).map((f) => ({
+        id: f,
+        label: FILTER_LABELS[f],
+        count: counts[f],
+      }))}
+    />
   );
 }

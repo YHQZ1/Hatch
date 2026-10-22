@@ -25,7 +25,6 @@ const NAV_ITEMS: NavItem[] = [
     active: (p) => p === "/overview" || p === "/new" || p.startsWith("/projects/"),
   },
   { label: "Deployments", href: "/deployments", active: (p) => p === "/deployments" },
-  { label: "Activity", href: "/activity", active: (p) => p === "/activity" },
   { label: "Cost", href: "/cost", active: (p) => p === "/cost" },
   { label: "Resources", href: "/resources", active: (p) => p === "/resources" },
   { label: "Settings", href: "/settings", active: (p) => p.startsWith("/settings") },

@@ -58,11 +58,8 @@ export const router = createBrowserRouter([
             handle: { title: "Insights" },
             ...page(() => import("./routes/Insights")),
           },
-          {
-            path: "activity",
-            handle: { title: "Activity" },
-            ...page(() => import("./routes/Activity")),
-          },
+          // Recent activity is a panel on the Overview; this path is an old link.
+          { path: "activity", element: <Navigate to="/overview" replace /> },
           {
             path: "new",
             handle: { title: "New project" },
