@@ -36,6 +36,10 @@ After creating the App:
    to an OAuth App, which Hatch no longer uses.
 3. Under **Client secrets**, generate a secret. GitHub shows it once.
 
+4. Under **Private keys**, click **Generate a private key**. GitHub downloads a
+   `.pem` file once and keeps no copy. Move it somewhere safe (the repository
+   root works for development: `*.pem` is ignored by git and Docker).
+
 Put them in `.env` (never commit that file):
 
 ```
@@ -43,9 +47,23 @@ GITHUB_APP_SLUG=your-github-app-slug
 GITHUB_CLIENT_ID=Iv...
 GITHUB_CLIENT_SECRET=...
 GITHUB_REDIRECT_URI=http://localhost:8080/auth/callback
+GITHUB_APP_PRIVATE_KEY_PATH=your-app.private-key.pem
 ```
 
 `GITHUB_REDIRECT_URI` must match the App's callback URL exactly.
+`GITHUB_APP_PRIVATE_KEY_PATH` is read from the directory Hatch runs in. Both
+`hatch serve` and `hatch worker` need it and the Client ID, and refuse to start
+if the key cannot be read. There is no need for the numeric App ID: GitHub
+accepts the Client ID as the issuer of the App's JWT.
+
+## How builds read your code
+
+A build never receives your GitHub token. Hatch signs a short JWT with the
+App's private key, asks GitHub which installation covers the repository, and
+requests an installation token limited to that one repository with
+`contents: read`. The token lasts an hour, is used for the `git clone`, and is
+not stored. If the App is not installed on the repository, the build fails with
+a message telling you to install it.
 
 ## How sign-in works
 
@@ -58,6 +76,17 @@ GITHUB_REDIRECT_URI=http://localhost:8080/auth/callback
   something goes wrong it redirects to `/auth?error=<code>` instead, where code
   is one of `state`, `denied`, `exchange`, `github`, or `server`.
 - `POST /auth/logout` ends the session.
+
+GitHub App user tokens expire after 8 hours. Hatch stores the token and its
+refresh token (both encrypted) and renews them when a request needs GitHub, so
+the user stays signed in to Hatch for the session's lifetime. If the refresh
+token has expired (about six months) or GitHub rejects it, the user is sent back
+to sign in. Keep **Expire user authorization tokens** checked, as above;
+without it GitHub issues no refresh token.
+
+`GET /api/github/repos` lists the repositories the user has granted to the App
+through its installations. Until the App is installed the list is empty and the
+web app links to `/auth/install`.
 
 Sessions are stored in Postgres, and the cookie holds a random ID whose hash is
 the only thing stored ([ADR 0013](decisions/0013-server-side-sessions.md)).

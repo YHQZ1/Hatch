@@ -78,6 +78,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		FrontendURL:  cfg.FrontendURL,
 		AppSlug:      cfg.GitHubAppSlug,
 	}, db, sessions, secretCodec)
+	tokens := auth.NewTokens(db, secretCodec, cfg.GitHubClientID, cfg.GitHubClientSecret)
 
 	projectHandler := handlers.NewProjectHandler(db, publisher, cfg.WebhookBaseURL, secretCodec)
 	deploymentHandler := handlers.NewDeploymentHandler(db, publisher, rdb, secretCodec)
@@ -85,7 +86,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	githubHandler := handlers.NewGitHubHandler(rdb)
 	publicConfigHandler := handlers.NewPublicConfigHandler(cfg.BaseDomain, cfg.DeploymentURLScheme)
 	webhookHandler := handlers.NewWebhookHandler(db, publisher, secretCodec)
-	authMiddleware := auth.Middleware(sessions, secretCodec)
+	authMiddleware := auth.Middleware(sessions, tokens)
 	csrfMiddleware := auth.CSRFMiddleware()
 
 	r.GET("/health", func(c *gin.Context) {
@@ -166,7 +167,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		api.GET("/github/repos/:owner/:repo/dockerfile", githubHandler.CheckDockerfile)
 	}
 
-	// Everything else is the web UI. Its client-side routes (such as /console)
+	// Everything else is the web UI. Its client-side routes (such as /overview)
 	// get index.html so a page reload works.
 	r.NoRoute(gin.WrapH(spa.Handler(web.Dist())))
 

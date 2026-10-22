@@ -90,11 +90,14 @@ type Session struct {
 }
 
 type User struct {
-	ID             uuid.UUID `json:"id"`
-	GithubID       int64     `json:"github_id"`
-	GithubUsername string    `json:"github_username"`
-	AccessToken    string    `json:"access_token"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID                    uuid.UUID      `json:"id"`
+	GithubID              int64          `json:"github_id"`
+	GithubUsername        string         `json:"github_username"`
+	AccessToken           string         `json:"access_token"`
+	CreatedAt             time.Time      `json:"created_at"`
+	RefreshToken          sql.NullString `json:"refresh_token"`
+	AccessTokenExpiresAt  sql.NullTime   `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt sql.NullTime   `json:"refresh_token_expires_at"`
 }
 
 type WebhookDelivery struct {

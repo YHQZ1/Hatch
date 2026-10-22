@@ -2,6 +2,7 @@
 package config
 
 import (
+	"crypto/rsa"
 	"fmt"
 	"net/url"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/YHQZ1/hatch/internal/githubapp"
 )
 
 // Role says which part of Hatch is starting, and so which settings it needs.
@@ -37,11 +40,16 @@ type Config struct {
 	DataEncryptionKey string
 	AWSRegion         string
 
+	// The GitHub App, as itself: builds clone with its installation tokens.
+	// The client ID doubles as the issuer of the App's JWT.
+	GitHubClientID   string
+	GitHubAppKeyPath string
+	GitHubAppKey     *rsa.PrivateKey
+
 	// API and web UI (RoleServe).
 	Port               string
 	FrontendURL        string
 	CORSAllowedOrigins []string
-	GitHubClientID     string
 	GitHubClientSecret string
 	GitHubRedirectURI  string
 	GitHubAppSlug      string
@@ -125,6 +133,16 @@ func Load(role Role) (*Config, error) {
 		cfg.DataEncryptionKey = getEnv("DATA_ENCRYPTION_KEY", "")
 		cfg.AWSRegion = getEnv("AWS_REGION", "ap-south-1")
 
+		cfg.GitHubClientID = r.require("GITHUB_CLIENT_ID")
+		cfg.GitHubAppKeyPath = r.require("GITHUB_APP_PRIVATE_KEY_PATH")
+		if cfg.GitHubAppKeyPath != "" {
+			key, err := githubapp.LoadKeyFile(cfg.GitHubAppKeyPath)
+			if err != nil {
+				r.problems = append(r.problems, "GITHUB_APP_PRIVATE_KEY_PATH: "+err.Error())
+			}
+			cfg.GitHubAppKey = key
+		}
+
 		cfg.ECRRegistry = r.require("ECR_REGISTRY")
 		cfg.ECRRepository = r.require("ECR_REPOSITORY")
 		cfg.BuildTimeout = r.duration("BUILD_TIMEOUT", 30*time.Minute)
@@ -144,7 +162,6 @@ func Load(role Role) (*Config, error) {
 		cfg.Port = getEnv("PORT", "8080")
 		cfg.FrontendURL = strings.TrimRight(getEnv("FRONTEND_URL", "http://localhost:3000"), "/")
 		cfg.CORSAllowedOrigins = parseCSV(getEnv("CORS_ALLOWED_ORIGINS", cfg.FrontendURL))
-		cfg.GitHubClientID = r.require("GITHUB_CLIENT_ID")
 		cfg.GitHubClientSecret = r.require("GITHUB_CLIENT_SECRET")
 		cfg.GitHubRedirectURI = r.require("GITHUB_REDIRECT_URI")
 		cfg.GitHubAppSlug = r.require("GITHUB_APP_SLUG")

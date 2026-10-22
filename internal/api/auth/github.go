@@ -131,31 +131,34 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	token, err := h.exchangeCodeForToken(ctx, code)
+	tokens, err := h.exchangeCodeForToken(ctx, code)
 	if err != nil {
 		slog.WarnContext(ctx, "github code exchange failed", "error", err)
 		h.redirectError(c, "exchange")
 		return
 	}
 
-	ghUser, err := h.fetchGitHubUser(ctx, token)
+	ghUser, err := h.fetchGitHubUser(ctx, tokens.AccessToken)
 	if err != nil {
 		slog.WarnContext(ctx, "github profile fetch failed", "error", err)
 		h.redirectError(c, "github")
 		return
 	}
 
-	storedToken, err := h.secrets.Encrypt(token)
+	stored, err := sealGrant(h.secrets, tokens, time.Now())
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to encrypt github token", "error", err)
+		slog.ErrorContext(ctx, "failed to encrypt github tokens", "error", err)
 		h.redirectError(c, "server")
 		return
 	}
 
 	dbUser, err := h.queries.CreateUser(ctx, dbpkg.CreateUserParams{
-		GithubID:       ghUser.ID,
-		GithubUsername: ghUser.Login,
-		AccessToken:    storedToken,
+		GithubID:              ghUser.ID,
+		GithubUsername:        ghUser.Login,
+		AccessToken:           stored.accessToken,
+		RefreshToken:          stored.refreshToken,
+		AccessTokenExpiresAt:  stored.accessExpiresAt,
+		RefreshTokenExpiresAt: stored.refreshExpiresAt,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to save user", "github_id", ghUser.ID, "error", err)
@@ -202,50 +205,13 @@ func (h *Handler) redirectError(c *gin.Context, code string) {
 	c.Redirect(http.StatusTemporaryRedirect, h.cfg.FrontendURL+"/auth?error="+url.QueryEscape(code))
 }
 
-func (h *Handler) exchangeCodeForToken(ctx context.Context, code string) (string, error) {
+func (h *Handler) exchangeCodeForToken(ctx context.Context, code string) (*grant, error) {
 	form := url.Values{}
 	form.Set("client_id", h.cfg.ClientID)
 	form.Set("client_secret", h.cfg.ClientSecret)
 	form.Set("code", code)
 	form.Set("redirect_uri", h.cfg.RedirectURI)
-
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		h.githubURL+"/login/oauth/access_token",
-		strings.NewReader(form.Encode()),
-	)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "Hatch")
-
-	resp, err := githubHTTPClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("github token exchange failed with status %d", resp.StatusCode)
-	}
-
-	var result struct {
-		AccessToken string `json:"access_token"`
-		Error       string `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
-	}
-	if result.Error != "" {
-		return "", fmt.Errorf("github: %s", result.Error)
-	}
-	if strings.TrimSpace(result.AccessToken) == "" {
-		return "", fmt.Errorf("github returned an empty access token")
-	}
-
-	return result.AccessToken, nil
+	return requestGrant(ctx, h.githubURL, form)
 }
 
 func (h *Handler) fetchGitHubUser(ctx context.Context, token string) (*GitHubUser, error) {

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YHQZ1/hatch/internal/api/auth"
 	"github.com/YHQZ1/hatch/internal/api/queue"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	"github.com/YHQZ1/hatch/internal/store"
@@ -552,8 +553,8 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 	}
 
 	resourceName := projectResourceName(project)
-	if tokenRaw, ok := c.Get("access_token"); ok && project.GithubWebhookID.Valid {
-		if token, ok := tokenRaw.(string); ok && token != "" {
+	if project.GithubWebhookID.Valid {
+		if token, ok := accessTokenFromContext(c); ok {
 			if err := h.deleteGitHubWebhook(c.Request.Context(), project.RepoUrl, token, project.GithubWebhookID.Int64); err != nil {
 				slog.WarnContext(c.Request.Context(), "failed to delete the GitHub webhook", "project_id", project.ID, "error", err)
 			}
@@ -777,13 +778,18 @@ func validateGitHubDeployInputs(ctx context.Context, repoURL, branch, dockerfile
 	return nil
 }
 
+// accessTokenFromContext returns the signed-in user's GitHub token, renewing
+// it if it has expired. It reports false when there is none to give, in which
+// case the user has to sign in again.
 func accessTokenFromContext(c *gin.Context) (string, bool) {
-	tokenRaw, ok := c.Get("access_token")
-	if !ok {
+	token, err := auth.GitHubToken(c)
+	if err != nil {
+		if !errors.Is(err, auth.ErrReauthRequired) {
+			slog.ErrorContext(c.Request.Context(), "failed to get the user's GitHub token", "error", err)
+		}
 		return "", false
 	}
-	token, ok := tokenRaw.(string)
-	return token, ok && token != ""
+	return token, token != ""
 }
 
 func escapeGitHubPath(value string) string {

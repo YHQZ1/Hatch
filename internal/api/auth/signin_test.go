@@ -4,11 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/YHQZ1/hatch/internal/secrets"
 	"github.com/gin-gonic/gin"
@@ -20,6 +23,7 @@ const (
 	testClientSecret = "test-client-secret"
 	testCode         = "code-from-github"
 	testToken        = "ghu_usertoken"
+	testRefreshToken = "ghr_refreshtoken"
 )
 
 // fakeGitHub stands in for github.com and api.github.com.
@@ -29,15 +33,67 @@ type fakeGitHub struct {
 	exchangeError string
 	userStatus    int
 	user          GitHubUser
+
+	// Refresh tokens are single-use, as on GitHub: a refresh returns a new one
+	// and the old one stops working. mu guards what follows.
+	mu sync.Mutex
+	// refreshDelay makes renewal slow, so concurrent requests overlap.
+	refreshDelay  time.Duration
+	refreshToken  string
+	refreshCalls  int
+	refreshIssued int
+}
+
+// refreshed returns how many times the token endpoint was asked to renew.
+func (f *fakeGitHub) refreshed() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.refreshCalls
+}
+
+// latestAccessToken is the access token the most recent refresh handed out.
+func (f *fakeGitHub) latestAccessToken() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return fmt.Sprintf("ghu_renewed%d", f.refreshIssued)
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
 	t.Helper()
-	f := &fakeGitHub{userStatus: http.StatusOK, user: GitHubUser{ID: 4242, Login: "octocat"}}
+	f := &fakeGitHub{
+		userStatus:   http.StatusOK,
+		user:         GitHubUser{ID: 4242, Login: "octocat"},
+		refreshToken: testRefreshToken,
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/login/oauth/access_token", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
 		w.Header().Set("Content-Type", "application/json")
+		if r.Form.Get("grant_type") == "refresh_token" {
+			f.mu.Lock()
+			delay := f.refreshDelay
+			f.mu.Unlock()
+			time.Sleep(delay)
+
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.refreshCalls++
+			if r.Form.Get("client_id") != testClientID ||
+				r.Form.Get("client_secret") != testClientSecret ||
+				r.Form.Get("refresh_token") != f.refreshToken {
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "bad_refresh_token"})
+				return
+			}
+			f.refreshIssued++
+			f.refreshToken = fmt.Sprintf("ghr_renewed%d", f.refreshIssued)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token":             fmt.Sprintf("ghu_renewed%d", f.refreshIssued),
+				"refresh_token":            f.refreshToken,
+				"expires_in":               28800,
+				"refresh_token_expires_in": 15811200,
+			})
+			return
+		}
 		switch {
 		case f.exchangeError != "":
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": f.exchangeError})
@@ -46,7 +102,12 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 			r.Form.Get("code") != testCode:
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "bad_verification_code"})
 		default:
-			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": testToken})
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token":             testToken,
+				"refresh_token":            testRefreshToken,
+				"expires_in":               28800,
+				"refresh_token_expires_in": 15811200,
+			})
 		}
 	})
 	mux.HandleFunc("/user", func(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +128,7 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 type harness struct {
 	router   *gin.Engine
 	github   *fakeGitHub
+	tokens   *Tokens
 	sessions *Sessions
 	db       *sql.DB
 	codec    *secrets.Codec
@@ -92,16 +154,23 @@ func newHarness(t *testing.T) *harness {
 	handler.githubURL = github.server.URL
 	handler.apiURL = github.server.URL
 
-	authenticated := Middleware(sessions, codec)
+	tokens := NewTokens(db, codec, testClientID, testClientSecret)
+	tokens.githubURL = github.server.URL
+	authenticated := Middleware(sessions, tokens)
 	router := gin.New()
 	router.GET("/auth/github", handler.RedirectToGitHub)
 	router.GET("/auth/install", handler.RedirectToInstall)
 	router.GET("/auth/callback", handler.HandleCallback)
 	router.POST("/auth/logout", authenticated, CSRFMiddleware(), handler.Logout)
 	router.GET("/api/me", authenticated, func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"username": c.MustGet("username"), "access_token": c.MustGet("access_token")})
+		token, err := GitHubToken(c)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"username": c.MustGet("username"), "access_token": token})
 	})
-	return &harness{router: router, github: github, sessions: sessions, db: db, codec: codec}
+	return &harness{router: router, github: github, tokens: tokens, sessions: sessions, db: db, codec: codec}
 }
 
 func (h *harness) do(req *http.Request, cookies ...*http.Cookie) *httptest.ResponseRecorder {
@@ -252,6 +321,17 @@ func TestCallbackSignsTheUserIn(t *testing.T) {
 	}
 	if got, err := h.codec.Decrypt(user.AccessToken); err != nil || got != testToken {
 		t.Errorf("stored token decrypts to %q, %v", got, err)
+	}
+	if !user.RefreshToken.Valid || user.RefreshToken.String == testRefreshToken {
+		t.Error("the refresh token was not stored, or was stored unencrypted")
+	} else if got, err := h.codec.Decrypt(user.RefreshToken.String); err != nil || got != testRefreshToken {
+		t.Errorf("stored refresh token decrypts to %q, %v", got, err)
+	}
+	if !user.AccessTokenExpiresAt.Valid || time.Until(user.AccessTokenExpiresAt.Time) < 7*time.Hour {
+		t.Errorf("access token expiry = %+v, want about 8 hours away", user.AccessTokenExpiresAt)
+	}
+	if !user.RefreshTokenExpiresAt.Valid || time.Until(user.RefreshTokenExpiresAt.Time) < 24*time.Hour*170 {
+		t.Errorf("refresh token expiry = %+v, want about six months away", user.RefreshTokenExpiresAt)
 	}
 }
 

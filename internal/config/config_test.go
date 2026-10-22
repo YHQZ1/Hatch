@@ -1,6 +1,12 @@
 package config
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -125,6 +131,25 @@ func TestValidateRejectsUnknownDeploymentURLScheme(t *testing.T) {
 	}
 }
 
+// generatedKey stands for a valid private key file that setEnv writes.
+const generatedKey = "<generated key file>"
+
+// writeKeyFile writes an RSA private key in GitHub's PKCS #1 format and returns
+// its path.
+func writeKeyFile(t *testing.T) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "app.pem")
+	data := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 // allVars is every variable the serve role needs, with development values.
 var allVars = map[string]string{
 	"DATABASE_URL":            "postgres://hatch:hatch@localhost:5433/hatch?sslmode=disable",
@@ -141,10 +166,12 @@ var allVars = map[string]string{
 	"TASK_EXECUTION_ROLE_ARN": "arn:aws:iam::123456789012:role/hatch-task-execution",
 	"BASE_DOMAIN":             "apps.example.com",
 	"GITHUB_CLIENT_ID":        "client-id",
-	"GITHUB_CLIENT_SECRET":    "client-secret",
-	"GITHUB_REDIRECT_URI":     "http://localhost:8080/auth/callback",
-	"GITHUB_APP_SLUG":         "hatch-local-dev",
-	"WEBHOOK_BASE_URL":        "http://localhost:8080",
+	// Replaced by setEnv with the path of a freshly written key.
+	"GITHUB_APP_PRIVATE_KEY_PATH": generatedKey,
+	"GITHUB_CLIENT_SECRET":        "client-secret",
+	"GITHUB_REDIRECT_URI":         "http://localhost:8080/auth/callback",
+	"GITHUB_APP_SLUG":             "hatch-local-dev",
+	"WEBHOOK_BASE_URL":            "http://localhost:8080",
 }
 
 // setEnv clears every variable Load reads, then sets the given ones.
@@ -161,6 +188,9 @@ func setEnv(t *testing.T, vars map[string]string) {
 		t.Setenv(key, "")
 	}
 	for key, value := range vars {
+		if value == generatedKey {
+			value = writeKeyFile(t)
+		}
 		t.Setenv(key, value)
 	}
 }
@@ -225,7 +255,7 @@ func TestLoadReportsEveryMissingVariable(t *testing.T) {
 
 func TestWorkerDoesNotNeedTheAPISettings(t *testing.T) {
 	setEnv(t, without(allVars,
-		"GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_REDIRECT_URI", "GITHUB_APP_SLUG", "WEBHOOK_BASE_URL"))
+		"GITHUB_CLIENT_SECRET", "GITHUB_REDIRECT_URI", "GITHUB_APP_SLUG", "WEBHOOK_BASE_URL"))
 
 	if _, err := Load(RoleWorker); err != nil {
 		t.Fatalf("worker should load without API settings: %v", err)
@@ -284,5 +314,52 @@ func TestWorkerProductionSkipsTheAPIChecks(t *testing.T) {
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("worker should not need the API settings: %v", err)
+	}
+}
+
+func TestWorkerAndServeNeedTheAppKeyToClone(t *testing.T) {
+	for _, role := range []Role{RoleWorker, RoleServe} {
+		setEnv(t, without(allVars, "GITHUB_CLIENT_ID", "GITHUB_APP_PRIVATE_KEY_PATH"))
+
+		_, err := Load(role)
+
+		if err == nil || !strings.Contains(err.Error(), "GITHUB_APP_PRIVATE_KEY_PATH") || !strings.Contains(err.Error(), "GITHUB_CLIENT_ID") {
+			t.Errorf("role %d: error = %v, want both variables reported", role, err)
+		}
+	}
+}
+
+func TestLoadParsesTheAppKey(t *testing.T) {
+	setEnv(t, allVars)
+
+	cfg, err := Load(RoleWorker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GitHubAppKey == nil || cfg.GitHubClientID != "client-id" {
+		t.Fatalf("key = %v, client ID = %q", cfg.GitHubAppKey, cfg.GitHubClientID)
+	}
+}
+
+func TestLoadRejectsAnUnusableAppKey(t *testing.T) {
+	notAKey := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(notAKey, []byte("this is not a key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, path := range map[string]string{
+		"missing file": filepath.Join(t.TempDir(), "nope.pem"),
+		"not a key":    notAKey,
+	} {
+		setEnv(t, allVars)
+		t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", path)
+
+		_, err := Load(RoleWorker)
+
+		if err == nil || !strings.Contains(err.Error(), "GITHUB_APP_PRIVATE_KEY_PATH") {
+			t.Errorf("%s: error = %v, want a GITHUB_APP_PRIVATE_KEY_PATH error", name, err)
+		}
+		if err != nil && strings.Contains(err.Error(), "this is not a key") {
+			t.Errorf("%s: the file's contents leaked into the error: %v", name, err)
+		}
 	}
 }

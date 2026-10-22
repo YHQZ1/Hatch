@@ -12,6 +12,7 @@ import (
 	"github.com/YHQZ1/hatch/internal/api"
 	buildqueue "github.com/YHQZ1/hatch/internal/build/queue"
 	"github.com/YHQZ1/hatch/internal/config"
+	"github.com/YHQZ1/hatch/internal/githubapp"
 	runtimequeue "github.com/YHQZ1/hatch/internal/runtime/queue"
 	"github.com/YHQZ1/hatch/internal/store"
 )
@@ -112,6 +113,7 @@ func builderComponent(cfg *config.Config) component {
 			cfg.DatabaseURL,
 			cfg.DataEncryptionKey,
 			cfg.BuildTimeout,
+			githubapp.New(cfg.GitHubClientID, cfg.GitHubAppKey),
 		)
 		defer w.Close()
 		slog.Info("component started", "component", "builder", "region", cfg.AWSRegion)

@@ -1,11 +1,15 @@
 package handlers
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,18 +19,42 @@ import (
 )
 
 type Repo struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	FullName    string `json:"full_name"`
-	Private     bool   `json:"private"`
-	HTMLURL     string `json:"html_url"`
-	Description string `json:"description"`
-	Language    string `json:"language"`
-	UpdatedAt   string `json:"updated_at"`
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	FullName      string `json:"full_name"`
+	Private       bool   `json:"private"`
+	HTMLURL       string `json:"html_url"`
+	Description   string `json:"description"`
+	Language      string `json:"language"`
+	DefaultBranch string `json:"default_branch"`
+	UpdatedAt     string `json:"updated_at"`
+}
+
+// Installation is one place the Hatch App is installed: a user or an
+// organization account.
+type Installation struct {
+	ID      int64  `json:"id"`
+	Account string `json:"account"`
+	// Type is "User" or "Organization".
+	Type string `json:"type"`
+}
+
+// reposResponse is what the web UI shows on the new-service page. Installed is
+// false until the user has installed the App anywhere; the UI then sends them
+// to /auth/install.
+type reposResponse struct {
+	Installed     bool           `json:"installed"`
+	Installations []Installation `json:"installations"`
+	Repos         []Repo         `json:"repos"`
 }
 
 type GitHubHandler struct {
 	rdb *redis.Client
+
+	// apiURL is GitHub's API origin; tests point it at a fake.
+	apiURL string
+	// token returns the signed-in user's GitHub token; tests replace it.
+	token func(*gin.Context) (string, bool)
 }
 
 type dockerfileCheckResponse struct {
@@ -41,80 +69,149 @@ type githubContentResponse struct {
 }
 
 func NewGitHubHandler(rdb *redis.Client) *GitHubHandler {
-	return &GitHubHandler{rdb: rdb}
+	return &GitHubHandler{rdb: rdb, apiURL: "https://api.github.com", token: accessTokenFromContext}
 }
 
+// Limits on how much of GitHub's paginated lists Hatch reads: generous for one
+// person, but bounded so that a huge organization cannot make a request run
+// away.
+const (
+	maxInstallationPages = 5
+	maxRepoPages         = 10
+	githubPageSize       = 100
+)
+
+// errGitHubUnauthorized means GitHub rejected the user's token.
+var errGitHubUnauthorized = errors.New("github rejected the access token")
+
+// getJSON fetches one GitHub API path with the user's token and decodes it.
+func (h *GitHubHandler) getJSON(ctx context.Context, token, path string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.apiURL+path, nil)
+	if err != nil {
+		return err
+	}
+	setGitHubHeaders(req, token)
+
+	resp, err := outboundHTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return errGitHubUnauthorized
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("github returned status %d for %s", resp.StatusCode, path)
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// ListRepos lists the repositories Hatch may read: those the user has given
+// the Hatch App access to. Repositories the user can reach on GitHub but has
+// not granted to the App are deliberately absent (ADR 0010). It is not cached,
+// so a repository added in GitHub's installation settings shows up on the next
+// load.
 func (h *GitHubHandler) ListRepos(c *gin.Context) {
-	token, ok := accessTokenFromContext(c)
+	token, ok := h.token(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 		return
 	}
+	ctx := c.Request.Context()
 
-	usernameRaw, exists := c.Get("username")
-	username, ok := usernameRaw.(string)
-	if !exists || !ok || strings.TrimSpace(username) == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "username not found"})
+	installations, err := h.listInstallations(ctx, token)
+	if err != nil {
+		h.respondGitHubError(c, "failed to list GitHub App installations", err)
 		return
 	}
 
-	cacheKey := fmt.Sprintf("github:repos:%s", username)
-	ctx := c.Request.Context()
-
-	val, err := h.rdb.Get(ctx, cacheKey).Result()
-	if err == nil {
-		var cachedRepos []Repo
-		if err := json.Unmarshal([]byte(val), &cachedRepos); err == nil {
-			c.JSON(http.StatusOK, cachedRepos)
+	response := reposResponse{
+		Installed:     len(installations) > 0,
+		Installations: installations,
+		Repos:         []Repo{},
+	}
+	seen := map[int64]bool{}
+	for _, installation := range installations {
+		repos, err := h.listInstallationRepos(ctx, token, installation.ID)
+		if err != nil {
+			h.respondGitHubError(c, "failed to list installation repositories", err)
 			return
+		}
+		for _, repo := range repos {
+			if !seen[repo.ID] {
+				seen[repo.ID] = true
+				response.Repos = append(response.Repos, repo)
+			}
 		}
 	}
+	// Most recently updated first; GitHub timestamps sort as text.
+	sort.SliceStable(response.Repos, func(i, j int) bool {
+		return response.Repos[i].UpdatedAt > response.Repos[j].UpdatedAt
+	})
 
-	var repos []Repo
-	for page := 1; page <= 10; page++ {
-		endpoint := fmt.Sprintf(
-			"https://api.github.com/user/repos?sort=updated&per_page=100&page=%d",
-			page,
-		)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
-			return
-		}
-		setGitHubHeaders(req, token)
+	c.JSON(http.StatusOK, response)
+}
 
-		resp, err := outboundHTTPClient.Do(req)
-		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "github unreachable"})
-			return
-		}
+func (h *GitHubHandler) respondGitHubError(c *gin.Context, message string, err error) {
+	if errors.Is(err, errGitHubUnauthorized) {
+		// The token was revoked or has died; the user has to sign in again.
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+	slog.ErrorContext(c.Request.Context(), message, "error", err)
+	c.JSON(http.StatusBadGateway, gin.H{"error": "github unavailable"})
+}
 
-		var pageRepos []Repo
-		decodeErr := json.NewDecoder(resp.Body).Decode(&pageRepos)
-		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "github api error"})
-			return
+func (h *GitHubHandler) listInstallations(ctx context.Context, token string) ([]Installation, error) {
+	installations := []Installation{}
+	for page := 1; page <= maxInstallationPages; page++ {
+		var payload struct {
+			Installations []struct {
+				ID      int64 `json:"id"`
+				Account struct {
+					Login string `json:"login"`
+					Type  string `json:"type"`
+				} `json:"account"`
+			} `json:"installations"`
 		}
-		if decodeErr != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to parse github response"})
-			return
+		path := fmt.Sprintf("/user/installations?per_page=%d&page=%d", githubPageSize, page)
+		if err := h.getJSON(ctx, token, path, &payload); err != nil {
+			return nil, err
 		}
-		repos = append(repos, pageRepos...)
-		if len(pageRepos) < 100 {
+		for _, item := range payload.Installations {
+			installations = append(installations, Installation{
+				ID:      item.ID,
+				Account: item.Account.Login,
+				Type:    item.Account.Type,
+			})
+		}
+		if len(payload.Installations) < githubPageSize {
 			break
 		}
 	}
+	return installations, nil
+}
 
-	if repoData, err := json.Marshal(repos); err == nil {
-		h.rdb.Set(ctx, cacheKey, repoData, 5*time.Minute)
+func (h *GitHubHandler) listInstallationRepos(ctx context.Context, token string, installationID int64) ([]Repo, error) {
+	var repos []Repo
+	for page := 1; page <= maxRepoPages; page++ {
+		var payload struct {
+			Repositories []Repo `json:"repositories"`
+		}
+		path := fmt.Sprintf("/user/installations/%d/repositories?per_page=%d&page=%d", installationID, githubPageSize, page)
+		if err := h.getJSON(ctx, token, path, &payload); err != nil {
+			return nil, err
+		}
+		repos = append(repos, payload.Repositories...)
+		if len(payload.Repositories) < githubPageSize {
+			break
+		}
 	}
-
-	c.JSON(http.StatusOK, repos)
+	return repos, nil
 }
 
 func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
-	token, ok := accessTokenFromContext(c)
+	token, ok := h.token(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 		return
@@ -165,7 +262,8 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 	}
 
 	endpoint := fmt.Sprintf(
-		"https://api.github.com/repos/%s/%s/contents/%s",
+		"%s/repos/%s/%s/contents/%s",
+		h.apiURL,
 		owner,
 		repo,
 		escapeGitHubPath(dockerfilePath),

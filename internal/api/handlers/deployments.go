@@ -175,14 +175,9 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		return
 	}
 
-	tokenRaw, ok := c.Get("access_token")
+	userToken, ok := accessTokenFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: missing access token"})
-		return
-	}
-	userToken, ok := tokenRaw.(string)
-	if !ok || userToken == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: invalid access token"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: sign in again"})
 		return
 	}
 

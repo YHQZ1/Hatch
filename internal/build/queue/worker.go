@@ -17,6 +17,7 @@ import (
 	"github.com/YHQZ1/hatch/internal/build/docker"
 	gitpkg "github.com/YHQZ1/hatch/internal/build/git"
 	"github.com/YHQZ1/hatch/internal/build/logs"
+	"github.com/YHQZ1/hatch/internal/githubapp"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -28,7 +29,6 @@ type BuildJobEvent struct {
 	Branch         string `json:"branch"`
 	DockerfilePath string `json:"dockerfile_path"`
 	UserID         string `json:"user_id"`
-	UserToken      string `json:"user_token,omitempty"`
 	Port           int    `json:"port"`
 	Subdomain      string `json:"subdomain"`
 	CPU            int32  `json:"cpu"`
@@ -55,6 +55,7 @@ type Worker struct {
 	conn        *amqp.Connection
 	confirms    <-chan amqp.Confirmation
 	secrets     *secrets.Codec
+	cloneTokens CloneTokenSource
 	stages      sync.Map
 	timeout     time.Duration
 	consumerTag string
@@ -64,7 +65,13 @@ type Worker struct {
 	stopOnce    sync.Once
 }
 
-func NewWorker(url, redis, registry, repo, region, databaseURL, encryptionKey string, buildTimeout time.Duration) *Worker {
+// CloneTokenSource gives a token that can read one GitHub repository. It is
+// satisfied by *githubapp.App.
+type CloneTokenSource interface {
+	InstallationToken(ctx context.Context, owner, name string) (string, error)
+}
+
+func NewWorker(url, redis, registry, repo, region, databaseURL, encryptionKey string, buildTimeout time.Duration, cloneTokens CloneTokenSource) *Worker {
 	streamer := logs.NewStreamer(redis)
 	secretCodec, err := secrets.NewCodec(encryptionKey)
 	if err != nil {
@@ -92,6 +99,8 @@ func NewWorker(url, redis, registry, repo, region, databaseURL, encryptionKey st
 		secrets:  secretCodec,
 		timeout:  buildTimeout,
 		stopCh:   make(chan struct{}),
+
+		cloneTokens: cloneTokens,
 	}
 
 	worker.builder = docker.NewBuilder(registry, repo, region, streamer, worker.setStage)
@@ -313,14 +322,14 @@ func (w *Worker) process(job BuildJobEvent) {
 		return
 	}
 
-	userToken, err := w.githubAccessToken(ctx, job)
+	cloneToken, err := w.cloneToken(ctx, job)
 	if err != nil {
 		w.streamer.Publish(ctx, id, fmt.Sprintf("Auth failed: %v", err))
 		w.markDeploymentFailed(context.Background(), id, "auth", err)
 		return
 	}
 
-	if err := gitpkg.Clone(ctx, job.RepoURL, userToken, job.Branch, buildPath); err != nil {
+	if err := gitpkg.Clone(ctx, job.RepoURL, cloneToken, job.Branch, buildPath); err != nil {
 		if w.markTimedOut(ctx, id) {
 			return
 		}
@@ -476,41 +485,20 @@ func isAmbiguousPublishError(err error) bool {
 		strings.Contains(msg, "rabbitmq confirmation channel closed")
 }
 
-func (w *Worker) githubAccessToken(ctx context.Context, job BuildJobEvent) (string, error) {
-	if strings.TrimSpace(job.UserToken) != "" {
-		token, err := w.secrets.Decrypt(strings.TrimSpace(job.UserToken))
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(token), nil
-	}
-
-	var token string
-	err := w.db.QueryRowContext(
-		ctx,
-		`
-			SELECT users.access_token
-			FROM deployments
-			JOIN projects ON projects.id = deployments.project_id
-			JOIN users ON users.id = projects.user_id
-			WHERE deployments.id = $1
-			  AND ($2 = '' OR users.id::text = $2)
-		`,
-		job.DeploymentID,
-		strings.TrimSpace(job.UserID),
-	).Scan(&token)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", fmt.Errorf("github access token not found")
-		}
-		return "", fmt.Errorf("failed to load github access token: %w", err)
-	}
-	token, err = w.secrets.Decrypt(token)
+// cloneToken returns a short-lived token that can read only the job's
+// repository. It comes from the Hatch GitHub App's installation, so a build
+// never holds the user's own GitHub credentials (ADR 0010).
+func (w *Worker) cloneToken(ctx context.Context, job BuildJobEvent) (string, error) {
+	owner, name, err := githubapp.ParseRepoURL(job.RepoURL)
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(token) == "" {
-		return "", fmt.Errorf("github access token is empty")
+	token, err := w.cloneTokens.InstallationToken(ctx, owner, name)
+	if errors.Is(err, githubapp.ErrNotInstalled) {
+		return "", fmt.Errorf("the Hatch GitHub App is not installed on %s/%s; install it on the repository and deploy again", owner, name)
+	}
+	if err != nil {
+		return "", fmt.Errorf("could not get access to %s/%s: %w", owner, name, err)
 	}
 	return strings.TrimSpace(token), nil
 }

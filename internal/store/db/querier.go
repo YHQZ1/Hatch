@@ -43,6 +43,9 @@ type Querier interface {
 	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (Session, error)
 	GetUserByGithubID(ctx context.Context, githubID int64) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
+	// Locks the row so that two requests do not spend the same single-use refresh
+	// token. Call it inside a transaction.
+	GetUserByIDForUpdate(ctx context.Context, id uuid.UUID) (User, error)
 	MarkDeploymentFailed(ctx context.Context, arg MarkDeploymentFailedParams) (Deployment, error)
 	MarkProjectDeleteFailed(ctx context.Context, arg MarkProjectDeleteFailedParams) error
 	MarkProjectDeleting(ctx context.Context, arg MarkProjectDeletingParams) (Project, error)
@@ -53,6 +56,7 @@ type Querier interface {
 	UpdateProjectLifecycleStatus(ctx context.Context, arg UpdateProjectLifecycleStatusParams) (Project, error)
 	UpdateProjectSettings(ctx context.Context, arg UpdateProjectSettingsParams) (Project, error)
 	UpdateProjectWebhook(ctx context.Context, arg UpdateProjectWebhookParams) error
+	UpdateUserTokens(ctx context.Context, arg UpdateUserTokensParams) error
 }
 
 var _ Querier = (*Queries)(nil)
