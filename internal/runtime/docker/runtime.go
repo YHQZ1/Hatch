@@ -288,7 +288,8 @@ func (r *Runtime) containers(ctx context.Context, subdomain string) ([]container
 		if len(fields) != 3 {
 			return nil, fmt.Errorf("unexpected docker ps output: %q", line)
 		}
-		port, _ := strconv.Atoi(fields[2])
+		// A label that is missing or not a port reads as 0.
+		port, _ := strconv.ParseInt(fields[2], 10, 32)
 		found = append(found, container{name: fields[0], running: fields[1] == "running", port: int32(port)})
 	}
 	return found, nil
