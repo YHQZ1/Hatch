@@ -56,7 +56,7 @@ Known problems, including the ones the rebuild exists to fix, are listed in
 ## How the prototype works
 
 ```text
-Browser ── REST + WebSocket ──▶ API (Go, Gin)
+Browser ── REST + server-sent events ──▶ API (Go, Gin)
                                  │  GitHub App sign-in, sessions, projects, webhooks
                                  │
                                  ▼  job "build" (River, in Postgres)
@@ -69,7 +69,7 @@ Browser ── REST + WebSocket ──▶ API (Go, Gin)
                                     host-based ALB rule → ECS service →
                                     wait until healthy
 
-Logs:  build / deploy jobs → Redis → API WebSocket hub → browser
+Logs:  build / deploy jobs → Postgres (deployment_logs, NOTIFY) → API log stream (SSE) → browser
 Data:  PostgreSQL (sqlc queries on pgx, jobs on River, migrations embedded in the binary)
 ```
 
@@ -103,7 +103,7 @@ git clone https://github.com/YHQZ1/Hatch.git && cd Hatch
 # Configuration: fill in the GitHub App values and DATA_ENCRYPTION_KEY. Every hatch command reads this one file.
 cp .env.example .env
 
-make infra     # Postgres and Redis in Docker
+make infra     # Postgres in Docker
 make migrate   # apply database migrations (hatch migrate)
 make dev       # run hatch serve and the Vite dev server
 ```
@@ -130,7 +130,7 @@ ECR repository, an ECS cluster, and an ALB, set in `.env`.
 
 ```text
 cmd/hatch          the hatch binary: `serve`, `worker`, and `migrate` commands
-internal/api       REST API, GitHub OAuth and webhooks, WebSocket log hub
+internal/api       REST API, GitHub OAuth and webhooks, the log stream (SSE)
 internal/build     cloning, building, and pushing images (Docker, ECR)
 internal/runtime   running apps: local Docker containers, or ECS services and ALB routing
 internal/proxy     the built-in reverse proxy for <name>.localhost

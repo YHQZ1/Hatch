@@ -40,6 +40,14 @@ type Deployment struct {
 	ErrorStage     *string    `json:"error_stage"`
 	ErrorMessage   *string    `json:"error_message"`
 	FailedAt       *time.Time `json:"failed_at"`
+	LogSeq         int64      `json:"log_seq"`
+}
+
+type DeploymentLog struct {
+	DeploymentID uuid.UUID `json:"deployment_id"`
+	Seq          int64     `json:"seq"`
+	Line         string    `json:"line"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type EnvVar struct {

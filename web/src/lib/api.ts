@@ -241,8 +241,3 @@ export function productionHost(subdomain: string | null) {
   const { baseDomain } = appConfig;
   return baseDomain ? `${subdomain}.${baseDomain}` : subdomain;
 }
-
-export function websocketUrl(path: string) {
-  const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${window.location.host}${path}`;
-}

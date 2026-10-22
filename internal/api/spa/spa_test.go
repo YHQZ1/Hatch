@@ -89,8 +89,8 @@ func TestOtherFilesAreServedWithoutLongCaching(t *testing.T) {
 	}
 }
 
-func TestUnknownAPIAndWebSocketPathsGetJSON404(t *testing.T) {
-	for _, target := range []string{"/api/nope", "/api/", "/ws/deployments/1"} {
+func TestUnknownAPIPathsGetJSON404(t *testing.T) {
+	for _, target := range []string{"/api/nope", "/api/", "/api/deployments/1/logs/stream-nope"} {
 		rec := serve(t, Handler(testFS()), http.MethodGet, target)
 		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `"error"`) {
 			t.Fatalf("%s: got %d %q", target, rec.Code, rec.Body.String())

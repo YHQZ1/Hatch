@@ -39,6 +39,6 @@ not end a session. Every authenticated request already queries Postgres.
   `last_seen_at` is written at most every 5 minutes.
 - Ended sessions are deleted whenever someone signs in; there is no separate
   sweeper yet.
-- Bearer-token access was removed with the JWT. The WebSocket hub checks the
-  same session cookie.
+- Bearer-token access was removed with the JWT. The log stream
+  checks the same session cookie as any API call.
 - "Sign out everywhere" is not built; the data model supports it.

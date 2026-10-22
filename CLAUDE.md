@@ -107,7 +107,7 @@ Read, in order:
 ## Commands
 
 ```bash
-make infra                      # Postgres and Redis via Docker Compose
+make infra                      # Postgres via Docker Compose
 make dev                        # infra + hatch serve + Vite dev server
 make migrate                    # apply migrations (hatch migrate, embedded in the binary)
 go run ./cmd/hatch help         # serve, worker, migrate, version

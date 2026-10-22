@@ -14,10 +14,10 @@ import (
 	"github.com/YHQZ1/hatch/internal/jobs"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
+	"github.com/YHQZ1/hatch/internal/stream"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 type DeploymentResponse struct {
@@ -81,7 +81,7 @@ type DeploymentHandler struct {
 	queries *dbpkg.Queries
 	jobs    jobs.Inserter
 	pool    *pgxpool.Pool
-	rdb     *redis.Client
+	logs    stream.Sink
 	secrets *secrets.Codec
 }
 
@@ -91,12 +91,14 @@ const (
 	maxDeploymentLogLines           = 5000
 )
 
-func NewDeploymentHandler(pool *pgxpool.Pool, inserter jobs.Inserter, rdb *redis.Client, secretCodec *secrets.Codec) *DeploymentHandler {
+// NewDeploymentHandler serves deployments. logs receives the lines the API
+// itself writes to a deployment's log, such as "canceled by user".
+func NewDeploymentHandler(pool *pgxpool.Pool, inserter jobs.Inserter, logs stream.Sink, secretCodec *secrets.Codec) *DeploymentHandler {
 	return &DeploymentHandler{
 		queries: dbpkg.New(pool),
 		jobs:    inserter,
 		pool:    pool,
-		rdb:     rdb,
+		logs:    logs,
 		secrets: secretCodec,
 	}
 }
@@ -327,17 +329,7 @@ func (h *DeploymentHandler) CancelDeployment(c *gin.Context) {
 		return
 	}
 
-	key := fmt.Sprintf("logs:%s", id.String())
-	msg := "Deployment canceled by user"
-	pipe := h.rdb.Pipeline()
-	pipe.RPush(c.Request.Context(), key, msg)
-	pipe.Expire(c.Request.Context(), key, 7*24*time.Hour)
-	if _, err := pipe.Exec(c.Request.Context()); err != nil {
-		slog.WarnContext(c.Request.Context(), "failed to persist the cancel log line", "deployment_id", id, "error", err)
-	}
-	if err := h.rdb.Publish(c.Request.Context(), fmt.Sprintf("deployment:%s", id.String()), msg).Err(); err != nil {
-		slog.WarnContext(c.Request.Context(), "failed to publish the cancel log line", "deployment_id", id, "error", err)
-	}
+	h.logs.Publish(c.Request.Context(), id.String(), "Deployment canceled by user")
 
 	c.JSON(http.StatusOK, h.toDeploymentResponse(deployment))
 }
@@ -401,11 +393,17 @@ func (h *DeploymentHandler) GetDeploymentLogs(c *gin.Context) {
 		return
 	}
 
-	key := fmt.Sprintf("logs:%s", id.String())
-	logs, err := h.rdb.LRange(c.Request.Context(), key, -lines, -1).Result()
+	rows, err := h.queries.GetDeploymentLogTail(c.Request.Context(), dbpkg.GetDeploymentLogTailParams{
+		DeploymentID: id,
+		Limit:        int32(lines),
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch logs"})
 		return
+	}
+	logs := make([]string, len(rows))
+	for i, row := range rows {
+		logs[i] = row.Line
 	}
 
 	c.JSON(http.StatusOK, logs)

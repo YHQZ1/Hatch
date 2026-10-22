@@ -56,8 +56,8 @@ Out of scope:
   `openssl rand -hex 32`. `DATA_ENCRYPTION_KEY` must be identical in the api,
   builder, and deployer, and changing it makes stored tokens and env vars
   unreadable.
-- **Keep the backing services private.** Postgres, Redis, and RabbitMQ must not
-  be reachable from the internet, and the default credentials in
+- **Keep the backing service private.** Postgres must not be reachable from the
+  internet, and the default credentials in
   `docker-compose.yaml` are for local development only.
 - **Limit AWS permissions.** Give the builder and deployer only the ECR, ECS,
   ELB, and CloudWatch permissions they use.

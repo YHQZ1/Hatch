@@ -155,16 +155,31 @@ cancellation is a flag the job checks between steps (as today).
 
 ### Log streaming
 
-Replaces Redis. Build and deploy log lines are inserted into a
-`deployment_logs` table (deployment ID, sequence number, line). After insert,
-Hatch sends `NOTIFY deployment_logs, '<deployment_id>:<seq>'`. The browser
-reads `GET /api/deployments/{id}/logs/stream` as server-sent events
-([ADR 0012](decisions/0012-server-sent-events-for-logs.md)): the handler sends
-lines after the client's `Last-Event-ID` from the table, then live lines as
-notifications arrive, so a dropped connection resumes exactly where it
-stopped. Payloads stay small because the line is read from the table, not sent
-through `NOTIFY` (Postgres limits `NOTIFY` payloads to 8,000 bytes). Old log
-rows are pruned on a schedule.
+Built ([ADR 0012](decisions/0012-server-sent-events-for-logs.md)); Redis is gone.
+Build and deploy log lines are inserted into `deployment_logs` (deployment id,
+`seq`, line). `seq` counts from 1 within the deployment: the writer bumps
+`deployments.log_seq` and inserts in one statement, so writers of the same
+deployment are serialised and lines are numbered and committed in order. A
+deployment keeps at most 20,000 lines (the last says the log was cut) and a
+line at most 8 KB.
+
+Triggers `NOTIFY deployment_events` with just the deployment id when a line is
+added or a status changes. The API holds one connection that `LISTEN`s
+(`stream.Broker`) and wakes the streams watching that deployment, which then
+read what they missed from the tables: a notification is only a hint, so a lost
+one cannot lose a line, and each stream also looks at the database every few
+seconds. Writers can be another process (`hatch worker`) from the one serving
+the browser.
+
+`GET /api/deployments/{id}/logs/stream` sends server-sent events: `log` (its
+`id` is the line's `seq`), `status` (when the stream starts and each time it
+changes), and `end` once the deployment has a final status and every line has
+been sent. A reconnecting browser sends `Last-Event-ID` and gets only what
+followed. The stream lifts the server's 30-second write timeout for itself and
+ends when Hatch shuts down. A finished deployment's whole log is read the same
+way. `GET /api/deployments/{id}/logs?tail=N` returns the last N lines as JSON.
+
+Not built yet: pruning old logs. They are removed only with their deployment.
 
 Runtime (application) logs on AWS are read on demand from CloudWatch Logs
 through the assumed role; on the local target, from Docker.

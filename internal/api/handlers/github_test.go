@@ -113,7 +113,7 @@ func (f *fakeGitHubAPI) called(substr string) int {
 func listRepos(t *testing.T, f *fakeGitHubAPI, token string, hasToken bool) (int, reposResponse) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	h := NewGitHubHandler(nil)
+	h := NewGitHubHandler()
 	h.apiURL = f.server.URL
 	h.token = func(*gin.Context) (string, bool) { return token, hasToken }
 	router := gin.New()

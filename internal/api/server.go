@@ -12,16 +12,15 @@ import (
 	"github.com/YHQZ1/hatch/internal/api/handlers"
 	"github.com/YHQZ1/hatch/internal/api/middleware"
 	"github.com/YHQZ1/hatch/internal/api/spa"
-	wsHub "github.com/YHQZ1/hatch/internal/api/ws"
 	"github.com/YHQZ1/hatch/internal/config"
 	"github.com/YHQZ1/hatch/internal/jobs"
 	"github.com/YHQZ1/hatch/internal/proxy"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	"github.com/YHQZ1/hatch/internal/store"
+	"github.com/YHQZ1/hatch/internal/stream"
 	"github.com/YHQZ1/hatch/web"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 )
 
 // LocalTarget is what the API needs from the local target: the traffic the proxy
@@ -59,19 +58,18 @@ func Run(ctx context.Context, cfg *config.Config, local *LocalTarget) error {
 		return err
 	}
 
-	opt, err := redis.ParseURL(cfg.RedisURL)
-	if err != nil {
-		return fmt.Errorf("parse REDIS_URL: %w", err)
-	}
-
-	rdb := redis.NewClient(opt)
-	defer rdb.Close()
 	sessions := auth.NewSessions(db)
-	hub, err := wsHub.NewHub(cfg.RedisURL, sessions, cfg.CORSAllowedOrigins, db)
-	if err != nil {
-		return err
-	}
-	defer hub.Close()
+
+	// One connection listens for deployment events (new log lines, status
+	// changes) and wakes the log streams watching them. It stops with ctx, and
+	// is waited for before the pool closes.
+	broker := stream.NewBroker(db)
+	brokerDone := make(chan struct{})
+	go func() {
+		defer close(brokerDone)
+		_ = broker.Run(ctx)
+	}()
+	defer func() { <-brokerDone }()
 
 	r := gin.New()
 	r.Use(middleware.RequestID(), middleware.AccessLog(), middleware.Recovery())
@@ -96,9 +94,10 @@ func Run(ctx context.Context, cfg *config.Config, local *LocalTarget) error {
 	tokens := auth.NewTokens(db, secretCodec, cfg.GitHubClientID, cfg.GitHubClientSecret)
 
 	projectHandler := handlers.NewProjectHandler(db, inserter, cfg.WebhookBaseURL, secretCodec)
-	deploymentHandler := handlers.NewDeploymentHandler(db, inserter, rdb, secretCodec)
+	deploymentHandler := handlers.NewDeploymentHandler(db, inserter, stream.NewPostgres(db), secretCodec)
+	logStreamHandler := handlers.NewLogStreamHandler(db, broker, ctx.Done())
 	metricsHandler := handlers.NewMetricsHandler(db, cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN, cfg.ALBArn)
-	githubHandler := handlers.NewGitHubHandler(rdb)
+	githubHandler := handlers.NewGitHubHandler()
 	var stats *proxy.Stats
 	var resolver proxy.Resolver
 	if local != nil {
@@ -118,14 +117,10 @@ func Run(ctx context.Context, cfg *config.Config, local *LocalTarget) error {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancel()
 
-		checks := gin.H{"database": "ok", "redis": "ok"}
+		checks := gin.H{"database": "ok"}
 		ready := true
 		if err := db.Ping(ctx); err != nil {
 			checks["database"] = "unavailable"
-			ready = false
-		}
-		if err := rdb.Ping(ctx).Err(); err != nil {
-			checks["redis"] = "unavailable"
 			ready = false
 		}
 
@@ -142,7 +137,6 @@ func Run(ctx context.Context, cfg *config.Config, local *LocalTarget) error {
 	r.GET("/auth/install", authHandler.RedirectToInstall)
 	r.GET("/auth/callback", authHandler.HandleCallback)
 	r.POST("/auth/logout", authMiddleware, csrfMiddleware, authHandler.Logout)
-	r.GET("/ws/deployments/:id", hub.HandleDeploymentLogs)
 	r.POST("/api/webhooks/github", webhookHandler.HandlePush)
 	r.GET("/api/config", publicConfigHandler.Get)
 
@@ -184,6 +178,7 @@ func Run(ctx context.Context, cfg *config.Config, local *LocalTarget) error {
 		api.GET("/deployments/:id", deploymentHandler.GetDeployment)
 		api.POST("/deployments/:id/cancel", deploymentHandler.CancelDeployment)
 		api.GET("/deployments/:id/logs", deploymentHandler.GetDeploymentLogs)
+		api.GET("/deployments/:id/logs/stream", logStreamHandler.Stream)
 		api.GET("/github/repos", githubHandler.ListRepos)
 		api.GET("/github/repos/:owner/:repo/dockerfile", githubHandler.CheckDockerfile)
 	}

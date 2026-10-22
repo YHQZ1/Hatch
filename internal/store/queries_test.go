@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -387,5 +389,124 @@ func TestActivityLogIsNewestFirstAndLimited(t *testing.T) {
 func TestConnectRejectsAnUnreachableDatabase(t *testing.T) {
 	if _, err := Connect(context.Background(), "postgres://nobody@127.0.0.1:1/none?sslmode=disable&connect_timeout=1"); err == nil {
 		t.Fatal("expected an error")
+	}
+}
+
+func TestDeploymentLogLinesAreNumberedCappedAndReadBack(t *testing.T) {
+	q, _ := newQueries(t)
+	ctx := context.Background()
+	user := createUser(t, q, 1, "alice")
+	project := createProject(t, q, user, "shop")
+	deployment := createDeployment(t, q, project)
+
+	add := func(line string, max int64) (int64, error) {
+		return q.AppendDeploymentLog(ctx, dbpkg.AppendDeploymentLogParams{
+			DeploymentID: deployment.ID, Line: line, MaxLines: max, LimitLine: "[cut]",
+		})
+	}
+	for i, want := range []string{"a", "b", "c"} {
+		seq, err := add(want, 4)
+		if err != nil || seq != int64(i+1) {
+			t.Fatalf("append %q = %d, %v", want, seq, err)
+		}
+	}
+	// The line that reaches the limit is replaced by the note that says so ...
+	if seq, err := add("d", 4); err != nil || seq != 4 {
+		t.Fatalf("append at the limit = %d, %v", seq, err)
+	}
+	// ... and after it nothing is kept, and no row comes back.
+	if _, err := add("e", 4); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("append past the limit: %v, want no rows", err)
+	}
+
+	after, err := q.GetDeploymentLogsAfter(ctx, dbpkg.GetDeploymentLogsAfterParams{DeploymentID: deployment.ID, Seq: 1, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, row := range after {
+		got = append(got, fmt.Sprintf("%d:%s", row.Seq, row.Line))
+	}
+	if strings.Join(got, ",") != "2:b,3:c,4:[cut]" {
+		t.Errorf("lines after 1 = %v", got)
+	}
+
+	tail, err := q.GetDeploymentLogTail(ctx, dbpkg.GetDeploymentLogTailParams{DeploymentID: deployment.ID, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tail) != 2 || tail[0].Line != "c" || tail[1].Line != "[cut]" {
+		t.Errorf("last 2 lines = %+v, want the newest two, oldest first", tail)
+	}
+
+	// Lines belong to their deployment, and go when it does.
+	// (A project has one active deployment at a time, so finish the first.)
+	if err := q.SetDeploymentStatus(ctx, dbpkg.SetDeploymentStatusParams{ID: deployment.ID, Status: "live"}); err != nil {
+		t.Fatal(err)
+	}
+	other := createDeployment(t, q, project)
+	if rows, _ := q.GetDeploymentLogsAfter(ctx, dbpkg.GetDeploymentLogsAfterParams{DeploymentID: other.ID, Seq: 0, Limit: 10}); len(rows) != 0 {
+		t.Errorf("another deployment has %d lines", len(rows))
+	}
+	if err := q.DeleteProject(ctx, project.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ := q.GetDeploymentLogsAfter(ctx, dbpkg.GetDeploymentLogsAfterParams{DeploymentID: deployment.ID, Seq: 0, Limit: 10}); len(rows) != 0 {
+		t.Errorf("%d lines remain after the project was deleted", len(rows))
+	}
+}
+
+// A deployment is announced to watchers when a line is added to its log and when
+// its status changes, and not when only its log counter does.
+func TestDeploymentEventsAreNotified(t *testing.T) {
+	q, pool := newQueries(t)
+	ctx := context.Background()
+	user := createUser(t, q, 1, "alice")
+	project := createProject(t, q, user, "shop")
+	deployment := createDeployment(t, q, project)
+
+	listener, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Release()
+	if _, err := listener.Exec(ctx, "LISTEN deployment_events"); err != nil {
+		t.Fatal(err)
+	}
+	heard := func() (string, bool) {
+		waitCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer cancel()
+		n, err := listener.Conn().WaitForNotification(waitCtx)
+		if err != nil {
+			return "", false
+		}
+		return n.Payload, true
+	}
+
+	if _, err := q.AppendDeploymentLog(ctx, dbpkg.AppendDeploymentLogParams{
+		DeploymentID: deployment.ID, Line: "x", MaxLines: 10, LimitLine: "[cut]",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if payload, ok := heard(); !ok || payload != deployment.ID.String() {
+		t.Fatalf("a new log line was announced as %q, %v", payload, ok)
+	}
+	// Bumping log_seq alone (the line insert did it too) must not have announced twice.
+	if payload, ok := heard(); ok {
+		t.Fatalf("announced twice for one line: %q", payload)
+	}
+
+	if err := q.SetDeploymentStatus(ctx, dbpkg.SetDeploymentStatusParams{ID: deployment.ID, Status: "building"}); err != nil {
+		t.Fatal(err)
+	}
+	if payload, ok := heard(); !ok || payload != deployment.ID.String() {
+		t.Fatalf("a status change was announced as %q, %v", payload, ok)
+	}
+	// Setting the status it already has changes nothing, so announces nothing.
+	if err := q.SetDeploymentStatus(ctx, dbpkg.SetDeploymentStatusParams{ID: deployment.ID, Status: "building"}); err != nil {
+		t.Fatal(err)
+	}
+	if payload, ok := heard(); ok {
+		t.Fatalf("an unchanged status was announced: %q", payload)
 	}
 }

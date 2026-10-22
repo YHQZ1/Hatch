@@ -41,7 +41,6 @@ export default defineConfig({
     proxy: {
       '/api': apiTarget,
       '^/auth/(github|install|callback|logout)$': apiTarget,
-      '/ws': { target: apiTarget, ws: true },
     },
   },
   test: {

@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 )
 
 type Repo struct {
@@ -49,7 +48,9 @@ type reposResponse struct {
 }
 
 type GitHubHandler struct {
-	rdb *redis.Client
+	// dockerfiles remembers recent Dockerfile checks, so the new-project page
+	// does not ask GitHub again for every keystroke in the folder field.
+	dockerfiles *ttlCache
 
 	// apiURL is GitHub's API origin; tests point it at a fake.
 	apiURL string
@@ -68,8 +69,12 @@ type githubContentResponse struct {
 	Encoding string `json:"encoding"`
 }
 
-func NewGitHubHandler(rdb *redis.Client) *GitHubHandler {
-	return &GitHubHandler{rdb: rdb, apiURL: "https://api.github.com", token: accessTokenFromContext}
+func NewGitHubHandler() *GitHubHandler {
+	return &GitHubHandler{
+		dockerfiles: newTTLCache(10*time.Minute, 1000),
+		apiURL:      "https://api.github.com",
+		token:       accessTokenFromContext,
+	}
 }
 
 // Limits on how much of GitHub's paginated lists Hatch reads: generous for one
@@ -248,15 +253,10 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 		branch,
 		dockerfilePath,
 	)
-	val, err := h.rdb.Get(ctx, cacheKey).Result()
-	if err == nil {
+	if val, ok := h.dockerfiles.Get(cacheKey); ok {
 		var cached dockerfileCheckResponse
-		if json.Unmarshal([]byte(val), &cached) == nil {
+		if json.Unmarshal(val, &cached) == nil {
 			c.JSON(http.StatusOK, cached)
-			return
-		}
-		if val == "true" {
-			c.JSON(http.StatusOK, dockerfileCheckResponse{Exists: true})
 			return
 		}
 	}
@@ -299,7 +299,7 @@ func (h *GitHubHandler) CheckDockerfile(c *gin.Context) {
 			Path:   dockerfilePath,
 		}
 		if encoded, err := json.Marshal(response); err == nil {
-			h.rdb.Set(ctx, cacheKey, encoded, 10*time.Minute)
+			h.dockerfiles.Set(cacheKey, encoded)
 		}
 		c.JSON(http.StatusOK, response)
 		return

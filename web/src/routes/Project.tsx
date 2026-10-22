@@ -143,8 +143,6 @@ export default function ProjectPage() {
       );
       invalidateLists();
       setPickedId(canceled.id);
-      logs.append(canceled.id, "Deployment canceled by user");
-      logs.stop();
       setNotice({
         type: "success",
         title: "Deployment canceled",
@@ -235,7 +233,7 @@ export default function ProjectPage() {
           <LogViewer
             key={active?.id ?? "none"}
             deployment={active}
-            logs={logs.logs}
+            logs={logs}
             running={info?.state === "building"}
           />
           {project && (

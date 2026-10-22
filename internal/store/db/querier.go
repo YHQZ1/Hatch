@@ -11,6 +11,10 @@ import (
 )
 
 type Querier interface {
+	// Adds a line to a deployment's log and returns its number. Nothing is added
+	// (no row comes back) once the deployment has max_lines lines; the last line
+	// kept is limit_line, so a log that was cut says so.
+	AppendDeploymentLog(ctx context.Context, arg AppendDeploymentLogParams) (int64, error)
 	CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelDeploymentByIDAndUserIDParams) (Deployment, error)
 	ClearProjectWebhook(ctx context.Context, id uuid.UUID) error
 	CreateActivityLog(ctx context.Context, arg CreateActivityLogParams) (ActivityLog, error)
@@ -34,6 +38,8 @@ type Querier interface {
 	GetActivityLogsByUserID(ctx context.Context, userID uuid.UUID) ([]ActivityLog, error)
 	GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployment, error)
 	GetDeploymentByIDAndUserID(ctx context.Context, arg GetDeploymentByIDAndUserIDParams) (Deployment, error)
+	GetDeploymentLogTail(ctx context.Context, arg GetDeploymentLogTailParams) ([]GetDeploymentLogTailRow, error)
+	GetDeploymentLogsAfter(ctx context.Context, arg GetDeploymentLogsAfterParams) ([]GetDeploymentLogsAfterRow, error)
 	GetDeploymentStatus(ctx context.Context, id uuid.UUID) (string, error)
 	GetDeploymentsByProjectID(ctx context.Context, projectID uuid.UUID) ([]Deployment, error)
 	GetDeploymentsByProjectIDAndUserID(ctx context.Context, arg GetDeploymentsByProjectIDAndUserIDParams) ([]Deployment, error)

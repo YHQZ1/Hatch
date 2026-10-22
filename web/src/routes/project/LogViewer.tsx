@@ -56,7 +56,7 @@ export default function LogViewer({
           <h2 className="text-[1rem] font-semibold tracking-tight">Logs</h2>
           {deployment && (
             <span className="truncate text-sm text-muted">
-              {deployment.id.slice(0, 8)} · {logs.length} line{logs.length === 1 ? "" : "s"}
+              {deployment.id.slice(0, 8)} · {count(logs)}
             </span>
           )}
         </div>
@@ -84,7 +84,7 @@ export default function LogViewer({
         ) : (
           logs.map((line, index) => (
             <div key={index} className="grid grid-cols-[3.25rem_minmax(0,1fr)] px-1 leading-relaxed hover:bg-ink/[0.03]">
-              <span className="select-none pr-3 text-right tabular-nums text-faint">{index + 1}</span>
+              <span className="select-none pr-3 text-right tabular-nums text-faint">{line.seq}</span>
               <p className={cn("whitespace-pre-wrap break-words pr-3", TEXT[line.type])}>{withLinks(line.text)}</p>
             </div>
           ))
@@ -92,6 +92,13 @@ export default function LogViewer({
       </div>
     </section>
   );
+}
+
+/** "12 lines", or, when the oldest were let go, how many there were and how many are shown. */
+function count(logs: LogLine[]) {
+  const total = logs.length === 0 ? 0 : logs[logs.length - 1].seq;
+  const noun = total === 1 ? "line" : "lines";
+  return total > logs.length ? `${total} lines, the last ${logs.length} shown` : `${total} ${noun}`;
 }
 
 /** The line's text with any address in it made a link. */

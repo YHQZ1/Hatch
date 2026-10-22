@@ -153,8 +153,7 @@ func jobsComponent(cfg *config.Config) component {
 		if err != nil {
 			return fmt.Errorf("initialize secret codec: %w", err)
 		}
-		logs := stream.NewRedis(cfg.RedisURL)
-		defer logs.Close()
+		logs := stream.NewPostgres(pool)
 
 		p := providersFor(ctx, cfg, logs)
 		slog.Info("component started", "component", "jobs", "target", cfg.Target)
