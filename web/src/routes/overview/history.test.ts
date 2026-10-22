@@ -6,7 +6,7 @@ import { parseSort, recentTicks, sortRows, tickSummary } from "./history";
 function project(over: Partial<Project> = {}): Project {
   return {
     id: "p", user_id: "u", repo_name: "shop", repo_url: "https://github.com/octo/shop",
-    auto_deploy: false, branch: "main", dockerfile_path: "Dockerfile", port: 8080,
+    auto_deploy: false, branch: "main", dockerfile_path: "Dockerfile", port: 8080, health_check: "/",
     subdomain: "shop", status: "active", delete_requested_at: null, delete_error: null,
     created_at: "2026-10-22T10:00:00Z", ...over,
   };
@@ -22,7 +22,7 @@ function deployment(id: string, status: string, message: string | null = null): 
 }
 
 function row(name: string, status = "live"): ServiceRow {
-  const proj = project({ id: name, subdomain: name });
+  const proj = project({ id: name, subdomain: name, repo_name: name });
   const last = deployment(`d-${name}`, status);
   return {
     project: proj, lastDeployment: last, status: getProjectStatusMeta(proj, last),

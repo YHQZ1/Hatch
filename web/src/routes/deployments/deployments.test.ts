@@ -20,7 +20,7 @@ const NOW = new Date(2026, 9, 22, 15, 0, 0); // 22 October 2026, local time
 
 const project = (id: string, status = "active"): Project => ({
   id, user_id: "u", repo_name: id, repo_url: `https://github.com/octo/${id}`, auto_deploy: false,
-  branch: "main", dockerfile_path: "Dockerfile", port: 8080, subdomain: id, status,
+  branch: "main", dockerfile_path: "Dockerfile", port: 8080, health_check: "/", subdomain: id, status,
   delete_requested_at: null, delete_error: null, created_at: "2026-10-01T00:00:00Z",
 });
 

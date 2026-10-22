@@ -4,7 +4,7 @@ import { useNavigate } from "react-router";
 import type { NoticePayload } from "@/components/NoticeToast";
 import { apiFetch, readApiError, redirectIfUnauthorized } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
-import { activityQuery, projectDeploymentsQuery, projectsQuery } from "@/lib/queries";
+import { activityQuery, projectDeploymentsQuery, projectQuery, projectsQuery } from "@/lib/queries";
 import type { Deployment, Project } from "@/lib/types";
 import type { ServiceRow } from "../services/service";
 
@@ -34,6 +34,8 @@ export function useProjectActions(notify: (notice: NoticePayload) => void) {
 
   const refresh = (projectId: string) => {
     void queryClient.invalidateQueries({ queryKey: projectsQuery().queryKey, exact: true });
+    // The project's own page (its status, for one) reads this query, not the list.
+    void queryClient.invalidateQueries({ queryKey: projectQuery(projectId).queryKey, exact: true });
     void queryClient.invalidateQueries({ queryKey: projectDeploymentsQuery(projectId).queryKey });
     void queryClient.invalidateQueries({ queryKey: activityQuery().queryKey });
   };
@@ -63,19 +65,16 @@ export function useProjectActions(notify: (notice: NoticePayload) => void) {
 
     redeploy: (row: ServiceRow) =>
       track(row.project.id, async () => {
-        const { project, lastDeployment } = row;
+        const { project } = row;
         try {
           const res = await send(
             "/api/deployments",
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                project_id: project.id,
-                branch: lastDeployment?.branch || project.branch || "main",
-                port: Number(lastDeployment?.port || project.port || 80),
-                health_check: lastDeployment?.health_check || "/",
-              }),
+              // Only the project: its branch, port and health check come from its
+              // settings, so a change made there applies to this deployment.
+              body: JSON.stringify({ project_id: project.id }),
             },
             "The deployment could not be queued.",
           );

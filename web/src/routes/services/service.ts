@@ -81,6 +81,26 @@ export function getServiceUrl(project: Project, deployment?: Deployment) {
   return deploymentUrl(candidate);
 }
 
+/**
+ * A project's name as people read it: the name it was given, without an
+ * owner's prefix (projects from before names were separate stored "owner/repo").
+ */
+export function projectName(project: Project): string {
+  return project.repo_name.split("/").pop() || project.subdomain || project.repo_name;
+}
+
+/** A project with its latest deployment, as the Overview and the project page show it. */
+export function toServiceRow(project: Project, lastDeployment?: Deployment): ServiceRow {
+  return {
+    project,
+    lastDeployment,
+    status: getProjectStatusMeta(project, lastDeployment),
+    liveUrl: getServiceUrl(project, lastDeployment),
+    repoSlug: formatRepoSlug(project.repo_url),
+    updatedAtRaw: lastDeployment?.deployed_at ?? lastDeployment?.created_at ?? project.created_at,
+  };
+}
+
 export function formatRepoSlug(url: string) {
   return url
     .replace(/^https:\/\/github\.com\//, "")

@@ -108,6 +108,7 @@ export default function Configure({
           branch,
           dockerfile_path: dockerfilePathIn(folder),
           port: portNumber,
+          health_check: healthCheck,
           env_vars: env,
         }),
       });
@@ -130,9 +131,6 @@ export default function Configure({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           project_id: project.id,
-          branch,
-          port: portNumber,
-          health_check: healthCheck,
           env_vars: env,
         }),
       });

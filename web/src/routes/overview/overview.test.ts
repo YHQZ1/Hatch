@@ -23,7 +23,7 @@ import {
 function project(over: Partial<Project> = {}): Project {
   return {
     id: "p1", user_id: "u", repo_name: "octo/shop", repo_url: "https://github.com/octo/shop",
-    auto_deploy: false, branch: "main", dockerfile_path: "Dockerfile", port: 8080,
+    auto_deploy: false, branch: "main", dockerfile_path: "Dockerfile", port: 8080, health_check: "/",
     subdomain: "shop", status: "active", delete_requested_at: null, delete_error: null,
     created_at: "2026-10-22T10:00:00Z", ...over,
   };
@@ -185,11 +185,11 @@ describe("abilities", () => {
 });
 
 describe("displayName", () => {
-  it("prefers the address name", () => {
-    expect(displayName(row({ subdomain: "portfolio" }))).toBe("portfolio");
+  it("is the name the project was given, not its address", () => {
+    expect(displayName(row({ subdomain: "portfolio", repo_name: "My Portfolio" }))).toBe("My Portfolio");
   });
-  it("falls back to the repository name without its owner", () => {
-    expect(displayName(row({ subdomain: null, repo_name: "whatever" }))).toBe("shop");
+  it("drops the owner from older projects, which stored owner/repo", () => {
+    expect(displayName(row({ subdomain: "portfolio", repo_name: "octo/portfolio" }))).toBe("portfolio");
   });
 });
 

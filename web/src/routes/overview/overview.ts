@@ -1,5 +1,5 @@
 import type { AppTraffic, Deployment, Project } from "@/lib/types";
-import { type ServiceRow, formatCommit } from "../services/service";
+import { type ServiceRow, formatCommit, projectName } from "../services/service";
 
 export type StatusFilter = "all" | "live" | "building" | "failed" | "suspended";
 
@@ -201,7 +201,7 @@ export function noteOf(row: ServiceRow): { text: string; tone: "danger" | "warni
   }
 }
 
-/** A project's name as shown: its address name, or the repository's name without the owner. */
+/** A project's name as shown. */
 export function displayName(row: ServiceRow): string {
-  return row.project.subdomain || row.repoSlug.split("/").pop() || row.project.repo_name;
+  return projectName(row.project);
 }

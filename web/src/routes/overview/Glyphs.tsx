@@ -71,3 +71,11 @@ export function CloseIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+export function ArrowLeftIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden className={className}>
+      <path d="M13 8H3M7 4L3 8l4 4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

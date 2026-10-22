@@ -22,6 +22,7 @@ import {
 import Toolbar from "./overview/Toolbar";
 import { useProjectActions } from "./overview/useProjectActions";
 import { useSearchShortcut } from "./overview/useSearchShortcut";
+import { projectName } from "./services/service";
 import { useDeploymentFeed } from "./services/useDeploymentFeed";
 
 /** How many deployments are listed at first, and how many each "Show more" adds. */
@@ -65,7 +66,7 @@ export default function DeploymentsPage() {
   const current = useMemo(() => currentIds(items), [items]);
   const projects = useMemo(() => {
     const byId = new Map(items.map(({ project }) => [project.id, project]));
-    return [...byId.values()].sort((a, b) => (a.subdomain || a.repo_name).localeCompare(b.subdomain || b.repo_name));
+    return [...byId.values()].sort((a, b) => projectName(a).localeCompare(projectName(b)));
   }, [items]);
 
   const ofProject = useMemo(
@@ -111,7 +112,7 @@ export default function DeploymentsPage() {
                   className="w-36 sm:w-48"
                   options={[
                     { value: ALL_PROJECTS, label: "All projects" },
-                    ...projects.map((p) => ({ value: p.id, label: p.subdomain || p.repo_name })),
+                    ...projects.map((p) => ({ value: p.id, label: projectName(p) })),
                   ]}
                 />
                 <SelectField

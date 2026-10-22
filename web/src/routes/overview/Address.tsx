@@ -6,12 +6,15 @@ import { addressOf } from "./overview";
  * The address a project is served at, under its name. A live one is a link
  * (its tooltip is the full URL) with a button that copies that full URL.
  */
-export function Address({ row }: { row: ServiceRow }) {
+export function Address({ row, inline = false }: { row: ServiceRow; inline?: boolean }) {
   const address = addressOf(row);
-  if (!address) return <p className="mt-0.5 truncate text-[13px] leading-5 text-faint">Not deployed yet</p>;
-  if (!address.link) return <p className="mt-0.5 truncate text-[13px] leading-5 text-faint">{address.text}</p>;
+  // Inline, beside other facts: no gap above, and nothing to say when there is no address.
+  if (inline && !address) return null;
+  const top = inline ? "" : "mt-0.5 ";
+  if (!address) return <p className={`${top}truncate text-[13px] leading-5 text-faint`}>Not deployed yet</p>;
+  if (!address.link) return <p className={`${top}truncate text-[13px] leading-5 text-faint`}>{address.text}</p>;
   return (
-    <div className="mt-0.5 flex min-w-0 items-center gap-1">
+    <div className={`${top}flex min-w-0 items-center gap-1`}>
       <a
         href={address.link}
         target="_blank"

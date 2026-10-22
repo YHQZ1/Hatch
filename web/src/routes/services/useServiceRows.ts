@@ -8,12 +8,7 @@ import {
   projectsQuery,
 } from "@/lib/queries";
 import type { Deployment } from "@/lib/types";
-import {
-  type ServiceRow,
-  formatRepoSlug,
-  getProjectStatusMeta,
-  getServiceUrl,
-} from "./service";
+import { type ServiceRow, toServiceRow } from "./service";
 
 /**
  * How many services there were last time, kept so a first paint with nothing
@@ -66,22 +61,7 @@ export function useServiceRows() {
 
   const rows = useMemo<ServiceRow[]>(() => {
     return projects
-      .map((project) => {
-        const lastDeployment = deployments[project.id]?.[0];
-        const updatedAtRaw =
-          lastDeployment?.deployed_at ??
-          lastDeployment?.created_at ??
-          project.created_at;
-
-        return {
-          project,
-          lastDeployment,
-          status: getProjectStatusMeta(project, lastDeployment),
-          liveUrl: getServiceUrl(project, lastDeployment),
-          repoSlug: formatRepoSlug(project.repo_url),
-          updatedAtRaw,
-        };
-      })
+      .map((project) => toServiceRow(project, deployments[project.id]?.[0]))
       .sort(
         (a, b) =>
           new Date(b.updatedAtRaw).getTime() -

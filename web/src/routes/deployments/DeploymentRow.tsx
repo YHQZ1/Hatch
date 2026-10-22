@@ -2,34 +2,15 @@ import { Link } from "react-router";
 import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { safeHttpUrl } from "@/lib/url";
-import { useNow } from "@/lib/useNow";
 import ActionsMenu from "../overview/ActionsMenu";
 import { BranchIcon, CommitIcon } from "../overview/Glyphs";
 import ProjectIcon from "../overview/ProjectIcon";
 import { RepoLink } from "../overview/RepoLink";
-import { formatElapsed } from "../overview/overview";
 import type { useProjectActions } from "../overview/useProjectActions";
-import { formatCommit, formatRelativeTime, formatRepoSlug } from "../services/service";
+import { formatCommit, formatRelativeTime, formatRepoSlug, projectName } from "../services/service";
 import type { FeedItem } from "../services/useDeploymentFeed";
-import { ROW_HEIGHT, type StateInfo, durationSeconds, formatDuration } from "./deployments";
-
-const DOT: Record<StateInfo["state"], string> = {
-  current: "bg-success",
-  replaced: "bg-success",
-  building: "animate-pulse bg-warning",
-  failed: "bg-danger",
-  canceled: "bg-faint",
-  other: "bg-faint",
-};
-
-const TEXT: Record<StateInfo["state"], string> = {
-  current: "text-ink",
-  replaced: "text-ink",
-  building: "text-warning",
-  failed: "text-danger",
-  canceled: "text-muted",
-  other: "text-muted",
-};
+import StatusLine from "./StatusLine";
+import { ROW_HEIGHT, type StateInfo, durationSeconds } from "./deployments";
 
 /**
  * One deployment as one line, the way a table of builds reads: the project, the
@@ -55,7 +36,7 @@ export default function DeploymentRow({
   const { deployment, project } = item;
   const [menuOpen, setMenuOpen] = useState(false);
   const commit = formatCommit(deployment);
-  const name = project.subdomain || project.repo_name;
+  const name = projectName(project);
   const logs = `/projects/${project.id}/deployments/${deployment.id}`;
   const address = info.state === "current" ? safeHttpUrl(deployment.url) : null;
   const running = info.state === "building";
@@ -81,15 +62,7 @@ export default function DeploymentRow({
     />
   );
 
-  const status = (
-    <span className="flex items-center gap-2 whitespace-nowrap text-[13px]" title={detail || undefined}>
-      <span aria-hidden className={cn("h-2 w-2 shrink-0 rounded-full", DOT[info.state])} />
-      <span className={cn("font-medium", TEXT[info.state])}>{info.label}</span>
-      <span className="tabular-nums text-muted">
-        {running ? <Elapsed since={startedAt.getTime()} /> : seconds === null ? "" : formatDuration(seconds)}
-      </span>
-    </span>
-  );
+  const status = <StatusLine info={info} startedAt={startedAt} seconds={seconds} detail={detail} />;
   // Plain text, no pill: green for what is running now, quiet grey for the rest.
   const badge = info.badge && (
     <span className={cn("whitespace-nowrap text-[13px]", info.badge === "Current" ? "font-medium text-success" : "text-faint")}>
@@ -174,8 +147,4 @@ export default function DeploymentRow({
       </div>
     </li>
   );
-}
-
-function Elapsed({ since }: { since: number }) {
-  return <>{formatElapsed(useNow() - since)}</>;
 }

@@ -9,6 +9,8 @@ export interface Project {
   branch: string;
   dockerfile_path: string;
   port: number;
+  /** The path Hatch waits on before calling a deployment live. */
+  health_check: string;
   subdomain: string | null;
   status: string;
   delete_requested_at: string | null;

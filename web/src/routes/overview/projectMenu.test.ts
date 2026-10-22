@@ -5,7 +5,7 @@ import { projectMenuItems } from "./projectMenu";
 
 const project = (status = "active"): Project => ({
   id: "p1", user_id: "u", repo_name: "shop", repo_url: "https://github.com/octo/shop",
-  auto_deploy: false, branch: "main", dockerfile_path: "Dockerfile", port: 8080,
+  auto_deploy: false, branch: "main", dockerfile_path: "Dockerfile", port: 8080, health_check: "/",
   subdomain: "shop", status, delete_requested_at: null, delete_error: null, created_at: "2026-10-22T10:00:00Z",
 });
 
