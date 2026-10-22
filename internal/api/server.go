@@ -167,6 +167,7 @@ func Run(ctx context.Context, cfg *config.Config, local *LocalTarget) error {
 
 		api.GET("/projects", projectHandler.ListProjects)
 		api.POST("/projects", projectHandler.CreateProject)
+		api.GET("/subdomains/:name", projectHandler.CheckSubdomain)
 		api.GET("/projects/:id", projectHandler.GetProject)
 		api.PUT("/projects/:id", projectHandler.UpdateProject)
 		api.GET("/projects/:id/env-vars", projectHandler.GetProjectEnvVars)

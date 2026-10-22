@@ -314,6 +314,10 @@ New or changed tables (names provisional):
 - Project icons: `GET /api/projects/:id/icon` fetches the favicon the running
   app declares (its `<link rel="icon">`, then `/favicon.ico`), only from the app
   itself, and the console falls back to Hatch's mark when there is none.
+- Project addresses: subdomains are unique across all accounts, so the
+  new-project page asks `GET /api/subdomains/:name` whether one is free (or
+  reserved, or malformed) before the user fills in the rest. Creating the
+  project still has the last word.
 - Traffic: the proxy counts requests per app for the last hour (in memory) and
   the API serves them at `GET /api/traffic`, so the console shows traffic with
   no extra component ([0018](decisions/0018-built-in-proxy-for-the-local-target.md#traffic-counts-added-2026-10-22)).
