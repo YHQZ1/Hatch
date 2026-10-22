@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Modal } from "@/components/ui";
 import type { Project } from "@/lib/types";
 
-/** Asks the user to type the service's name before it is deleted. */
+/** Asks the user to type the project's name before it is deleted. */
 export default function DeleteServiceModal({
   project,
   open,
@@ -33,7 +33,7 @@ export default function DeleteServiceModal({
     <Modal
       open={open}
       title={`Delete ${project.repo_name}?`}
-      description="Hatch will queue cloud cleanup and remove this service after the AWS resources are gone."
+      description="Hatch will queue cloud cleanup and remove this project after the AWS resources are gone."
       onClose={deleting ? () => {} : handleClose}
     >
       <div className="border-y border-line py-3">
@@ -72,7 +72,7 @@ export default function DeleteServiceModal({
           disabled={deleting || !canDelete}
           className="h-9 rounded-hatch border border-danger/40 bg-danger/10 px-4 text-sm font-medium text-danger transition-colors hover:bg-danger/15 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {deleting ? "Deleting" : "Delete service"}
+          {deleting ? "Deleting" : "Delete project"}
         </button>
       </div>
     </Modal>

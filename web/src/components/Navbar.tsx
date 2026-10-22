@@ -18,11 +18,11 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: "Overview", href: "/overview", active: (p) => p === "/overview" },
   {
-    label: "Services",
-    href: "/services",
-    active: (p) => p === "/services" || p === "/new" || p.startsWith("/projects/"),
+    label: "Overview",
+    href: "/overview",
+    // A project's own pages and the flow that adds one belong to the Overview.
+    active: (p) => p === "/overview" || p === "/new" || p.startsWith("/projects/"),
   },
   { label: "Deployments", href: "/deployments", active: (p) => p === "/deployments" },
   { label: "Activity", href: "/activity", active: (p) => p === "/activity" },
@@ -99,7 +99,7 @@ export default function Navbar({
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <div className="hidden sm:block">
             <Button href="/new" variant="primary" className="h-10">
-              New service
+              New project
             </Button>
           </div>
 
@@ -138,7 +138,7 @@ export default function Navbar({
                 onClick={() => setMenuOpen(false)}
                 className="block px-4 py-2.5 text-sm text-accent transition-colors hover:bg-ink/5 hover:text-accent-hover sm:hidden"
               >
-                New service
+                New project
               </Link>
               <Link
                 to="/settings"

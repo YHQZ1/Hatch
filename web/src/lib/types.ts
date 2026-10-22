@@ -59,6 +59,29 @@ export interface Deployment {
   failed_at: string | null;
 }
 
+/** One app's last hour of requests, as counted by Hatch's proxy (GET /api/traffic). */
+export interface AppTraffic {
+  /** Requests and 5xx errors per minute, oldest first. */
+  requests: number[];
+  errors: number[];
+  total_requests: number;
+  total_errors: number;
+  /** Mean time to first byte over the hour; 0 when there were no requests. */
+  avg_latency_ms: number;
+  /** The latest request since Hatch started counting, or null. */
+  last_request_at: string | null;
+}
+
+export interface Traffic {
+  /** False when nothing counts traffic (the AWS target). */
+  available: boolean;
+  window_minutes: number;
+  /** When counting started; the counts reset when Hatch restarts. */
+  since?: string;
+  /** Keyed by the app's subdomain. */
+  apps: Record<string, AppTraffic>;
+}
+
 /** A repository the Hatch GitHub App can read (GET /api/github/repos). */
 export interface GitHubRepo {
   id: number;

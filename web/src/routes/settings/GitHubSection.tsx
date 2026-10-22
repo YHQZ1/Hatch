@@ -118,7 +118,7 @@ export default function GitHubSection() {
           <SettingRow
             label="Remove Hatch from GitHub"
             stacked
-            description="Uninstalling the App or revoking its authorization on GitHub takes effect immediately. Your running services are not touched, but new deploys will fail."
+            description="Uninstalling the App or revoking its authorization on GitHub takes effect immediately. Your running projects are not touched, but new deploys will fail."
           >
             <ExternalLink href="https://github.com/settings/apps/authorized">
               Authorized GitHub Apps

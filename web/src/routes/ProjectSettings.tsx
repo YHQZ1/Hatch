@@ -67,7 +67,7 @@ export default function ProjectSettingsClient() {
     notice: {
       type: "error",
       title: "Settings unavailable",
-      message: "Hatch could not load this service settings page.",
+      message: "Hatch could not load this project settings page.",
     },
   });
 
@@ -253,7 +253,7 @@ export default function ProjectSettingsClient() {
       const res = await apiFetch(`/api/projects/${id}`, { method: "DELETE" });
       if (redirectIfUnauthorized(res, navigate)) return;
       if (!res.ok) {
-        throw new Error(await readApiError(res, "failed to delete service"));
+        throw new Error(await readApiError(res, "failed to delete project"));
       }
       refreshProjectLists();
       queryClient.removeQueries({ queryKey: projectQuery(id).queryKey });
@@ -262,14 +262,14 @@ export default function ProjectSettingsClient() {
         title: retry ? "Cleanup retry queued" : "Deletion queued",
         message: retry
           ? "Hatch is retrying the failed cloud cleanup."
-          : "Hatch will remove the service after cloud cleanup finishes.",
+          : "Hatch will remove the project after cloud cleanup finishes.",
       });
       navigate("/overview");
     } catch (err) {
       setNotice({
         type: "error",
         title: "Delete failed",
-        message: err instanceof Error ? err.message : "Service was not deleted.",
+        message: err instanceof Error ? err.message : "Project was not deleted.",
       });
     } finally {
       setDeleting(false);
@@ -289,8 +289,8 @@ export default function ProjectSettingsClient() {
           await readApiError(
             res,
             action === "suspend"
-              ? "failed to suspend service"
-              : "failed to resume service",
+              ? "failed to suspend project"
+              : "failed to resume project",
           ),
         );
       }
@@ -313,7 +313,7 @@ export default function ProjectSettingsClient() {
         message:
           err instanceof Error
             ? err.message
-            : "Service operation could not be queued.",
+            : "Project operation could not be queued.",
       });
     } finally {
       setServiceActioning(false);
@@ -383,7 +383,7 @@ export default function ProjectSettingsClient() {
     { key: "general", label: "General", caption: "Identity and production URL" },
     { key: "build", label: "Build & Deploy", caption: "Branch, Dockerfile, and deploy triggers" },
     { key: "vars", label: "Variables", caption: "Runtime environment for future deployments" },
-    { key: "danger", label: "Danger", caption: "Permanent service actions" },
+    { key: "danger", label: "Danger", caption: "Permanent project actions" },
   ];
 
   const activeTabMeta = tabs.find((tab) => tab.key === activeTab) ?? tabs[0];
@@ -396,9 +396,9 @@ export default function ProjectSettingsClient() {
     >
       <NoticeToast notice={notice} onDismiss={dismiss} />
       <PageTitle
-        eyebrow="Service Settings"
-        title={loading ? "Loading..." : project?.repo_name || "Service"}
-        description={project?.repo_url.replace("https://github.com/", "") ?? "Configure this Hatch service"}
+        eyebrow="Project Settings"
+        title={loading ? "Loading..." : project?.repo_name || "Project"}
+        description={project?.repo_url.replace("https://github.com/", "") ?? "Configure this Hatch project"}
         className="xl:mb-5 xl:shrink-0 xl:pb-5"
         actions={
           <>
@@ -479,10 +479,10 @@ export default function ProjectSettingsClient() {
             {activeTab === "general" && (
               <Section
                 title="General"
-                description="These settings identify the service inside Hatch. The repository and generated URL are locked for now."
+                description="These settings identify the project inside Hatch. The repository and generated URL are locked for now."
               >
-                <Field label="Service name" description="Used across the console, activity feed, and deployment screens.">
-                  <Input value={projectName} onChange={setProjectName} placeholder="my-service" />
+                <Field label="Project name" description="Used across the console, activity feed, and deployment screens.">
+                  <Input value={projectName} onChange={setProjectName} placeholder="my-project" />
                 </Field>
 
                 <ReadOnlyGrid>
@@ -500,7 +500,7 @@ export default function ProjectSettingsClient() {
             {activeTab === "build" && (
               <Section
                 title="Build & Deploy"
-                description="These values are used when Hatch creates the next deployment for this service."
+                description="These values are used when Hatch creates the next deployment for this project."
               >
                 <div className="grid gap-5 md:grid-cols-2">
                   <Field label="Production branch" description="Auto-deploy watches this branch for pushes.">
@@ -687,7 +687,7 @@ export default function ProjectSettingsClient() {
             {activeTab === "danger" && (
               <Section
                 title="Danger Zone"
-                description="Permanent actions for this service. This area should stay small and deliberate."
+                description="Permanent actions for this project. This area should stay small and deliberate."
               >
                 <div className="mb-5 rounded-hatch border border-line bg-ink/[0.018] p-5">
                   <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -755,10 +755,10 @@ export default function ProjectSettingsClient() {
 
                 <div className="rounded-hatch border border-danger/20 bg-danger/[0.025] p-5">
                   <p className="text-sm font-medium text-ink">
-                    Delete service
+                    Delete project
                   </p>
                   <p className="mt-2 max-w-2xl text-sm leading-6 text-faint">
-                    This marks the service for deletion, queues cloud cleanup, and removes the project after the AWS resources are gone.
+                    This marks the project for deletion, queues cloud cleanup, and removes the project after the AWS resources are gone.
                   </p>
                   <p className="mt-5 text-xs font-medium tracking-[0.04em] text-faint">
                     Type <span className="text-ink">{project?.repo_name}</span> to confirm
@@ -774,7 +774,7 @@ export default function ProjectSettingsClient() {
                     disabled={deleteConfirm !== project?.repo_name || deleting}
                     className="mt-4 w-full cursor-pointer rounded-hatch border border-danger/25 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-danger transition-colors hover:border-danger/45 hover:bg-danger/5 disabled:cursor-not-allowed disabled:opacity-30"
                   >
-                    {deleting ? "Queueing cleanup" : "Delete service"}
+                    {deleting ? "Queueing cleanup" : "Delete project"}
                   </button>
                   {project?.status === "delete_failed" && (
                     <div className="mt-4 flex flex-col gap-3 rounded-hatch border border-danger/15 bg-base p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -798,7 +798,7 @@ export default function ProjectSettingsClient() {
         </section>
 
         <aside className="space-y-7 xl:pb-8">
-          <SidePanel title="Service">
+          <SidePanel title="Project">
             <div className="space-y-4">
               <MetaRow label="Project ID" value={project?.id ?? "-"} />
               <MetaRow label="Created" value={project ? formatDate(project.created_at) : "-"} />
@@ -817,7 +817,7 @@ export default function ProjectSettingsClient() {
             </p>
             <div className="mt-4">
               <Button href={`/projects/${id}`} variant="secondary" className="w-full">
-                View service
+                View project
               </Button>
             </div>
           </SidePanel>

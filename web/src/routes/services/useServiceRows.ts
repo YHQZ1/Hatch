@@ -112,6 +112,7 @@ export function useServiceRows() {
   return {
     projectsResult,
     rows,
+    deployments,
     stats,
     loading,
     refreshing,

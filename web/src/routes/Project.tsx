@@ -286,8 +286,8 @@ export default function ProjectDetail() {
     >
       <NoticeToast notice={notice} onDismiss={dismiss} />
       <PageTitle
-        eyebrow="Service"
-        title={loading ? "Loading..." : project?.repo_name || "Service"}
+        eyebrow="Project"
+        title={loading ? "Loading..." : project?.repo_name || "Project"}
         description={selectedRepoLabel}
         className="xl:mb-5 xl:pb-5"
         actions={
@@ -464,7 +464,7 @@ function CurrentRunPanel({
       ) : (
         <div className="py-2">
           <p className="text-sm leading-6 text-faint">
-            No deployments have been created for this service yet.
+            No deployments have been created for this project yet.
           </p>
         </div>
       )}

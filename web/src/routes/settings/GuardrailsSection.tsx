@@ -11,11 +11,11 @@ const GUARDRAILS = [
   },
   {
     label: "Pause when idle",
-    description: "Warn after 7 days without requests and pause after 14, per service.",
+    description: "Warn after 7 days without requests and pause after 14, per project.",
   },
   {
     label: "Expiry for test apps",
-    description: "Delete a service on its own after an hour, a day or a week.",
+    description: "Delete a project on its own after an hour, a day or a week.",
   },
   {
     label: "Tear down everything",

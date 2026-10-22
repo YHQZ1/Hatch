@@ -1,22 +1,37 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { Link } from "react-router";
-import { AppShell, Button, PageTitle } from "@/components/ui";
-import { cn } from "@/lib/cn";
-import { githubReposQuery } from "@/lib/queries";
-import { formatRelativeTime } from "./services/service";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
+import { NoticeToast } from "@/components/NoticeToast";
+import { AppShell, Button } from "@/components/ui";
+import { PlusIcon } from "./overview/Glyphs";
+import { useNotice } from "@/components/useNotice";
+import { githubReposQuery, isActiveDeployment, trafficQuery } from "@/lib/queries";
 import { useServiceRows } from "./services/useServiceRows";
-import AwsPlaceholders from "./overview/PlaceholderCards";
+import AccountPanel from "./overview/AccountPanel";
+import { NoMatches, NoProjects } from "./overview/EmptyStates";
 import RecentActivity from "./overview/RecentActivity";
-import ServiceCard from "./overview/ServiceCard";
+import RightNow from "./overview/RightNow";
+import ProjectCard from "./overview/ProjectCard";
+import ProjectRow from "./overview/ProjectRow";
 import SetupChecklist, {
   SetupChecklistSkeleton,
   type SetupStep,
 } from "./overview/SetupChecklist";
-import StatStrip from "./services/StatStrip";
-
-/** How many service cards the Overview shows before pointing at the full list. */
-const SHOWN_SERVICES = 6;
+import Toolbar, { FilterTabs, type ViewMode } from "./overview/Toolbar";
+import TrafficPanel from "./overview/TrafficPanel";
+import {
+  countByFilter,
+  filterByQuery,
+  matchesFilter,
+  parseFilter,
+  ROW_HEIGHT,
+} from "./overview/overview";
+import { SORTS, SORT_LABELS, parseSort, recentTicks, sortRows } from "./overview/history";
+import { useDeleteProject } from "./overview/useDeleteProject";
+import { useProjectActions } from "./overview/useProjectActions";
+import { useSearchShortcut } from "./overview/useSearchShortcut";
+import { useStoredView } from "./overview/useStoredView";
+import DeleteServiceModal from "./services/DeleteServiceModal";
 
 /**
  * Set once the checklist has been seen complete. It lets a reload with nothing
@@ -24,6 +39,7 @@ const SHOWN_SERVICES = 6;
  * box appear and vanish.
  */
 const SETUP_DONE_KEY = "hatch_setup_done";
+const VIEW_KEY = "hatch_overview_view";
 
 function readSetupDone(): boolean {
   try {
@@ -42,10 +58,37 @@ function writeSetupDone(done: boolean) {
   }
 }
 
-/** Home: what is running, what needs attention, and what happened lately. */
+/**
+ * Home, and the one place projects are listed: find a project, act on it, see
+ * what is building, and how much traffic it gets.
+ */
 export default function OverviewPage() {
-  const { rows, stats, loading, expectServices } = useServiceRows();
+  const { rows, deployments, loading } = useServiceRows();
   const repos = useQuery(githubReposQuery());
+  const traffic = useQuery(trafficQuery());
+  const { notice, setNotice, dismiss } = useNotice();
+  const actions = useProjectActions(setNotice);
+  const removal = useDeleteProject(setNotice);
+
+  // The search, the filter and the sort live in the address, so a view can be
+  // shared and the back button undoes it.
+  const [params, setParams] = useSearchParams();
+  const query = params.get("q") ?? "";
+  const filter = parseFilter(params.get("filter"));
+  const sort = parseSort(params.get("sort"));
+  const setParam = (key: string, value: string, fallback = "") =>
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value && value !== fallback) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
+
+  const [view, setView] = useStoredView(VIEW_KEY);
+  const searchRef = useSearchShortcut();
 
   const steps: SetupStep[] = [
     {
@@ -83,128 +126,171 @@ export default function OverviewPage() {
     if (setupKnown) writeSetupDone(setupFinished);
   }, [setupKnown, setupFinished]);
 
-  const needsAttention = rows.filter((row) => row.status.kind === "failed");
-  const shown = rows.slice(0, SHOWN_SERVICES);
+  const counts = useMemo(() => countByFilter(rows), [rows]);
+  const matching = useMemo(() => {
+    const apps = traffic.data?.apps;
+    const requests = (row: (typeof rows)[number]) => {
+      const sub = row.project.subdomain;
+      return (sub && apps?.[sub]?.total_requests) || 0;
+    };
+    return sortRows(filterByQuery(rows, query).filter((row) => matchesFilter(row, filter)), sort, requests);
+  }, [rows, query, filter, sort, traffic.data]);
+  const building = useMemo(
+    () => rows.filter((row) => isActiveDeployment(row.lastDeployment?.status)),
+    [rows],
+  );
+  const searching = query.trim() !== "" || filter !== "all";
 
   return (
-    <AppShell>
-      <PageTitle
-        title="Overview"
-        description="What is running, what needs attention, and what happened lately."
-        className="mb-8"
-      />
+    <AppShell contentClassName="py-8">
+      <h1 className="sr-only">Overview</h1>
 
-      <StatStrip
-        stats={stats}
-        loading={loading}
-        expectServices={expectServices}
-        failedLabel="Needs attention"
-      />
+      {/*
+        Like Vercel's dashboard: a bar across the top, then the projects on the
+        right and what surrounds them in a column on the left. Below the wide
+        breakpoint the wrapper disappears (`contents`) and the panels stack in
+        the order given by `order-*`: setup, search, what is building, the
+        projects, then traffic, activity and the account.
+      */}
+      <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[340px_minmax(0,1fr)] lg:items-start lg:gap-x-8 lg:gap-y-6">
+        {(loading || rows.length > 0) && (
+          <Toolbar
+            query={query}
+            onQuery={(value) => setParam("q", value)}
+            view={view}
+            onView={setView}
+            searchRef={searchRef}
+            className="order-2 lg:col-span-2"
+            leading={
+              <label className="relative block shrink-0">
+                <span className="sr-only">Sort projects</span>
+                <select
+                  value={sort}
+                  onChange={(e) => setParam("sort", e.target.value, "activity")}
+                  className="h-10 cursor-pointer appearance-none rounded-hatch border border-line-strong bg-base pl-3 pr-9 text-sm text-ink focus:border-accent focus:outline-none"
+                >
+                  {SORTS.map((key) => (
+                    <option key={key} value={key}>
+                      {SORT_LABELS[key]}
+                    </option>
+                  ))}
+                </select>
+                {/* The browser's own arrow sits against the edge; this one is inset and follows the theme. */}
+                <svg
+                  viewBox="0 0 16 16"
+                  aria-hidden
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+                >
+                  <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </label>
+            }
+            trailing={
+              <Button href="/new" variant="primary" className="h-10 shrink-0 px-4">
+                <PlusIcon className="h-4 w-4" />
+                <span className="hidden sm:inline">New project</span>
+                <span className="sm:hidden">New</span>
+              </Button>
+            }
+          />
+        )}
 
-      <AwsPlaceholders />
-
-      <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_380px]">
-        {/* First in the markup so the checklist leads on a phone; it sits to the right on a wide screen. */}
-        <aside
-          className={cn(
-            "flex flex-col gap-6 xl:order-last",
-            !showSetup && !showSetupSkeleton && "hidden xl:flex",
-          )}
-        >
-          {showSetup && <SetupChecklist steps={steps} />}
-          {showSetupSkeleton && <SetupChecklistSkeleton />}
-          <div className="hidden xl:block">
-            <RecentActivity />
-          </div>
-        </aside>
-
-        <div className="min-w-0 space-y-10">
-          {needsAttention.length > 0 && (
-            <section>
-              <SectionHeading title="Needs attention" />
-              <ul className="rounded-hatch border border-danger/40 bg-danger/5">
-                {needsAttention.map((row) => (
-                  <li key={row.project.id} className="border-b border-danger/20 last:border-b-0">
-                    <Link
-                      to={`/projects/${row.project.id}`}
-                      className="flex items-center justify-between gap-4 px-5 py-3.5 transition-colors hover:bg-danger/5"
-                    >
-                      <span className="min-w-0 truncate text-sm">
-                        <span className="font-medium">{row.project.repo_name}</span>
-                        <span className="text-muted"> · {row.status.label}</span>
-                      </span>
-                      <span className="shrink-0 font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
-                        {formatRelativeTime(row.updatedAtRaw)}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          <section>
-            <SectionHeading
-              title="Services"
-              link={
-                rows.length > 0
-                  ? {
-                      label: rows.length > SHOWN_SERVICES ? `View all ${rows.length}` : "Manage",
-                      href: "/services",
-                    }
-                  : undefined
-              }
-            />
-            {loading ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                {[0, 1].map((i) => (
-                  <div key={i} className="h-44 animate-pulse rounded-hatch border border-line bg-panel" />
-                ))}
-              </div>
-            ) : rows.length === 0 ? (
-              <div className="flex flex-col items-start gap-4 rounded-hatch border border-dashed border-line-strong px-6 py-12">
-                <p className="text-xl font-semibold tracking-tight">No services yet</p>
-                <p className="max-w-md leading-relaxed text-muted">
-                  Pick a GitHub repository that has a Dockerfile. Hatch creates the service, queues
-                  the first deploy and gives it a URL.
-                </p>
-                <Button href="/new" variant="primary" className="h-10">
-                  Deploy your first service
-                </Button>
-              </div>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2">
-                {shown.map((row) => (
-                  <ServiceCard key={row.project.id} row={row} />
-                ))}
-              </div>
-            )}
-          </section>
-
-          <div className="xl:hidden">
-            <RecentActivity />
-          </div>
+        <div className="contents lg:col-start-1 lg:row-start-2 lg:flex lg:flex-col lg:gap-6">
+          {showSetup && <SetupChecklist steps={steps} className="order-1" />}
+          {showSetupSkeleton && <SetupChecklistSkeleton className="order-1" />}
+          <RightNow rows={building} actions={actions} className="order-3" />
+          <TrafficPanel
+            traffic={traffic.data}
+            rows={rows}
+            loading={traffic.isPending || loading}
+            className="order-5"
+          />
+          <RecentActivity className="order-6" />
+          <AccountPanel className="order-7" />
         </div>
+
+        <section
+          aria-label="Projects"
+          className="order-4 min-w-0 space-y-5 lg:col-start-2 lg:row-start-2"
+        >
+          {rows.length > 0 && (
+            <FilterTabs filter={filter} onFilter={(value) => setParam("filter", value, "all")} counts={counts} />
+          )}
+
+          {loading ? (
+            <ProjectsSkeleton view={view} />
+          ) : rows.length === 0 ? (
+            <NoProjects />
+          ) : matching.length === 0 ? (
+            <NoMatches query={query} onClear={() => setParams({}, { replace: true })} />
+          ) : view === "grid" ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              {matching.map((row) => (
+                <ProjectCard
+                  key={row.project.id}
+                  row={row}
+                  ticks={recentTicks(deployments[row.project.id] ?? [])}
+                  actions={actions}
+                  onDelete={removal.request}
+                />
+              ))}
+            </div>
+          ) : (
+            <ul className="rounded-hatch border border-line-strong bg-base">
+              {matching.map((row) => (
+                <ProjectRow key={row.project.id} row={row} actions={actions} onDelete={removal.request} />
+              ))}
+            </ul>
+          )}
+
+          {!loading && searching && matching.length > 0 && (
+            <p className="text-center text-xs text-faint">
+              {matching.length} of {rows.length} projects
+            </p>
+          )}
+        </section>
       </div>
+
+      {removal.target && (
+        <DeleteServiceModal
+          project={removal.target.project}
+          open
+          deleting={removal.deleting}
+          onClose={removal.cancel}
+          onConfirm={removal.confirm}
+        />
+      )}
+
+      <NoticeToast notice={notice} onDismiss={dismiss} />
     </AppShell>
   );
 }
 
-function SectionHeading({
-  title,
-  link,
-}: {
-  title: string;
-  link?: { label: string; href: string };
-}) {
+/** Holds the projects' space while they load, with cards or rows to match the view. */
+function ProjectsSkeleton({ view }: { view: ViewMode }) {
+  if (view === "list") {
+    return (
+      <ul aria-hidden className="rounded-hatch border border-line-strong bg-base">
+        {[0, 1, 2].map((i) => (
+          <li key={i} className={`${ROW_HEIGHT} flex items-center gap-4 border-b border-line px-4 last:border-b-0`}>
+            <div className="h-9 w-9 animate-pulse rounded-hatch bg-line" />
+            <div className="w-1/3 space-y-2">
+              <div className="h-4 w-3/4 animate-pulse rounded-hatch bg-line" />
+              <div className="h-3 w-1/2 animate-pulse rounded-hatch bg-line/60" />
+            </div>
+          </li>
+        ))}
+      </ul>
+    );
+  }
   return (
-    <div className="mb-4 flex items-baseline justify-between">
-      <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
-      {link && (
-        <Link to={link.href} className="text-sm text-muted transition-colors hover:text-ink">
-          {link.label}
-        </Link>
-      )}
+    <div aria-hidden className="grid gap-4 md:grid-cols-2">
+      {[0, 1].map((i) => (
+        <div key={i} className="h-[200px] animate-pulse rounded-hatch border border-line bg-panel" />
+      ))}
     </div>
   );
 }

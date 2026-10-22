@@ -13,20 +13,24 @@ export interface SetupStep {
  * A short list of what is left to do before the first deploy. It is only
  * shown until every step is done, and lists only steps that exist today.
  */
-export default function SetupChecklist({ steps }: { steps: SetupStep[] }) {
+export default function SetupChecklist({
+  steps,
+  className,
+}: {
+  steps: SetupStep[];
+  className?: string;
+}) {
   const doneCount = steps.filter((step) => step.done).length;
   const nextId = steps.find((step) => !step.done)?.id;
 
   return (
-    <section className="rounded-hatch border border-line-strong bg-base">
-      <div className="border-b border-line px-5 py-4">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-[1rem] font-semibold tracking-tight">Get started</h2>
-          <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
-            {doneCount} of {steps.length}
-          </p>
-        </div>
-        <div aria-hidden className="mt-3 h-px w-full bg-line">
+    <section className={cn("rounded-hatch border border-line-strong bg-base", className)}>
+      <div className="relative flex h-12 items-center justify-between border-b border-line px-4">
+        <h2 className="text-sm font-semibold">Get started</h2>
+        <p className="text-[13px] text-muted">
+          {doneCount} of {steps.length}
+        </p>
+        <div aria-hidden className="absolute inset-x-0 bottom-[-1px] h-px">
           <div
             className="h-px bg-accent transition-[width] duration-500"
             style={{ width: `${(doneCount / steps.length) * 100}%` }}
@@ -38,7 +42,7 @@ export default function SetupChecklist({ steps }: { steps: SetupStep[] }) {
         {steps.map((step) => (
           <li
             key={step.id}
-            className="flex items-start gap-3 border-b border-line px-5 py-4 last:border-b-0"
+            className="flex items-start gap-3 border-b border-line px-4 py-3.5 last:border-b-0"
           >
             <span
               aria-hidden
@@ -85,15 +89,14 @@ export default function SetupChecklist({ steps }: { steps: SetupStep[] }) {
 }
 
 /** Holds the checklist's space until it is known whether setup is finished. */
-export function SetupChecklistSkeleton() {
+export function SetupChecklistSkeleton({ className }: { className?: string }) {
   return (
-    <div aria-hidden className="rounded-hatch border border-line-strong bg-base">
-      <div className="border-b border-line px-5 py-4">
+    <div aria-hidden className={cn("rounded-hatch border border-line-strong bg-base", className)}>
+      <div className="flex h-12 items-center border-b border-line px-4">
         <div className="h-5 w-28 animate-pulse rounded-hatch bg-line" />
-        <div className="mt-4 h-px w-full bg-line" />
       </div>
       {[0, 1, 2].map((i) => (
-        <div key={i} className="flex gap-3 border-b border-line px-5 py-4 last:border-b-0">
+        <div key={i} className="flex gap-3 border-b border-line px-4 py-3.5 last:border-b-0">
           <div className="h-5 w-5 shrink-0 animate-pulse rounded-[2px] bg-line" />
           <div className="w-full space-y-2">
             <div className="h-4 w-2/3 animate-pulse rounded-hatch bg-line" />

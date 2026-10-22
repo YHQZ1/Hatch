@@ -4,7 +4,7 @@ export default function CostPage() {
   return (
     <UnavailablePage
       title="Cost"
-      description="What your services cost to run, against the monthly cap you set."
+      description="What your projects cost to run, against the monthly cap you set."
       emptyTitle="Nothing to show yet"
       emptyDescription="Estimated spend, your monthly cap and a per-service breakdown appear here once an AWS account is connected."
     />

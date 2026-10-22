@@ -8,6 +8,7 @@ import type {
   Project,
   ProjectEnvVar,
   Session,
+  Traffic,
 } from "./types";
 
 /** How often to re-check things that are changing on their own. */
@@ -129,6 +130,33 @@ export const projectDeploymentsQuery = (projectId: string) =>
       )
         ? POLL_MS
         : false,
+  });
+
+/** How often the traffic counts are re-read. */
+const TRAFFIC_POLL_MS = 15000;
+
+/**
+ * Requests to each app over the last hour. It polls only when something is
+ * counting; on a target without a proxy it answers once that it is unavailable.
+ */
+export const trafficQuery = () =>
+  queryOptions({
+    queryKey: ["traffic"],
+    queryFn: () => apiJson<Traffic>("/api/traffic"),
+    refetchInterval: (query) => (query.state.data?.available ? TRAFFIC_POLL_MS : false),
+  });
+
+/** The newest log line of a deployment, or null while it has none. */
+export const deploymentLastLogQuery = (deploymentId: string) =>
+  queryOptions({
+    queryKey: ["deployments", deploymentId, "logs", "last"],
+    queryFn: async () => {
+      const lines = await apiJson<string[] | null>(
+        `/api/deployments/${deploymentId}/logs?tail=1`,
+      );
+      return Array.isArray(lines) && lines.length > 0 ? lines[lines.length - 1] : null;
+    },
+    refetchInterval: 3000,
   });
 
 export const NO_REPOS: GitHubRepo[] = [];

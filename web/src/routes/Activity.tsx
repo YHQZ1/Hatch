@@ -220,7 +220,7 @@ function EmptyState() {
   return (
     <EmptyStateBlock
       title="No activity recorded"
-      description="Create a service, trigger a deployment, or change infrastructure to start building an audit trail."
+      description="Create a project, trigger a deployment, or change infrastructure to start building an audit trail."
     />
   );
 }

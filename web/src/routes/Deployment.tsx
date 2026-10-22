@@ -156,7 +156,7 @@ export default function DeploymentDetailClient() {
             variant="secondary"
             className="mt-4"
           >
-            Back to service
+            Back to project
           </Button>
         </div>
       </div>
@@ -287,7 +287,7 @@ export default function DeploymentDetailClient() {
                 {deployment.id}
               </code>
               <div className="mt-5 space-y-3">
-                <MiniKv label="Service" value={project?.repo_name || "-"} />
+                <MiniKv label="Project" value={project?.repo_name || "-"} />
                 <MiniKv label="Created" value={formatDateTime(deployment.created_at)} />
                 <MiniKv label="Deployed" value={deployment.deployed_at ? formatDateTime(deployment.deployed_at) : "-"} />
               </div>
@@ -369,7 +369,7 @@ function HeroPanel({
       </div>
       <h2 className="max-w-4xl text-2xl font-medium leading-tight tracking-tight text-ink sm:text-3xl">
         {deployment.commit_message ||
-          `Deployment for ${project?.repo_name || "service"}`}
+          `Deployment for ${project?.repo_name || "project"}`}
       </h2>
       <div className="mt-6 grid gap-3 sm:grid-cols-3">
         <StaticMini label="Repository" value={repoLabel(project?.repo_url)} />

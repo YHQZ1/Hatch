@@ -15,7 +15,7 @@ import {
 } from "./services/service";
 import { type FeedItem, useDeploymentFeed } from "./services/useDeploymentFeed";
 
-/** How many deployments are listed; older ones are on each service's page. */
+/** How many deployments are listed; older ones are on each project's page. */
 const SHOWN = 100;
 
 const FILTERS = [
@@ -30,7 +30,7 @@ type FilterId = (typeof FILTERS)[number]["id"];
 const COLUMNS =
   "xl:grid-cols-[minmax(0,1.2fr)_130px_minmax(0,2fr)_minmax(0,1fr)_110px_100px]";
 
-/** Every build and release across all services, newest first. */
+/** Every build and release across all projects, newest first. */
 export default function DeploymentsPage() {
   const queryClient = useQueryClient();
   const { items, loading, refreshing, projectCount } = useDeploymentFeed();
@@ -59,7 +59,7 @@ export default function DeploymentsPage() {
     <AppShell>
       <PageTitle
         title="Deployments"
-        description="Every build and release across your services, newest first."
+        description="Every build and release across your projects, newest first."
         actions={
           <Button
             disabled={refreshing}
@@ -104,12 +104,12 @@ export default function DeploymentsPage() {
               title="No deployments yet"
               description={
                 projectCount === 0
-                  ? "Deploy a service and its builds and releases will be listed here."
-                  : "None of your services has been deployed yet."
+                  ? "Deploy a project and its builds and releases will be listed here."
+                  : "None of your projects has been deployed yet."
               }
               action={
                 <Button href="/new" variant="primary" className="h-10">
-                  New service
+                  New project
                 </Button>
               }
             />
@@ -129,7 +129,7 @@ export default function DeploymentsPage() {
 function Header() {
   return (
     <div className={cn("hidden gap-4 border-b border-line bg-panel px-5 py-3 xl:grid", COLUMNS)}>
-      {["Service", "Status", "Commit", "Branch", "Started", "Duration"].map((label) => (
+      {["Project", "Status", "Commit", "Branch", "Started", "Duration"].map((label) => (
         <div key={label} className="font-mono text-[11px] uppercase tracking-[0.16em] text-faint">
           {label}
         </div>

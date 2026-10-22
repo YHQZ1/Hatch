@@ -56,7 +56,7 @@ export default function AccountSection({
         <SettingsCard title="Session">
           <SettingRow
             label="Sign out"
-            description="Ends your session in this browser. Your services keep running."
+            description="Ends your session in this browser. Your projects keep running."
           >
             <Button
               variant="danger"

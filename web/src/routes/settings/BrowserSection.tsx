@@ -12,7 +12,7 @@ export default function BrowserSection({ onClear }: { onClear: () => void }) {
         >
           <SettingRow
             label="Cached data"
-            description="Clears what Hatch stored here and loads everything fresh from the server. Your services and your account are not affected."
+            description="Clears what Hatch stored here and loads everything fresh from the server. Your projects and your account are not affected."
           >
             <Button onClick={onClear} className="h-9">
               Clear cached data

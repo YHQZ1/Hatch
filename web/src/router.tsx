@@ -35,11 +35,9 @@ export const router = createBrowserRouter([
             handle: { title: "Overview" },
             ...page(() => import("./routes/Overview")),
           },
-          {
-            path: "services",
-            handle: { title: "Services" },
-            ...page(() => import("./routes/Services")),
-          },
+          // The projects are listed on the Overview; these paths are old links.
+          { path: "projects", element: <Navigate to="/overview" replace /> },
+          { path: "services", element: <Navigate to="/overview" replace /> },
           {
             path: "deployments",
             handle: { title: "Deployments" },
@@ -67,17 +65,17 @@ export const router = createBrowserRouter([
           },
           {
             path: "new",
-            handle: { title: "Deploy a new service" },
+            handle: { title: "New project" },
             ...page(() => import("./routes/NewProject")),
           },
           {
             path: "projects/:id",
-            handle: { title: "Service" },
+            handle: { title: "Project" },
             ...page(() => import("./routes/Project")),
           },
           {
             path: "projects/:id/settings",
-            handle: { title: "Service Settings" },
+            handle: { title: "Project Settings" },
             ...page(() => import("./routes/ProjectSettings")),
           },
           {

@@ -212,7 +212,7 @@ export default function NewProjectClient() {
           title: "Project creation failed",
           message: await readApiError(
             projectRes,
-            "We couldn't create the service record.",
+            "We couldn't create the project record.",
           ),
         });
         setDeploying(false);
@@ -237,7 +237,7 @@ export default function NewProjectClient() {
       if (deployRes.ok) {
         pushFlashNotice({
           type: "success",
-          title: "Service created",
+          title: "Project created",
           message: "The first deployment has been queued.",
         });
         navigate(`/projects/${project.id}`);
@@ -247,7 +247,7 @@ export default function NewProjectClient() {
           title: "Deployment failed to start",
           message: await readApiError(
             deployRes,
-            "The service was created, but the first deployment could not be queued.",
+            "The project was created, but the first deployment could not be queued.",
           ),
         });
         navigate(`/projects/${project.id}`);
@@ -257,7 +257,7 @@ export default function NewProjectClient() {
       setNotice({
         type: "error",
         title: "Request failed",
-        message: "We couldn't reach the API to create the service.",
+        message: "We couldn't reach the API to create the project.",
       });
       setDeploying(false);
     }
@@ -318,7 +318,7 @@ export default function NewProjectClient() {
     : "Not set";
   const preflight = [
     { label: "Repository", ready: Boolean(selectedRepo) },
-    { label: "Service name", ready: Boolean(projectName.trim()) },
+    { label: "Project name", ready: Boolean(projectName.trim()) },
     { label: "Subdomain", ready: Boolean(subdomain.trim()) },
     { label: "Port", ready: Boolean(port.trim()) },
     { label: "Dockerfile", ready: hasDockerfile === true },
@@ -328,7 +328,7 @@ export default function NewProjectClient() {
     <AppShell>
       <NoticeToast notice={notice} onDismiss={dismiss} />
       <PageTitle
-        eyebrow="New Service"
+        eyebrow="New Project"
         title="Deploy from GitHub"
         description="Import a repository, confirm the runtime contract, and queue the first production deployment."
         actions={
@@ -392,11 +392,11 @@ export default function NewProjectClient() {
               <SetupSection
                 index="02"
                 title="Identity"
-                description="Name the service and reserve its production URL."
+                description="Name the project and reserve its production URL."
               >
                 <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                   <FieldInput
-                    label="Service name"
+                    label="Project name"
                     value={projectName}
                     onChange={setProjectName}
                     placeholder="my-api"
@@ -415,7 +415,7 @@ export default function NewProjectClient() {
                               .replace(/\s+/g, "-"),
                           )
                         }
-                        placeholder="my-service"
+                        placeholder="my-project"
                         className="min-w-0 flex-1 bg-transparent py-3 text-sm text-ink outline-none placeholder:text-faint"
                       />
                       {baseDomain && (
@@ -851,7 +851,7 @@ function DeploymentPreview({
           Deployment Preview
         </p>
         <h2 className="mt-3 truncate text-2xl font-medium tracking-tight text-ink">
-          {hasSource ? projectName || "Untitled service" : "Select a source"}
+          {hasSource ? projectName || "Untitled project" : "Select a source"}
         </h2>
         <p className="mt-2 truncate text-sm text-faint">
           {hasSource
@@ -928,7 +928,7 @@ function DeploymentPreview({
               onClick={onDeploy}
               disabled={deploying || validationErrors.length > 0}
             >
-              {deploying ? "Deploying..." : "Deploy Service"}
+              {deploying ? "Deploying..." : "Deploy Project"}
             </Button>
             {validationErrors.length > 0 && (
               <p className="mt-3 text-center text-xs text-faint">
@@ -943,7 +943,7 @@ function DeploymentPreview({
             {[
               "Choose repository",
               "Verify Dockerfile",
-              "Configure service",
+              "Configure project",
               "Queue deployment",
             ].map((item, index) => (
               <div
