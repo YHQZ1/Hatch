@@ -10,9 +10,9 @@ _Update this section at the end of every working session._
 | Field | Value |
 | --- | --- |
 | Current phase | 1, Simplify the core and build the local target |
-| Branch | `feat/landing-page` (pull request to `main`) |
-| Last done | Sign-in: GitHub App sign-in, server-side sessions, and the new sign-in page (branch `feat/sign-in`, stacked on the landing page, nothing pushed). Before that, landing page rewritten: Render-style positioning, cost guardrails, Available / In development / Planned badges, a light purple accent, scroll effects, a light theme with a circular switch, and eased scrolling (Lenis, landing only). Before that, foundation finished: pgx driver with real-Postgres tests for every query group, structured logging with slog, and Hatch as one program (`serve`, `worker`, `migrate`). Before that: React + Vite UI embedded in the binary |
-| Next | The "see and create a service" slice: install the GitHub App, list repositories, create a service. The 2px corner radius and the accent have not been applied to the console pages yet |
+| Branch | `feat/sign-in`, stacked on `feat/landing-page` (nothing pushed) |
+| Last done | Seven top-bar tabs (Overview, Services, Deployments, Activity, Cost, Resources, Settings; the bar scrolls on small screens) and no logo in the bar. Deployments is a real page, a filterable feed of every build and release across all services. Cost and Resources are deliberately empty pages until the AWS phase. Before that, placeholders for the AWS phase so the console reads as a whole: an AWS status chip in the top bar, "Estimated cost" and "AWS account" cards on Overview, AWS and Guardrails sections in Settings, and an estimated-cost row on the new-service page, all plain text driven by `useAwsConnection()` in `web/src/lib/aws.ts`. Before that, stable loading and theme switching: `<html>` carries the theme (the toggle no longer leaves the canvas and scrollbars on the old theme), the last-seen data is kept per tab so a reload paints real content at once, and placeholders hold the stats strip and setup checklist so nothing jumps (reload layout shift 0.123 to 0). Before that, one Settings page at `/settings` (formerly the account page at `/u/<username>`, which redirects) with Account, GitHub and This browser sections; the GitHub section shows where the App is installed. Before that, console information architecture: a top bar (Overview, Services, Settings), a new Overview page at `/overview` (formerly `/console`, which redirects; stats, needs-attention list, service cards, recent activity, and a short setup checklist that disappears once done), the services table moved to `/services`, and the console edges matched to the landing page. Insights and Activity no longer have nav links (Activity is a module on Overview; Insights waits for the per-service Metrics tab). Before that, installation tokens: builds clone with a short-lived, read-only token for one repository, minted from the App's private key. Before that, the console redesign (new navbar and shell, the services page, every console page on the design tokens, light and dark). Before that, repository access, backend: GitHub token refresh (single-use refresh tokens, serialized per user), repository listing through the App's installations, and an install prompt on the new-service page. Before that, the auth success page (an opening hatch) and the sign-in page redesign. Before that, sign-in: GitHub App sign-in and server-side sessions (nothing pushed). Before that, landing page rewritten: Render-style positioning, cost guardrails, Available / In development / Planned badges, a light purple accent, scroll effects, a light theme with a circular switch, and eased scrolling (Lenis, landing only). Before that, foundation finished: pgx driver with real-Postgres tests for every query group, structured logging with slog, and Hatch as one program (`serve`, `worker`, `migrate`). Before that: React + Vite UI embedded in the binary |
+| Next | Iterate on the console with the owner (service page tabs, services view). The App's own webhook in place of per-project webhooks (needs a public URL). Build the Cost and Resources pages (empty today) once an AWS connection exists |
 | Blockers | None. No AWS access (by design until Phase 6) |
 
 ## Phase 0: Foundation
@@ -76,16 +76,22 @@ something that can be demonstrated on a laptop.
   replacing the OAuth App and JWT cookie; a new sign-in page that shows why a
   sign-in failed and what comes next. Setup is in
   [07-github-app-setup.md](07-github-app-setup.md).
-- [ ] Still to do for repository access (next slice): refresh the GitHub App
-  user token (it expires after 8 hours), list repositories through the App's
-  installations, send users to install the App, and drop per-project webhooks
-  and the stored token ([ADR 0010](decisions/0010-github-app.md)). The console
-  pages still use the old look until their slices rebuild them.
+- [x] Refresh the GitHub App user token (it expires after 8 hours), list
+  repositories through the App's installations, and send users to install the
+  App ([ADR 0010](decisions/0010-github-app.md#as-built-repository-access-2026-10-22)).
+- [x] Installation tokens for cloning: builds read one repository with a
+  short-lived, read-only token minted from the App's private key, and no longer
+  touch the user's token.
+- [ ] Still to do for repository access: replace per-project webhooks (and
+  their stored secret) with the App's own webhook, which needs a public URL.
 
 **Slice: see and create a service**
 
-- [ ] Console and new-service pages: repositories from the GitHub App
-  installation, Dockerfile detection, creating a project.
+- [x] Console restyled: new shell and navbar, the services page, and all other
+  console pages on the design tokens, in both themes.
+- [ ] New-service flow end to end on installation tokens: repositories from the
+  GitHub App installation (listing is done), Dockerfile detection, creating a
+  project without a per-project webhook.
 
 **Slice: deploy and watch it**
 

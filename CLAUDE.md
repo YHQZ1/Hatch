@@ -61,6 +61,24 @@ Read, in order:
   The UI makes no third-party requests (the CSP in `internal/api/spa` forbids
   them), so bundle fonts and icons. Deployed-app addresses come from
   `GET /api/config`, never from build-time variables.
+- Web styling: colours are design tokens (`text-ink`, `text-muted`, `bg-base`,
+  `border-line`, `text-accent`; see `styles.css`), never fixed grays or hex
+  values, so both themes work. `base` is a *colour* token, so `text-base` sets
+  the text colour to the page background: use `text-[1rem]` for 16px type.
+- Web theme: it lives on `<html>` (`data-theme` and `color-scheme`), set before
+  first paint by `public/theme-init.js` and kept in step by `useTheme`. Do not
+  put `data-theme` on a page wrapper: the canvas, scrollbars and the circular
+  switch are drawn from `<html>`.
+- Web data: the last-seen queries (not env vars) are kept in session storage so
+  a reload paints real data at once (`lib/queryPersistence.ts`). Bump its
+  version key when a persisted response changes shape. Give anything that
+  arrives after the first paint a placeholder of the same size, so the page
+  does not jump.
+- Web placeholders: a part of the UI that depends on an unbuilt phase (AWS,
+  cost, guardrails) shows a plain placeholder that says what will appear and
+  when. No invented numbers, no buttons that do nothing, no "in development"
+  badges, and no claim that is not true today. They read their state from one
+  place (`lib/aws.ts`) so the phase that builds the feature replaces them.
 - Web package manager is pnpm (pinned to 10.x, see ADR 0016); do not add an
   npm or yarn lockfile.
 
