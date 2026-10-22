@@ -219,24 +219,6 @@ export function MetricCard({
   );
 }
 
-export function EmptyStateBlock({
-  title,
-  description,
-  action,
-}: {
-  title: string;
-  description: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-h-[360px] flex-col items-center justify-center px-6 py-16 text-center">
-      <p className="text-xl font-semibold tracking-tight">{title}</p>
-      <p className="mt-3 max-w-md leading-relaxed text-muted">{description}</p>
-      {action && <div className="mt-7">{action}</div>}
-    </div>
-  );
-}
-
 export function Modal({
   open,
   title,
