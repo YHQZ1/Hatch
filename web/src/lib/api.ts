@@ -1,4 +1,5 @@
 import type { NavigateFunction } from "react-router";
+import { clearPersistedQueryCache } from "./queryPersistence";
 import { safeHttpUrl } from "./url";
 
 // Earlier versions of the UI cached API data in localStorage under these
@@ -130,6 +131,7 @@ export async function readApiError(
 }
 
 export function clearClientSession() {
+  clearPersistedQueryCache();
   CACHE_KEYS.forEach((key) => localStorage.removeItem(key));
   sessionStorage.removeItem(CSRF_STORAGE_KEY);
 
@@ -190,9 +192,14 @@ export interface AppConfig {
   baseDomain: string;
   /** How deployed apps are reached. */
   deploymentUrlScheme: "http" | "https";
+  /**
+   * Whether this server is set up to hear pushes from the GitHub App's webhook.
+   * Without it nothing can deploy a project on a push, however it is configured.
+   */
+  webhooks: boolean;
 }
 
-let appConfig: AppConfig = { baseDomain: "", deploymentUrlScheme: "https" };
+let appConfig: AppConfig = { baseDomain: "", deploymentUrlScheme: "https", webhooks: false };
 
 export function getAppConfig(): AppConfig {
   return appConfig;
@@ -215,6 +222,7 @@ export async function loadAppConfig(): Promise<void> {
         typeof data?.base_domain === "string" ? data.base_domain : "",
       deploymentUrlScheme:
         data?.deployment_url_scheme === "http" ? "http" : "https",
+      webhooks: data?.webhooks === true,
     };
   } catch {
     // Keep the defaults.
@@ -238,9 +246,4 @@ export function productionHost(subdomain: string | null) {
   }
   const { baseDomain } = appConfig;
   return baseDomain ? `${subdomain}.${baseDomain}` : subdomain;
-}
-
-export function websocketUrl(path: string) {
-  const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${window.location.host}${path}`;
 }

@@ -2,21 +2,24 @@ package handlers
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/YHQZ1/hatch/internal/api/queue"
+	"github.com/YHQZ1/hatch/internal/jobs"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
+	"github.com/YHQZ1/hatch/internal/stream"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type DeploymentResponse struct {
@@ -55,53 +58,36 @@ func (h *DeploymentHandler) toDeploymentResponse(d dbpkg.Deployment) DeploymentR
 		HealthCheck: d.HealthCheck,
 		CreatedAt:   d.CreatedAt.Format(time.RFC3339),
 	}
-	if d.ImageUri.Valid {
-		r.ImageURI = &d.ImageUri.String
-	}
-	if d.EcsTaskArn.Valid {
-		r.EcsTaskArn = &d.EcsTaskArn.String
-	}
-	if d.EcsServiceName.Valid {
-		r.EcsService = &d.EcsServiceName.String
-	}
-	if d.TargetGroupArn.Valid {
-		r.TargetGroup = &d.TargetGroupArn.String
-	}
-	if d.Subdomain.Valid {
-		r.Subdomain = &d.Subdomain.String
-	}
-	if d.Url.Valid {
-		r.URL = &d.Url.String
-	}
-	if d.CommitSha.Valid {
-		r.CommitSHA = &d.CommitSha.String
-	}
-	if d.CommitMessage.Valid {
-		r.CommitMsg = &d.CommitMessage.String
-	}
-	if d.ErrorStage.Valid {
-		r.ErrorStage = &d.ErrorStage.String
-	}
-	if d.ErrorMessage.Valid {
-		r.ErrorMsg = &d.ErrorMessage.String
-	}
-	if d.DeployedAt.Valid {
-		s := d.DeployedAt.Time.Format(time.RFC3339)
+	r.ImageURI = d.ImageUri
+	r.EcsTaskArn = d.EcsTaskArn
+	r.EcsService = d.EcsServiceName
+	r.TargetGroup = d.TargetGroupArn
+	r.Subdomain = d.Subdomain
+	r.URL = d.Url
+	r.CommitSHA = d.CommitSha
+	r.CommitMsg = d.CommitMessage
+	r.ErrorStage = d.ErrorStage
+	r.ErrorMsg = d.ErrorMessage
+	if d.DeployedAt != nil {
+		s := d.DeployedAt.Format(time.RFC3339)
 		r.DeployedAt = &s
 	}
-	if d.FailedAt.Valid {
-		s := d.FailedAt.Time.Format(time.RFC3339)
+	if d.FailedAt != nil {
+		s := d.FailedAt.Format(time.RFC3339)
 		r.FailedAt = &s
 	}
 	return r
 }
 
 type DeploymentHandler struct {
-	queries   *dbpkg.Queries
-	publisher *queue.Publisher
-	db        *sql.DB
-	rdb       *redis.Client
-	secrets   *secrets.Codec
+	queries *dbpkg.Queries
+	jobs    jobs.Inserter
+	pool    *pgxpool.Pool
+	logs    stream.Sink
+	secrets *secrets.Codec
+	// tokens reads the project's repository through the GitHub App; githubAPI is where.
+	tokens    InstallationTokens
+	githubAPI string
 }
 
 const (
@@ -110,13 +96,17 @@ const (
 	maxDeploymentLogLines           = 5000
 )
 
-func NewDeploymentHandler(db *sql.DB, publisher *queue.Publisher, rdb *redis.Client, secretCodec *secrets.Codec) *DeploymentHandler {
+// NewDeploymentHandler serves deployments. logs receives the lines the API
+// itself writes to a deployment's log, such as "canceled by user".
+func NewDeploymentHandler(pool *pgxpool.Pool, inserter jobs.Inserter, logs stream.Sink, secretCodec *secrets.Codec, tokens InstallationTokens) *DeploymentHandler {
 	return &DeploymentHandler{
-		queries:   dbpkg.New(db),
-		publisher: publisher,
-		db:        db,
-		rdb:       rdb,
+		queries:   dbpkg.New(pool),
+		jobs:      inserter,
+		pool:      pool,
+		logs:      logs,
 		secrets:   secretCodec,
+		tokens:    tokens,
+		githubAPI: "https://api.github.com",
 	}
 }
 
@@ -175,14 +165,11 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		return
 	}
 
-	tokenRaw, ok := c.Get("access_token")
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: missing access token"})
-		return
-	}
-	userToken, ok := tokenRaw.(string)
-	if !ok || userToken == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: invalid access token"})
+	// The repository is read as the GitHub App, as the build will read it. If the
+	// App cannot, the build would fail, so this says so first and says what to do.
+	repoToken, access := tokenForRepo(c.Request.Context(), h.tokens, project.RepoUrl, http.StatusConflict)
+	if access != nil {
+		c.JSON(access.status, gin.H{"error": access.message})
 		return
 	}
 
@@ -191,7 +178,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		branch = project.Branch
 	}
 
-	healthCheck, err := normalizeHealthCheckPath(body.HealthCheck)
+	healthCheck, err := effectiveHealthCheck(body.HealthCheck, project.HealthCheck)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -200,23 +187,24 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 	memoryMB := defaultDeploymentMemoryMB
 
 	effectiveSubdomain := projectID.String()[:8]
-	if project.Subdomain.Valid && project.Subdomain.String != "" {
-		effectiveSubdomain = project.Subdomain.String
+	if project.Subdomain != nil && *project.Subdomain != "" {
+		effectiveSubdomain = *project.Subdomain
 	}
 
 	commitSHA, commitMessage := fetchGitHubBranchHead(
 		c.Request.Context(),
+		h.githubAPI,
 		project.RepoUrl,
 		branch,
-		userToken,
+		repoToken,
 	)
 
-	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	tx, err := h.pool.Begin(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start deployment transaction"})
 		return
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback(c.Request.Context()) }()
 
 	qtx := h.queries.WithTx(tx)
 	deployment, err := qtx.CreateDeployment(c.Request.Context(), dbpkg.CreateDeploymentParams{
@@ -226,7 +214,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		MemoryMb:      memoryMB,
 		Port:          port,
 		HealthCheck:   healthCheck,
-		Subdomain:     sql.NullString{String: effectiveSubdomain, Valid: true},
+		Subdomain:     &effectiveSubdomain,
 		CommitSha:     nullString(commitSHA),
 		CommitMessage: nullString(commitMessage),
 	})
@@ -268,7 +256,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 				DeploymentID: deployment.ID,
 				Key:          key,
 				Value:        storedValue,
-				SecretArn:    sql.NullString{},
+				SecretArn:    nil,
 			})
 			if err != nil {
 				slog.ErrorContext(c.Request.Context(), "failed to snapshot an environment variable", "deployment_id", deployment.ID, "error", err)
@@ -278,55 +266,179 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit deployment"})
-		return
-	}
-
-	if err := h.publisher.PublishBuildJob(c.Request.Context(), queue.BuildJobEvent{
-		DeploymentID:   deployment.ID.String(),
+	// The build job joins the deployment's transaction: either both exist or
+	// neither does.
+	if _, err := h.jobs.InsertTx(c.Request.Context(), tx, jobs.BuildArgs{
+		DeploymentID:   deployment.ID,
 		RepoURL:        project.RepoUrl,
 		Branch:         branch,
 		DockerfilePath: project.DockerfilePath,
-		UserID:         userID.String(),
-		Port:           int(port),
+		Port:           port,
 		Subdomain:      effectiveSubdomain,
 		CPU:            cpu,
 		MemoryMB:       memoryMB,
 		HealthCheck:    healthCheck,
-	}); err != nil {
-		_, _ = h.queries.MarkDeploymentFailed(c.Request.Context(), dbpkg.MarkDeploymentFailedParams{
-			ID:           deployment.ID,
-			ErrorStage:   sql.NullString{String: "queue", Valid: true},
-			ErrorMessage: sql.NullString{String: "failed to queue deployment", Valid: true},
-		})
+	}, nil); err != nil {
+		slog.ErrorContext(c.Request.Context(), "failed to queue deployment", "deployment_id", deployment.ID, "error", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to queue deployment"})
+		return
+	}
+
+	if err := tx.Commit(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit deployment"})
 		return
 	}
 
 	c.JSON(http.StatusCreated, h.toDeploymentResponse(deployment))
 }
 
+// RollbackDeployment is POST /api/deployments/:id/rollback. It runs an earlier
+// release again as a new deployment: the image, settings and environment the
+// release had, with nothing built. Only a deployment that went live, and whose
+// image has not been removed (Hatch keeps the last few), can be rolled back to.
+func (h *DeploymentHandler) RollbackDeployment(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	ctx := c.Request.Context()
+
+	source, err := h.queries.GetDeploymentByIDAndUserID(ctx, dbpkg.GetDeploymentByIDAndUserIDParams{ID: id, UserID: userID})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+		return
+	}
+	project, err := h.queries.GetProjectByIDAndUserID(ctx, dbpkg.GetProjectByIDAndUserIDParams{ID: source.ProjectID, UserID: userID})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+		return
+	}
+	if project.Status != "" && project.Status != "active" {
+		c.JSON(http.StatusConflict, gin.H{"error": "project is not active"})
+		return
+	}
+	if source.Status != "live" || source.ImageUri == nil || *source.ImageUri == "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "only a deployment that went live, and whose image is still kept, can be rolled back to"})
+		return
+	}
+	if running, err := h.queries.GetLatestLiveDeploymentByProject(ctx, project.ID); err == nil && running.ID == source.ID {
+		c.JSON(http.StatusConflict, gin.H{"error": "that release is already running"})
+		return
+	}
+	if active, ok := h.activeDeploymentForProject(ctx, project.ID, userID); ok {
+		c.JSON(http.StatusConflict, gin.H{"error": "deployment already running", "deployment": h.toDeploymentResponse(active)})
+		return
+	}
+
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start deployment transaction"})
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := h.queries.WithTx(tx)
+
+	deployment, err := qtx.CreateRollbackDeployment(ctx, source.ID)
+	if err != nil {
+		if isActiveDeploymentConflict(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "deployment already running"})
+			return
+		}
+		// The release stopped being eligible since it was read (its image was
+		// just removed).
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusConflict, gin.H{"error": "only a deployment that went live, and whose image is still kept, can be rolled back to"})
+			return
+		}
+		slog.ErrorContext(ctx, "failed to create a rollback deployment", "source_id", source.ID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create deployment"})
+		return
+	}
+	if err := qtx.CopyDeploymentEnvVars(ctx, dbpkg.CopyDeploymentEnvVarsParams{
+		FromDeploymentID: source.ID,
+		ToDeploymentID:   deployment.ID,
+	}); err != nil {
+		slog.ErrorContext(ctx, "failed to copy a release's environment", "deployment_id", deployment.ID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to copy environment variables"})
+		return
+	}
+
+	subdomain := project.ID.String()[:8]
+	if deployment.Subdomain != nil && *deployment.Subdomain != "" {
+		subdomain = *deployment.Subdomain
+	}
+	// The deploy job joins the transaction: either both exist or neither does.
+	if _, err := h.jobs.InsertTx(ctx, tx, jobs.DeployArgs{
+		DeploymentID: deployment.ID,
+		ImageURI:     *source.ImageUri,
+		Subdomain:    subdomain,
+		Port:         deployment.Port,
+		CPU:          deployment.Cpu,
+		MemoryMB:     deployment.MemoryMb,
+		HealthCheck:  deployment.HealthCheck,
+		RollbackOf:   &source.ID,
+	}, nil); err != nil {
+		slog.ErrorContext(ctx, "failed to queue a rollback", "deployment_id", deployment.ID, "error", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to queue deployment"})
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit deployment"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, h.toDeploymentResponse(deployment))
+}
+
+// GetDeployment is GET /api/deployments/:id. The id may be a whole UUID or its
+// first eight or more hex digits, which is what the web app puts in an address
+// (/deployments/430b592c). A short id is looked up among the signed-in user's own
+// deployments only; if it fits more than one of them the answer is 409 and the
+// whole id is needed.
 func (h *DeploymentHandler) GetDeployment(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
+	ctx := c.Request.Context()
+	ref := c.Param("id")
 
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
-
-	deployment, err := h.queries.GetDeploymentByIDAndUserID(c.Request.Context(), dbpkg.GetDeploymentByIDAndUserIDParams{
-		ID:     id,
-		UserID: userID,
-	})
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
-		return
+	var deployment dbpkg.Deployment
+	if id, err := uuid.Parse(ref); err == nil {
+		deployment, err = h.queries.GetDeploymentByIDAndUserID(ctx, dbpkg.GetDeploymentByIDAndUserIDParams{ID: id, UserID: userID})
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+			return
+		}
+	} else {
+		low, high, ok := shortIDRange(ref)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		matches, err := h.queries.GetDeploymentsByIDRangeAndUserID(ctx, dbpkg.GetDeploymentsByIDRangeAndUserIDParams{UserID: userID, Low: low, High: high})
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to look up a deployment by its short id", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch deployment"})
+			return
+		}
+		switch len(matches) {
+		case 0:
+			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+			return
+		case 1:
+			deployment = matches[0]
+		default:
+			c.JSON(http.StatusConflict, gin.H{"error": "that short id fits more than one deployment; use more of the id"})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, h.toDeploymentResponse(deployment))
@@ -354,17 +466,7 @@ func (h *DeploymentHandler) CancelDeployment(c *gin.Context) {
 		return
 	}
 
-	key := fmt.Sprintf("logs:%s", id.String())
-	msg := "Deployment canceled by user"
-	pipe := h.rdb.Pipeline()
-	pipe.RPush(c.Request.Context(), key, msg)
-	pipe.Expire(c.Request.Context(), key, 7*24*time.Hour)
-	if _, err := pipe.Exec(c.Request.Context()); err != nil {
-		slog.WarnContext(c.Request.Context(), "failed to persist the cancel log line", "deployment_id", id, "error", err)
-	}
-	if err := h.rdb.Publish(c.Request.Context(), fmt.Sprintf("deployment:%s", id.String()), msg).Err(); err != nil {
-		slog.WarnContext(c.Request.Context(), "failed to publish the cancel log line", "deployment_id", id, "error", err)
-	}
+	h.logs.Publish(c.Request.Context(), id.String(), "Deployment canceled by user")
 
 	c.JSON(http.StatusOK, h.toDeploymentResponse(deployment))
 }
@@ -420,14 +522,41 @@ func (h *DeploymentHandler) GetDeploymentLogs(c *gin.Context) {
 		return
 	}
 
-	key := fmt.Sprintf("logs:%s", id.String())
-	logs, err := h.rdb.LRange(c.Request.Context(), key, -maxDeploymentLogLines, -1).Result()
+	// ?tail=N returns only the last N lines, for callers that want just the
+	// latest progress and not the whole log.
+	lines, err := parseLogTail(c.Query("tail"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	rows, err := h.queries.GetDeploymentLogTail(c.Request.Context(), dbpkg.GetDeploymentLogTailParams{
+		DeploymentID: id,
+		Limit:        int32(lines),
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch logs"})
 		return
 	}
+	logs := make([]string, len(rows))
+	for i, row := range rows {
+		logs[i] = row.Line
+	}
 
 	c.JSON(http.StatusOK, logs)
+}
+
+// parseLogTail is how many log lines a request asks for: all of them when raw
+// is empty, otherwise between 1 and the most Hatch keeps.
+func parseLogTail(raw string) (int64, error) {
+	if raw == "" {
+		return maxDeploymentLogLines, nil
+	}
+	tail, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || tail < 1 || tail > maxDeploymentLogLines {
+		return 0, fmt.Errorf("tail must be between 1 and %d", maxDeploymentLogLines)
+	}
+	return tail, nil
 }
 
 type githubBranchResponse struct {
@@ -439,13 +568,13 @@ type githubBranchResponse struct {
 	} `json:"commit"`
 }
 
-func fetchGitHubBranchHead(ctx context.Context, repoURL, branch, token string) (string, string) {
+func fetchGitHubBranchHead(ctx context.Context, apiBase, repoURL, branch, token string) (string, string) {
 	owner, repo, err := parseRepoURL(repoURL)
 	if err != nil || owner == "" || repo == "" || branch == "" || token == "" {
 		return "", ""
 	}
 
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/branches/%s", owner, repo, url.PathEscape(branch))
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/branches/%s", apiBase, owner, repo, url.PathEscape(branch))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", ""
@@ -470,8 +599,12 @@ func fetchGitHubBranchHead(ctx context.Context, repoURL, branch, token string) (
 	return payload.Commit.SHA, firstCommitLine(payload.Commit.Commit.Message)
 }
 
-func nullString(value string) sql.NullString {
-	return sql.NullString{String: value, Valid: value != ""}
+// nullString is value, or nil when it is empty, for nullable text columns.
+func nullString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func firstCommitLine(message string) string {
@@ -481,6 +614,15 @@ func firstCommitLine(message string) string {
 		}
 	}
 	return message
+}
+
+// effectiveHealthCheck is the health check path a request asks for, or the
+// project's own when it asks for none.
+func effectiveHealthCheck(requested, projectDefault string) (string, error) {
+	if strings.TrimSpace(requested) == "" {
+		requested = projectDefault
+	}
+	return normalizeHealthCheckPath(requested)
 }
 
 func normalizeHealthCheckPath(raw string) (string, error) {

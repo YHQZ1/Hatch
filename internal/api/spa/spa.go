@@ -25,8 +25,8 @@ const contentSecurityPolicy = "default-src 'self'; " +
 
 // Handler serves files from fsys. A path with no matching file gets
 // index.html instead, so client-side routes work when the page is reloaded.
-// Requests under /api/ and /ws/ that match no route get a JSON 404 rather than
-// the app, and so do non-GET requests.
+// Requests under /api/ that match no route get a JSON 404 rather than the app,
+// and so do non-GET requests.
 func Handler(fsys fs.FS) http.Handler {
 	return &handler{fsys: fsys}
 }
@@ -36,8 +36,7 @@ type handler struct {
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if (r.Method != http.MethodGet && r.Method != http.MethodHead) ||
-		strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ws/") {
+	if (r.Method != http.MethodGet && r.Method != http.MethodHead) || strings.HasPrefix(r.URL.Path, "/api/") {
 		writeJSONError(w, http.StatusNotFound, "not found")
 		return
 	}

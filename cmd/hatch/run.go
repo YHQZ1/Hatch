@@ -6,14 +6,23 @@ import (
 	"log/slog"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
 	"github.com/YHQZ1/hatch/internal/api"
-	buildqueue "github.com/YHQZ1/hatch/internal/build/queue"
+	"github.com/YHQZ1/hatch/internal/build"
+	"github.com/YHQZ1/hatch/internal/build/docker"
 	"github.com/YHQZ1/hatch/internal/config"
-	runtimequeue "github.com/YHQZ1/hatch/internal/runtime/queue"
+	"github.com/YHQZ1/hatch/internal/githubapp"
+	"github.com/YHQZ1/hatch/internal/jobs"
+	"github.com/YHQZ1/hatch/internal/proxy"
+	"github.com/YHQZ1/hatch/internal/runtime"
+	localruntime "github.com/YHQZ1/hatch/internal/runtime/docker"
+	ecsdeploy "github.com/YHQZ1/hatch/internal/runtime/ecs"
+	"github.com/YHQZ1/hatch/internal/secrets"
 	"github.com/YHQZ1/hatch/internal/store"
+	"github.com/YHQZ1/hatch/internal/stream"
 )
 
 // component is one long-running part of Hatch. It runs until ctx is canceled
@@ -23,26 +32,38 @@ type component struct {
 	run  func(ctx context.Context) error
 }
 
-// runServe runs the API and web UI together with the workers.
+// runServe runs the API and web UI together with the job runner.
 func runServe() error {
 	cfg, err := config.Load(config.RoleServe)
 	if err != nil {
 		return err
 	}
-	return runTogether(
-		component{"api", func(ctx context.Context) error { return api.Run(ctx, cfg) }},
-		builderComponent(cfg),
-		deployerComponent(cfg),
-	)
+	// The proxy and the API share the traffic counts, so they must run in one
+	// process; on the AWS target there is no proxy and nothing to count.
+	var local *api.LocalTarget
+	if cfg.Target == config.TargetLocal {
+		local = &api.LocalTarget{
+			Stats:    proxy.NewStats(),
+			Resolver: localruntime.New(stream.Discard{}, appURL(cfg)),
+		}
+	}
+	components := []component{
+		{"api", func(ctx context.Context) error { return api.Run(ctx, cfg, local) }},
+		jobsComponent(cfg),
+	}
+	if local != nil {
+		components = append(components, proxyComponent(cfg, local))
+	}
+	return runTogether(components...)
 }
 
-// runWorkers runs only the build and deploy workers.
+// runWorkers runs only the job runner.
 func runWorkers() error {
 	cfg, err := config.Load(config.RoleWorker)
 	if err != nil {
 		return err
 	}
-	return runTogether(builderComponent(cfg), deployerComponent(cfg))
+	return runTogether(jobsComponent(cfg))
 }
 
 func runMigrate() error {
@@ -50,7 +71,7 @@ func runMigrate() error {
 	if err != nil {
 		return err
 	}
-	version, err := store.Migrate(cfg.DatabaseURL)
+	version, err := store.Migrate(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
@@ -76,69 +97,81 @@ func runTogether(components ...component) error {
 	return group.Wait()
 }
 
-// worker is what the build and deploy workers have in common: Start blocks
-// until the worker stops, and Stop asks it to.
-type worker interface {
-	Start() error
-	Stop()
+// providers are what the jobs build and run apps with.
+type providers struct {
+	builder build.Builder
+	runtime runtime.Runtime
 }
 
-// superviseWorker runs w until ctx is canceled, then stops it and waits.
-func superviseWorker(ctx context.Context, name string, w worker) error {
-	errCh := make(chan error, 1)
-	go func() { errCh <- w.Start() }()
-
-	select {
-	case <-ctx.Done():
-		slog.Info("component stopping", "component", name)
-		w.Stop()
-		if err := <-errCh; err != nil {
-			slog.Error("component stopped with an error", "component", name, "error", err)
+// providersFor returns the build and runtime providers for the configured
+// target. Log lines from both go to logs.
+func providersFor(ctx context.Context, cfg *config.Config, logs stream.Sink) providers {
+	if cfg.Target == config.TargetLocal {
+		if err := localruntime.Available(ctx, localruntime.Exec); err != nil {
+			// Not fatal: the console is still useful, and a deploy says why it failed.
+			slog.Warn("Docker is not available; deployments will fail until it is running", "error", err)
 		}
-		return nil
-	case err := <-errCh:
-		return err
+		return providers{
+			builder: docker.NewLocalBuilder(logs),
+			runtime: localruntime.New(logs, appURL(cfg)),
+		}
+	}
+
+	deployer := ecsdeploy.NewDeployer(
+		cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN,
+		cfg.VPCID, cfg.SubnetA, cfg.SubnetB, cfg.ECSSecurityGroupID,
+		cfg.TaskExecutionRoleARN, cfg.BaseDomain, cfg.DeploymentURLScheme, logs,
+	)
+	return providers{
+		builder: docker.NewBuilder(cfg.ECRRegistry, cfg.ECRRepository, cfg.AWSRegion, logs),
+		runtime: ecsdeploy.NewRuntime(deployer),
 	}
 }
 
-func builderComponent(cfg *config.Config) component {
-	return component{"builder", func(ctx context.Context) error {
-		w := buildqueue.NewWorker(
-			cfg.RabbitMQURL,
-			cfg.RedisURL,
-			cfg.ECRRegistry,
-			cfg.ECRRepository,
-			cfg.AWSRegion,
-			cfg.DatabaseURL,
-			cfg.DataEncryptionKey,
-			cfg.BuildTimeout,
-		)
-		defer w.Close()
-		slog.Info("component started", "component", "builder", "region", cfg.AWSRegion)
-		return superviseWorker(ctx, "builder", w)
+// appURL is where an app is reached on the local target.
+func appURL(cfg *config.Config) func(subdomain string) string {
+	return func(subdomain string) string {
+		return fmt.Sprintf("%s://%s.%s", cfg.DeploymentURLScheme, subdomain, cfg.BaseDomain)
+	}
+}
+
+// jobShutdownGrace is how long running jobs get to finish when Hatch stops.
+// Jobs still running after that are canceled and run again on the next start.
+const jobShutdownGrace = 30 * time.Second
+
+// jobsComponent works the background jobs: builds, deploys, pause and resume,
+// and project cleanup.
+func jobsComponent(cfg *config.Config) component {
+	return component{"jobs", func(ctx context.Context) error {
+		pool, err := store.Connect(ctx, cfg.DatabaseURL)
+		if err != nil {
+			return err
+		}
+		defer pool.Close()
+
+		codec, err := secrets.NewCodec(cfg.DataEncryptionKey)
+		if err != nil {
+			return fmt.Errorf("initialize secret codec: %w", err)
+		}
+		logs := stream.NewPostgres(pool)
+
+		p := providersFor(ctx, cfg, logs)
+		slog.Info("component started", "component", "jobs", "target", cfg.Target)
+		return jobs.Run(ctx, jobs.Deps{
+			Pool:         pool,
+			Builder:      p.builder,
+			Runtime:      p.runtime,
+			Logs:         logs,
+			Secrets:      codec,
+			CloneTokens:  githubapp.New(cfg.GitHubClientID, cfg.GitHubAppKey),
+			BuildTimeout: cfg.BuildTimeout,
+		}, jobShutdownGrace)
 	}}
 }
 
-func deployerComponent(cfg *config.Config) component {
-	return component{"deployer", func(ctx context.Context) error {
-		w := runtimequeue.NewWorker(runtimequeue.Config{
-			RabbitMQURL:          cfg.RabbitMQURL,
-			RedisURL:             cfg.RedisURL,
-			AWSRegion:            cfg.AWSRegion,
-			ECSClusterName:       cfg.ECSClusterName,
-			ALBListenerARN:       cfg.ALBListenerARN,
-			PublicURLScheme:      cfg.DeploymentURLScheme,
-			VPCID:                cfg.VPCID,
-			SubnetA:              cfg.SubnetA,
-			SubnetB:              cfg.SubnetB,
-			ECSSgID:              cfg.ECSSecurityGroupID,
-			TaskExecutionRoleARN: cfg.TaskExecutionRoleARN,
-			DatabaseURL:          cfg.DatabaseURL,
-			BaseDomain:           cfg.BaseDomain,
-			DataEncryptionKey:    cfg.DataEncryptionKey,
-		})
-		defer w.Close()
-		slog.Info("component started", "component", "deployer", "region", cfg.AWSRegion, "cluster", cfg.ECSClusterName)
-		return superviseWorker(ctx, "deployer", w)
+// proxyComponent serves the apps of the local target at <name>.localhost.
+func proxyComponent(cfg *config.Config, local *api.LocalTarget) component {
+	return component{"proxy", func(ctx context.Context) error {
+		return proxy.Serve(ctx, cfg.LocalProxyAddr, proxy.New(local.Resolver, "localhost", local.Stats))
 	}}
 }

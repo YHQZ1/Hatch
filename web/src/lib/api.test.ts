@@ -2,11 +2,11 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   apiFetch,
   deploymentUrl,
+  getAppConfig,
   loadAppConfig,
   productionHost,
   readApiError,
   redirectIfUnauthorized,
-  websocketUrl,
 } from "./api";
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -38,6 +38,19 @@ test("deployed app URLs use the configured domain and scheme", async () => {
   );
 });
 
+test("the server says whether pushes can deploy anything, and the default is no", async () => {
+  fetchMock.mockResolvedValueOnce(jsonResponse({ base_domain: "x.dev", webhooks: true }));
+  await loadAppConfig();
+  expect(getAppConfig().webhooks).toBe(true);
+
+  // Anything but an explicit true counts as not set up.
+  for (const webhooks of [false, "true", 1, null, undefined]) {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ base_domain: "x.dev", webhooks }));
+    await loadAppConfig();
+    expect(getAppConfig().webhooks, String(webhooks)).toBe(false);
+  }
+});
+
 test("hosts that are already complete are left alone", () => {
   expect(productionHost("my-app.other.dev")).toBe("my-app.other.dev");
   expect(deploymentUrl("https://my-app.other.dev")).toBe("https://my-app.other.dev");
@@ -47,12 +60,6 @@ test("hosts that are already complete are left alone", () => {
 
 test("a host that is not a web address does not become a link", () => {
   expect(deploymentUrl("javascript:alert(1)")).toBeNull();
-});
-
-test("websocket URLs follow the page's origin", () => {
-  expect(websocketUrl("/ws/deployments/1")).toBe(
-    `ws://${window.location.host}/ws/deployments/1`,
-  );
 });
 
 test("a failed config request keeps the previous settings", async () => {

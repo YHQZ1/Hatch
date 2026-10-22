@@ -1,0 +1,185 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useNavigate } from "react-router";
+import type { NoticePayload } from "@/components/NoticeToast";
+import { apiFetch, readApiError, redirectIfUnauthorized } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
+import { activityQuery, projectDeploymentsQuery, projectQuery, projectsQuery } from "@/lib/queries";
+import type { Deployment, Project } from "@/lib/types";
+import { type ServiceRow, formatCommit, formatRelativeTime } from "../services/service";
+
+/**
+ * What the Overview can do to a project without leaving the page: redeploy,
+ * suspend, resume, and cancel a running deployment. Each call tells the user how
+ * it went and refreshes what the page shows. `busy` holds the ids of projects
+ * with a call in flight.
+ */
+export function useProjectActions(notify: (notice: NoticePayload) => void) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
+
+  const track = async <T,>(projectId: string, work: () => Promise<T>): Promise<T> => {
+    setBusy((current) => new Set(current).add(projectId));
+    try {
+      return await work();
+    } finally {
+      setBusy((current) => {
+        const next = new Set(current);
+        next.delete(projectId);
+        return next;
+      });
+    }
+  };
+
+  const refresh = (projectId: string) => {
+    void queryClient.invalidateQueries({ queryKey: projectsQuery().queryKey, exact: true });
+    // The project's own page (its status, for one) reads this query, not the list.
+    void queryClient.invalidateQueries({ queryKey: projectQuery(projectId).queryKey, exact: true });
+    void queryClient.invalidateQueries({ queryKey: projectDeploymentsQuery(projectId).queryKey });
+    void queryClient.invalidateQueries({ queryKey: activityQuery().queryKey });
+  };
+
+  const send = async (path: string, init: RequestInit, failure: string) => {
+    const res = await apiFetch(path, init);
+    if (redirectIfUnauthorized(res, navigate)) return null;
+    if (!res.ok) throw new Error(await readApiError(res, failure));
+    return res;
+  };
+
+  const fail = (title: string, err: unknown, fallback: string) =>
+    notify({ type: "error", title, message: err instanceof Error ? err.message : fallback });
+
+  return {
+    busy,
+
+    /** Copies the project's full address, with its http:// or https://. */
+    copyUrl: async (row: ServiceRow) => {
+      if (!row.liveUrl) return;
+      if (await copyText(row.liveUrl)) {
+        notify({ type: "success", title: "URL copied", message: row.liveUrl });
+      } else {
+        notify({ type: "error", title: "Could not copy", message: "Your browser blocked clipboard access." });
+      }
+    },
+
+    redeploy: (row: ServiceRow) =>
+      track(row.project.id, async () => {
+        const { project } = row;
+        try {
+          const res = await send(
+            "/api/deployments",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              // Only the project: its branch, port and health check come from its
+              // settings, so a change made there applies to this deployment.
+              body: JSON.stringify({ project_id: project.id }),
+            },
+            "The deployment could not be queued.",
+          );
+          if (!res) return;
+          refresh(project.id);
+          notify({
+            type: "success",
+            title: "Deployment queued",
+            message: `${project.repo_name} is building. Progress shows under Right now.`,
+          });
+        } catch (err) {
+          fail("Redeploy failed", err, "The deployment could not be queued.");
+        }
+      }),
+
+    /**
+     * Runs an earlier release again, as a new deployment (its image and its
+     * environment; nothing is built). Resolves to that deployment, or null when
+     * the user backed out or it was refused.
+     */
+    rollback: (project: Project, deployment: Deployment): Promise<Deployment | null> => {
+      const commit = formatCommit(deployment);
+      const release = commit.message ? `"${commit.message}" (${commit.short})` : `deployment ${deployment.id.slice(0, 8)}`;
+      if (
+        !confirm(
+          `Roll back ${project.repo_name} to ${release} from ${formatRelativeTime(deployment.created_at)}? ` +
+            "It runs that release's image and variables again. Nothing is rebuilt.",
+        )
+      ) {
+        return Promise.resolve(null);
+      }
+      return track(project.id, async () => {
+        try {
+          const res = await send(
+            `/api/deployments/${deployment.id}/rollback`,
+            { method: "POST" },
+            "That release could not be rolled back to.",
+          );
+          if (!res) return null;
+          const created = (await res.json()) as Deployment;
+          queryClient.setQueryData<Deployment[]>(projectDeploymentsQuery(project.id).queryKey, (list) => [
+            created,
+            ...(list ?? []),
+          ]);
+          refresh(project.id);
+          notify({
+            type: "success",
+            title: "Rollback queued",
+            message: `${project.repo_name} is going back to ${commit.short}.`,
+          });
+          return created;
+        } catch (err) {
+          fail("Rollback failed", err, "That release could not be rolled back to.");
+          return null;
+        }
+      });
+    },
+
+    suspend: (row: ServiceRow) => {
+      if (!confirm(`Suspend ${row.project.repo_name}? It stops answering requests until you resume it.`)) {
+        return Promise.resolve();
+      }
+      return track(row.project.id, () => control(row.project, "suspend"));
+    },
+
+    resume: (row: ServiceRow) => track(row.project.id, () => control(row.project, "resume")),
+
+    cancel: (project: Project, deployment: Deployment) => {
+      if (!confirm("Cancel this deployment?")) return Promise.resolve();
+      return track(project.id, async () => {
+        try {
+          const res = await send(
+            `/api/deployments/${deployment.id}/cancel`,
+            { method: "POST" },
+            "This deployment can no longer be canceled.",
+          );
+          if (!res) return;
+          refresh(project.id);
+          notify({ type: "success", title: "Deployment canceled", message: "Provisioning has been stopped for this run." });
+        } catch (err) {
+          fail("Cancel failed", err, "This deployment can no longer be canceled.");
+        }
+      });
+    },
+  };
+
+  async function control(project: Project, action: "suspend" | "resume") {
+    try {
+      const res = await send(
+        `/api/projects/${project.id}/${action}`,
+        { method: "POST" },
+        `Could not ${action} the project.`,
+      );
+      if (!res) return;
+      refresh(project.id);
+      notify({
+        type: "success",
+        title: action === "suspend" ? "Suspend queued" : "Resume queued",
+        message:
+          action === "suspend"
+            ? `Hatch is stopping ${project.repo_name}.`
+            : `Hatch is starting ${project.repo_name} again.`,
+      });
+    } catch (err) {
+      fail(action === "suspend" ? "Suspend failed" : "Resume failed", err, "The project could not be changed.");
+    }
+  }
+}

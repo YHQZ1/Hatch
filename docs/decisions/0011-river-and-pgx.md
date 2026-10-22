@@ -46,10 +46,42 @@ The move to pgx happens in two steps.
    `database/sql`, so no query code changed. Errors are now checked by Postgres
    error code (`store.IsUniqueViolation`) instead of matching message text.
    Every query group has a test against a real Postgres.
-2. **Native pgx (with River).** The native `pgxpool` that River and
-   `LISTEN`/`NOTIFY` need, and regenerating sqlc for `pgx/v5` (`pgtype` and
-   `*string`-style nullable columns), land with River in the "deploy and watch
-   it" slice. The RabbitMQ worker packages use the `database/sql` types
-   throughout and are deleted in that slice, so converting them first would be
-   wasted work.
+2. **Native pgx (with River, done 2026-10-22).** The native `pgxpool` that River
+   and `LISTEN`/`NOTIFY` need, and sqlc regenerated for `pgx/v5` with
+   `emit_pointers_for_null_types`, so nullable columns are `*string`,
+   `*time.Time` and `*int64`, and `uuid` and `timestamptz` stay `uuid.UUID` and
+   `time.Time` through overrides in `sqlc.yaml`. The RabbitMQ worker packages
+   were deleted in the same change rather than converted.
+
+## As built (added 2026-10-22)
+
+- `internal/jobs` holds four job kinds: `build`, `deploy`, `destroy_app`
+  (project deletion) and `scale` (pause and resume, `replicas` 0 or 1). `hatch
+  migrate` applies River's migrations first (`rivermigrate`), then Hatch's own.
+- API handlers receive a `jobs.Inserter` (an insert-only River client) and call
+  `InsertTx` inside the transaction that creates the deployment, marks the
+  project deleting or changes its status, so the change and its job commit
+  together. If the job cannot be queued the change rolls back and the request
+  returns 503; previously the row was left behind and marked failed.
+- `hatch serve` and `hatch worker` run a River client on queues `build` (1
+  worker), `deploy` (1) and `control` (2), the same concurrency the RabbitMQ
+  consumers had.
+- Every job has `MaxAttempts` 2. A failure that retrying cannot fix (a bad
+  Dockerfile, a missing GitHub App installation, a failed deploy) is written to
+  the deployment or project and the job returns `river.JobCancel`, so a build
+  is never run twice because it failed. The second attempt exists for a job
+  whose process died: River returns it to the queue when Hatch stops mid-job
+  (without spending the attempt) and rescues jobs left `running` by a crash
+  after the longest job timeout plus five minutes.
+- The build job enqueues the deploy job and completes itself in one transaction
+  (`JobCompleteTx`), so a crash leaves both done or neither.
+- A job that panics is stopped and its deployment marked failed
+  (`panicHandler`).
+- Not done: a job that crashes twice in a row is discarded by River's rescuer
+  without a hook, leaving its deployment in `building` or `deploying`. The
+  orphan sweeper (Phase 4) is where that is cleaned up.
+- Cancellation still polls the deployment's status every 250 ms and cancels the
+  job's context, as the RabbitMQ worker did; the "cancellation detected during
+  Docker build" log line sent at that moment is gone, the final "build canceled
+  during ..." line stays.
 

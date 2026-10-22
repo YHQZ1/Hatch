@@ -1,95 +1,71 @@
 package auth
 
 import (
-	"database/sql"
+	"errors"
+	"log/slog"
 	"net/http"
-	"strings"
 
-	"github.com/YHQZ1/hatch/internal/secrets"
-	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
-func Middleware(jwtSecret string, db *sql.DB, secretCodec *secrets.Codec) gin.HandlerFunc {
-	queries := dbpkg.New(db)
+const tokenSourceKey = "github_token_source"
 
+// Middleware requires a valid session cookie and puts the signed-in user in the
+// request context (user_id, github_id, username). The user's GitHub token is
+// not fetched here: most requests never touch GitHub, and a GitHub outage must
+// not break them. Handlers that need it call GitHubToken.
+func Middleware(sessions *Sessions, tokens *Tokens) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		tokenStr, ok := tokenFromRequest(c)
-		if !ok {
+		token, err := c.Cookie(SessionCookieName)
+		if err != nil || token == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
 
-		token, err := jwt.Parse(
-			tokenStr,
-			func(t *jwt.Token) (interface{}, error) {
-				return []byte(jwtSecret), nil
-			},
-			jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
-			jwt.WithExpirationRequired(),
-		)
-
-		if err != nil || !token.Valid {
+		user, err := sessions.Lookup(c.Request.Context(), token)
+		if errors.Is(err, ErrNoSession) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid session"})
 			return
 		}
-
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid session claims"})
-			return
-		}
-
-		userIDRaw, ok := claims["user_id"].(string)
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid session claims"})
-			return
-		}
-		userID, err := uuid.Parse(userIDRaw)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid session claims"})
-			return
-		}
-
-		user, err := queries.GetUserByID(c.Request.Context(), userID)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "session user not found"})
-			return
-		}
-		accessToken, err := secretCodec.Decrypt(user.AccessToken)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "session secret unavailable"})
+			slog.ErrorContext(c.Request.Context(), "session lookup failed", "error", err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			return
 		}
 
 		c.Set("user_id", user.ID.String())
 		c.Set("github_id", user.GithubID)
 		c.Set("username", user.GithubUsername)
-		c.Set("access_token", accessToken)
 
-		if !usesBearerAuth(c) {
-			if _, err := EnsureCSRFCookieWithError(c); err != nil {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to create csrf token"})
-				return
+		var (
+			cached string
+			cache  error
+			loaded bool
+		)
+		c.Set(tokenSourceKey, func() (string, error) {
+			if !loaded {
+				cached, cache = tokens.AccessToken(c.Request.Context(), user)
+				loaded = true
 			}
+			return cached, cache
+		})
+
+		if _, err := EnsureCSRFCookieWithError(c); err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to create csrf token"})
+			return
 		}
 
 		c.Next()
 	}
 }
 
-func tokenFromRequest(c *gin.Context) (string, bool) {
-	authHeader := c.GetHeader("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
-		return token, token != ""
+// GitHubToken returns a valid GitHub access token for the signed-in user,
+// renewing it if it has expired. It returns ErrReauthRequired when the user
+// has to sign in again, and fails if the request did not pass Middleware.
+func GitHubToken(c *gin.Context) (string, error) {
+	source, ok := c.Get(tokenSourceKey)
+	if !ok {
+		return "", errors.New("no signed-in user on this request")
 	}
-
-	cookie, err := c.Cookie(SessionCookieName)
-	if err != nil || cookie == "" {
-		return "", false
-	}
-	return cookie, true
+	return source.(func() (string, error))()
 }

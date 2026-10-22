@@ -4,10 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,8 +16,7 @@ import (
 	"github.com/YHQZ1/hatch/internal/secrets"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type GitHubUser struct {
@@ -25,14 +24,28 @@ type GitHubUser struct {
 	Login string `json:"login"`
 }
 
+// Config holds the GitHub App settings sign-in needs.
+type Config struct {
+	ClientID     string
+	ClientSecret string
+	// RedirectURI is the App's callback URL, which points at /auth/callback.
+	RedirectURI string
+	// FrontendURL is where the browser is sent after sign-in.
+	FrontendURL string
+	// AppSlug is the App's URL name, used for the installation link.
+	AppSlug string
+}
+
 type Handler struct {
-	clientID     string
-	clientSecret string
-	redirectURI  string
-	frontendURL  string
-	jwtSecret    string
-	queries      *dbpkg.Queries
-	secrets      *secrets.Codec
+	cfg      Config
+	queries  *dbpkg.Queries
+	sessions *Sessions
+	secrets  *secrets.Codec
+
+	// githubURL and apiURL are GitHub's web and API origins; tests point them
+	// at a fake.
+	githubURL string
+	apiURL    string
 }
 
 const SessionCookieName = "hatch_session"
@@ -40,147 +53,169 @@ const OAuthStateCookieName = "hatch_oauth_state"
 
 var githubHTTPClient = &http.Client{Timeout: 12 * time.Second}
 
-func NewHandler(clientID, clientSecret, redirectURI, frontendURL, jwtSecret string, db *sql.DB, secretCodec *secrets.Codec) *Handler {
+func NewHandler(cfg Config, pool *pgxpool.Pool, sessions *Sessions, secretCodec *secrets.Codec) *Handler {
+	cfg.FrontendURL = strings.TrimRight(cfg.FrontendURL, "/")
 	return &Handler{
-		clientID:     clientID,
-		clientSecret: clientSecret,
-		redirectURI:  redirectURI,
-		frontendURL:  strings.TrimRight(frontendURL, "/"),
-		jwtSecret:    jwtSecret,
-		queries:      dbpkg.New(db),
-		secrets:      secretCodec,
+		cfg:       cfg,
+		queries:   dbpkg.New(pool),
+		sessions:  sessions,
+		secrets:   secretCodec,
+		githubURL: "https://github.com",
+		apiURL:    "https://api.github.com",
 	}
 }
 
+// RedirectToGitHub starts sign-in: it sends the browser to GitHub to authorize
+// the Hatch App. A GitHub App takes its permissions from its settings, so no
+// scope is requested.
 func (h *Handler) RedirectToGitHub(c *gin.Context) {
-	state, err := generateOAuthState()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start oauth flow"})
+	state, ok := h.beginFlow(c)
+	if !ok {
 		return
 	}
-	setOAuthStateCookie(c, state)
 
 	params := url.Values{}
-	params.Set("client_id", h.clientID)
-	params.Set("redirect_uri", h.redirectURI)
-	params.Set("scope", "repo,read:user")
+	params.Set("client_id", h.cfg.ClientID)
+	params.Set("redirect_uri", h.cfg.RedirectURI)
 	params.Set("state", state)
 
-	c.Redirect(http.StatusTemporaryRedirect, "https://github.com/login/oauth/authorize?"+params.Encode())
+	c.Redirect(http.StatusTemporaryRedirect, h.githubURL+"/login/oauth/authorize?"+params.Encode())
 }
 
-func (h *Handler) HandleCallback(c *gin.Context) {
-	if !validOAuthState(c) {
-		clearOAuthStateCookie(c)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid oauth state"})
+// RedirectToInstall sends the browser to GitHub to install the App on the
+// user's repositories. Because the App asks for user authorization during
+// installation, GitHub finishes at /auth/callback, so installing also signs in.
+func (h *Handler) RedirectToInstall(c *gin.Context) {
+	state, ok := h.beginFlow(c)
+	if !ok {
 		return
 	}
-	clearOAuthStateCookie(c)
 
+	params := url.Values{}
+	params.Set("state", state)
+	c.Redirect(http.StatusTemporaryRedirect,
+		h.githubURL+"/apps/"+url.PathEscape(h.cfg.AppSlug)+"/installations/new?"+params.Encode())
+}
+
+func (h *Handler) beginFlow(c *gin.Context) (string, bool) {
+	state, err := generateOAuthState()
+	if err != nil {
+		slog.ErrorContext(c.Request.Context(), "failed to generate oauth state", "error", err)
+		h.redirectError(c, "server")
+		return "", false
+	}
+	setOAuthStateCookie(c, state)
+	return state, true
+}
+
+// HandleCallback finishes sign-in. Whatever goes wrong, the browser is sent
+// back to the sign-in page with an error code, never shown a raw response.
+func (h *Handler) HandleCallback(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	stateOK := validOAuthState(c)
+	clearOAuthStateCookie(c)
+	if !stateOK {
+		h.redirectError(c, "state")
+		return
+	}
+
+	if c.Query("error") != "" {
+		// The user declined, or GitHub refused the request.
+		h.redirectError(c, "denied")
+		return
+	}
 	code := c.Query("code")
 	if code == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing code"})
+		h.redirectError(c, "denied")
 		return
 	}
 
-	token, err := h.exchangeCodeForToken(c.Request.Context(), code)
+	tokens, err := h.exchangeCodeForToken(ctx, code)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "token exchange failed"})
+		slog.WarnContext(ctx, "github code exchange failed", "error", err)
+		h.redirectError(c, "exchange")
 		return
 	}
 
-	ghUser, err := h.fetchGitHubUser(c.Request.Context(), token)
+	ghUser, err := h.fetchGitHubUser(ctx, tokens.AccessToken)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "github profile fetch failed"})
+		slog.WarnContext(ctx, "github profile fetch failed", "error", err)
+		h.redirectError(c, "github")
 		return
 	}
 
-	storedToken, err := h.secrets.Encrypt(token)
+	stored, err := sealGrant(h.secrets, tokens, time.Now())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to secure github token"})
+		slog.ErrorContext(ctx, "failed to encrypt github tokens", "error", err)
+		h.redirectError(c, "server")
 		return
 	}
 
-	dbUser, err := h.queries.CreateUser(c.Request.Context(), dbpkg.CreateUserParams{
-		GithubID:       ghUser.ID,
-		GithubUsername: ghUser.Login,
-		AccessToken:    storedToken,
+	dbUser, err := h.queries.CreateUser(ctx, dbpkg.CreateUserParams{
+		GithubID:              ghUser.ID,
+		GithubUsername:        ghUser.Login,
+		AccessToken:           stored.accessToken,
+		RefreshToken:          stored.refreshToken,
+		AccessTokenExpiresAt:  stored.accessExpiresAt,
+		RefreshTokenExpiresAt: stored.refreshExpiresAt,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database sync failed"})
+		slog.ErrorContext(ctx, "failed to save user", "github_id", ghUser.ID, "error", err)
+		h.redirectError(c, "server")
 		return
 	}
 
-	jwtToken, err := h.signJWT(dbUser.ID)
+	sessionToken, expires, err := h.sessions.Create(ctx, dbUser.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "session signing failed"})
+		slog.ErrorContext(ctx, "failed to create session", "user_id", dbUser.ID, "error", err)
+		h.redirectError(c, "server")
 		return
 	}
-
-	setSessionCookie(c, jwtToken)
 	if _, err := EnsureCSRFCookieWithError(c); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create csrf token"})
+		slog.ErrorContext(ctx, "failed to create csrf token", "error", err)
+		h.redirectError(c, "server")
 		return
 	}
+	setSessionCookie(c, sessionToken, expires)
 
-	successURL := h.frontendURL + "/auth/success"
-	c.Redirect(http.StatusTemporaryRedirect, successURL)
+	// Housekeeping: ended sessions are removed whenever someone signs in.
+	if _, err := h.sessions.DeleteExpired(ctx); err != nil {
+		slog.WarnContext(ctx, "failed to remove expired sessions", "error", err)
+	}
+
+	c.Redirect(http.StatusTemporaryRedirect, h.cfg.FrontendURL+"/auth/success")
 }
 
+// Logout ends the current session.
 func (h *Handler) Logout(c *gin.Context) {
+	if token, err := c.Cookie(SessionCookieName); err == nil {
+		if err := h.sessions.Delete(c.Request.Context(), token); err != nil {
+			slog.ErrorContext(c.Request.Context(), "failed to delete session", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sign out"})
+			return
+		}
+	}
 	clearSessionCookie(c)
 	ClearCSRFCookie(c)
 	c.Status(http.StatusNoContent)
 }
 
-func (h *Handler) exchangeCodeForToken(ctx context.Context, code string) (string, error) {
+func (h *Handler) redirectError(c *gin.Context, code string) {
+	c.Redirect(http.StatusTemporaryRedirect, h.cfg.FrontendURL+"/auth?error="+url.QueryEscape(code))
+}
+
+func (h *Handler) exchangeCodeForToken(ctx context.Context, code string) (*grant, error) {
 	form := url.Values{}
-	form.Set("client_id", h.clientID)
-	form.Set("client_secret", h.clientSecret)
+	form.Set("client_id", h.cfg.ClientID)
+	form.Set("client_secret", h.cfg.ClientSecret)
 	form.Set("code", code)
-	form.Set("redirect_uri", h.redirectURI)
-
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		"https://github.com/login/oauth/access_token",
-		strings.NewReader(form.Encode()),
-	)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "Hatch")
-
-	resp, err := githubHTTPClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("github token exchange failed with status %d", resp.StatusCode)
-	}
-
-	var result struct {
-		AccessToken string `json:"access_token"`
-		Error       string `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
-	}
-	if result.Error != "" {
-		return "", fmt.Errorf("github: %s", result.Error)
-	}
-	if strings.TrimSpace(result.AccessToken) == "" {
-		return "", fmt.Errorf("github returned an empty access token")
-	}
-
-	return result.AccessToken, nil
+	form.Set("redirect_uri", h.cfg.RedirectURI)
+	return requestGrant(ctx, h.githubURL, form)
 }
 
 func (h *Handler) fetchGitHubUser(ctx context.Context, token string) (*GitHubUser, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.apiURL+"/user", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -209,22 +244,13 @@ func (h *Handler) fetchGitHubUser(ctx context.Context, token string) (*GitHubUse
 	return &user, nil
 }
 
-func (h *Handler) signJWT(userID uuid.UUID) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id": userID.String(),
-		"exp":     time.Now().Add(24 * time.Hour).Unix(),
-		"iat":     time.Now().Unix(),
-	})
-	return token.SignedString([]byte(h.jwtSecret))
-}
-
-func setSessionCookie(c *gin.Context, token string) {
+func setSessionCookie(c *gin.Context, token string, expires time.Time) {
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    token,
 		Path:     "/",
-		MaxAge:   int((24 * time.Hour).Seconds()),
-		Expires:  time.Now().Add(24 * time.Hour),
+		MaxAge:   int(time.Until(expires).Seconds()),
+		Expires:  expires,
 		HttpOnly: true,
 		Secure:   isSecureRequest(c.Request),
 		SameSite: http.SameSiteLaxMode,

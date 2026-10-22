@@ -7,27 +7,44 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (github_id, github_username, access_token)
-VALUES ($1, $2, $3)
+INSERT INTO users (
+    github_id, github_username, access_token,
+    refresh_token, access_token_expires_at, refresh_token_expires_at
+)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (github_id) DO UPDATE
-    SET github_username = EXCLUDED.github_username,
-        access_token    = EXCLUDED.access_token
-RETURNING id, github_id, github_username, access_token, created_at
+    SET github_username          = EXCLUDED.github_username,
+        access_token             = EXCLUDED.access_token,
+        refresh_token            = EXCLUDED.refresh_token,
+        access_token_expires_at  = EXCLUDED.access_token_expires_at,
+        refresh_token_expires_at = EXCLUDED.refresh_token_expires_at
+RETURNING id, github_id, github_username, access_token, created_at, refresh_token, access_token_expires_at, refresh_token_expires_at
 `
 
 type CreateUserParams struct {
-	GithubID       int64  `json:"github_id"`
-	GithubUsername string `json:"github_username"`
-	AccessToken    string `json:"access_token"`
+	GithubID              int64      `json:"github_id"`
+	GithubUsername        string     `json:"github_username"`
+	AccessToken           string     `json:"access_token"`
+	RefreshToken          *string    `json:"refresh_token"`
+	AccessTokenExpiresAt  *time.Time `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt *time.Time `json:"refresh_token_expires_at"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
-	row := q.db.QueryRowContext(ctx, createUser, arg.GithubID, arg.GithubUsername, arg.AccessToken)
+	row := q.db.QueryRow(ctx, createUser,
+		arg.GithubID,
+		arg.GithubUsername,
+		arg.AccessToken,
+		arg.RefreshToken,
+		arg.AccessTokenExpiresAt,
+		arg.RefreshTokenExpiresAt,
+	)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -35,16 +52,19 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.GithubUsername,
 		&i.AccessToken,
 		&i.CreatedAt,
+		&i.RefreshToken,
+		&i.AccessTokenExpiresAt,
+		&i.RefreshTokenExpiresAt,
 	)
 	return i, err
 }
 
 const getUserByGithubID = `-- name: GetUserByGithubID :one
-SELECT id, github_id, github_username, access_token, created_at FROM users WHERE github_id = $1
+SELECT id, github_id, github_username, access_token, created_at, refresh_token, access_token_expires_at, refresh_token_expires_at FROM users WHERE github_id = $1
 `
 
 func (q *Queries) GetUserByGithubID(ctx context.Context, githubID int64) (User, error) {
-	row := q.db.QueryRowContext(ctx, getUserByGithubID, githubID)
+	row := q.db.QueryRow(ctx, getUserByGithubID, githubID)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -52,16 +72,19 @@ func (q *Queries) GetUserByGithubID(ctx context.Context, githubID int64) (User, 
 		&i.GithubUsername,
 		&i.AccessToken,
 		&i.CreatedAt,
+		&i.RefreshToken,
+		&i.AccessTokenExpiresAt,
+		&i.RefreshTokenExpiresAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, github_id, github_username, access_token, created_at FROM users WHERE id = $1
+SELECT id, github_id, github_username, access_token, created_at, refresh_token, access_token_expires_at, refresh_token_expires_at FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
-	row := q.db.QueryRowContext(ctx, getUserByID, id)
+	row := q.db.QueryRow(ctx, getUserByID, id)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -69,6 +92,59 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.GithubUsername,
 		&i.AccessToken,
 		&i.CreatedAt,
+		&i.RefreshToken,
+		&i.AccessTokenExpiresAt,
+		&i.RefreshTokenExpiresAt,
 	)
 	return i, err
+}
+
+const getUserByIDForUpdate = `-- name: GetUserByIDForUpdate :one
+SELECT id, github_id, github_username, access_token, created_at, refresh_token, access_token_expires_at, refresh_token_expires_at FROM users WHERE id = $1 FOR UPDATE
+`
+
+// Locks the row so that two requests do not spend the same single-use refresh
+// token. Call it inside a transaction.
+func (q *Queries) GetUserByIDForUpdate(ctx context.Context, id uuid.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByIDForUpdate, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.GithubID,
+		&i.GithubUsername,
+		&i.AccessToken,
+		&i.CreatedAt,
+		&i.RefreshToken,
+		&i.AccessTokenExpiresAt,
+		&i.RefreshTokenExpiresAt,
+	)
+	return i, err
+}
+
+const updateUserTokens = `-- name: UpdateUserTokens :exec
+UPDATE users
+SET access_token             = $2,
+    refresh_token            = $3,
+    access_token_expires_at  = $4,
+    refresh_token_expires_at = $5
+WHERE id = $1
+`
+
+type UpdateUserTokensParams struct {
+	ID                    uuid.UUID  `json:"id"`
+	AccessToken           string     `json:"access_token"`
+	RefreshToken          *string    `json:"refresh_token"`
+	AccessTokenExpiresAt  *time.Time `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt *time.Time `json:"refresh_token_expires_at"`
+}
+
+func (q *Queries) UpdateUserTokens(ctx context.Context, arg UpdateUserTokensParams) error {
+	_, err := q.db.Exec(ctx, updateUserTokens,
+		arg.ID,
+		arg.AccessToken,
+		arg.RefreshToken,
+		arg.AccessTokenExpiresAt,
+		arg.RefreshTokenExpiresAt,
+	)
+	return err
 }

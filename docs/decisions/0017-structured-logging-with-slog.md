@@ -34,7 +34,5 @@ Log with `log/slog` from the standard library (no logging dependency).
 
 - Production logs can be filtered by `request_id`, `project_id`, `deployment_id`
   and so on.
-- The RabbitMQ worker packages still use `log`; their lines come out as plain
-  messages at `info` until slice "deploy and watch it" replaces them.
 - Fields use snake_case names (`project_id`, `error`); keep to that so queries
   stay consistent.

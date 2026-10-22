@@ -18,7 +18,7 @@ const (
 
 func CSRFMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !requiresCSRFAuth(c.Request.Method) || usesBearerAuth(c) {
+		if !requiresCSRFAuth(c.Request.Method) {
 			c.Next()
 			return
 		}
@@ -81,10 +81,6 @@ func requiresCSRFAuth(method string) bool {
 	default:
 		return true
 	}
-}
-
-func usesBearerAuth(c *gin.Context) bool {
-	return strings.HasPrefix(c.GetHeader("Authorization"), "Bearer ")
 }
 
 func generateCSRFToken() (string, error) {

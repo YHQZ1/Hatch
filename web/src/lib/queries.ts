@@ -3,9 +3,12 @@ import { apiJson } from "./api";
 import type {
   ActivityEvent,
   Deployment,
+  GitHubInstallation,
+  GitHubRepo,
   Project,
   ProjectEnvVar,
   Session,
+  Traffic,
 } from "./types";
 
 /** How often to re-check things that are changing on their own. */
@@ -86,13 +89,16 @@ export const projectQuery = (projectId: string) =>
 export const isActiveDeployment = (status: string | undefined) =>
   ACTIVE_DEPLOYMENT_STATUSES.has(status?.toLowerCase() ?? "");
 
-/** One deployment; polls while it is in progress. */
-export const deploymentQuery = (deploymentId: string) =>
+/**
+ * One deployment, by what an address holds: its whole id or the first eight or
+ * more characters of it. It says which project it belongs to. Its key does not
+ * start with "deployments", so it is not kept between visits.
+ */
+export const deploymentByRefQuery = (ref: string) =>
   queryOptions({
-    queryKey: ["deployments", deploymentId],
-    queryFn: () => apiJson<Deployment>(`/api/deployments/${deploymentId}`),
-    refetchInterval: (query) =>
-      isActiveDeployment(query.state.data?.status) ? 3500 : false,
+    queryKey: ["deployment-ref", ref],
+    queryFn: () => apiJson<Deployment>(`/api/deployments/${encodeURIComponent(ref)}`),
+    retry: false,
   });
 
 /** A project's environment variables. */
@@ -127,4 +133,58 @@ export const projectDeploymentsQuery = (projectId: string) =>
       )
         ? POLL_MS
         : false,
+  });
+
+/** How often the traffic counts are re-read. */
+const TRAFFIC_POLL_MS = 15000;
+
+/**
+ * Requests to each app over the last hour. It polls only when something is
+ * counting; on a target without a proxy it answers once that it is unavailable.
+ */
+export const trafficQuery = () =>
+  queryOptions({
+    queryKey: ["traffic"],
+    queryFn: () => apiJson<Traffic>("/api/traffic"),
+    refetchInterval: (query) => (query.state.data?.available ? TRAFFIC_POLL_MS : false),
+  });
+
+/** The newest log line of a deployment, or null while it has none. */
+export const deploymentLastLogQuery = (deploymentId: string) =>
+  queryOptions({
+    queryKey: ["deployments", deploymentId, "logs", "last"],
+    queryFn: async () => {
+      const lines = await apiJson<string[] | null>(
+        `/api/deployments/${deploymentId}/logs?tail=1`,
+      );
+      return Array.isArray(lines) && lines.length > 0 ? lines[lines.length - 1] : null;
+    },
+    refetchInterval: 3000,
+  });
+
+export const NO_REPOS: GitHubRepo[] = [];
+export const NO_INSTALLATIONS: GitHubInstallation[] = [];
+
+/**
+ * The repositories the user has given the Hatch GitHub App access to, and the
+ * accounts it is installed on. `installed` is false until the App is installed
+ * on at least one account.
+ */
+export const githubReposQuery = () =>
+  queryOptions({
+    queryKey: ["github", "repos"],
+    queryFn: async () => {
+      const data = await apiJson<{
+        installed?: boolean;
+        installations?: GitHubInstallation[] | null;
+        repos?: GitHubRepo[] | null;
+      } | null>("/api/github/repos");
+      return {
+        installed: data?.installed === true,
+        installations: Array.isArray(data?.installations)
+          ? data.installations
+          : NO_INSTALLATIONS,
+        repos: Array.isArray(data?.repos) ? data.repos : NO_REPOS,
+      };
+    },
   });

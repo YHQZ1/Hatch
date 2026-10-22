@@ -2,33 +2,43 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/YHQZ1/hatch/internal/store/storetest"
 )
 
 // newQueries returns the generated queries over a freshly migrated database.
-func newQueries(t *testing.T) (*dbpkg.Queries, *sql.DB) {
+func newQueries(t *testing.T) (*dbpkg.Queries, *pgxpool.Pool) {
 	t.Helper()
 	url := storetest.NewDatabase(t)
-	if _, err := Migrate(url); err != nil {
+	if _, err := Migrate(context.Background(), url); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	db, err := Connect(url)
+	db, err := Connect(context.Background(), url)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(db.Close)
 	return dbpkg.New(db), db
 }
 
-func str(s string) sql.NullString { return sql.NullString{String: s, Valid: true} }
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func str(s string) *string { return &s }
 
 func createUser(t *testing.T, q *dbpkg.Queries, githubID int64, name string) dbpkg.User {
 	t.Helper()
@@ -46,7 +56,7 @@ func createProject(t *testing.T, q *dbpkg.Queries, user dbpkg.User, subdomain st
 	project, err := q.CreateProject(context.Background(), dbpkg.CreateProjectParams{
 		UserID: user.ID, RepoName: "octo/" + subdomain, RepoUrl: "https://github.com/octo/" + subdomain,
 		Branch: "main", DockerfilePath: "Dockerfile", Port: 8080,
-		Subdomain: str(subdomain), WebhookSecret: str("secret"),
+		Subdomain: str(subdomain), HealthCheck: "/", AutoDeploy: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -92,8 +102,8 @@ func TestUsersAreUpsertedByGitHubID(t *testing.T) {
 	if err != nil || byID.GithubID != 42 {
 		t.Fatalf("GetUserByID = %+v, %v", byID, err)
 	}
-	if _, err := q.GetUserByID(ctx, uuid.New()); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("unknown user error = %v, want sql.ErrNoRows", err)
+	if _, err := q.GetUserByID(ctx, uuid.New()); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("unknown user error = %v, want pgx.ErrNoRows", err)
 	}
 }
 
@@ -107,15 +117,14 @@ func TestProjectsAreScopedToTheirOwner(t *testing.T) {
 	if project.Status != "active" || !project.AutoDeploy || project.CreatedAt.IsZero() {
 		t.Fatalf("unexpected defaults: %+v", project)
 	}
-	if !project.Subdomain.Valid || project.Subdomain.String != "shop" ||
-		!project.WebhookSecret.Valid || project.GithubWebhookID.Valid {
+	if project.Subdomain == nil || *project.Subdomain != "shop" {
 		t.Fatalf("nullable columns did not round trip: %+v", project)
 	}
 
 	if got, err := q.GetProjectByIDAndUserID(ctx, dbpkg.GetProjectByIDAndUserIDParams{ID: project.ID, UserID: alice.ID}); err != nil || got.ID != project.ID {
 		t.Fatalf("owner lookup = %+v, %v", got, err)
 	}
-	if _, err := q.GetProjectByIDAndUserID(ctx, dbpkg.GetProjectByIDAndUserIDParams{ID: project.ID, UserID: bob.ID}); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := q.GetProjectByIDAndUserID(ctx, dbpkg.GetProjectByIDAndUserIDParams{ID: project.ID, UserID: bob.ID}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("another user must not see the project, error = %v", err)
 	}
 	if list, err := q.GetProjectsByUserID(ctx, bob.ID); err != nil || len(list) != 0 {
@@ -141,7 +150,7 @@ func TestProjectsListNewestFirstAndHideDeleted(t *testing.T) {
 		t.Fatalf("list = %v, %v; want newest first", list, err)
 	}
 
-	if _, err := db.ExecContext(ctx, `UPDATE projects SET status = 'deleted' WHERE id = $1`, older.ID); err != nil {
+	if _, err := db.Exec(ctx, `UPDATE projects SET status = 'deleted' WHERE id = $1`, older.ID); err != nil {
 		t.Fatal(err)
 	}
 	list, _ = q.GetProjectsByUserID(ctx, user.ID)
@@ -162,7 +171,7 @@ func TestDuplicateSubdomainIsAUniqueViolation(t *testing.T) {
 	if err == nil || !IsUniqueViolation(err) {
 		t.Fatalf("error = %v, want a unique violation", err)
 	}
-	if IsUniqueViolation(sql.ErrNoRows) || IsUniqueViolation(nil) {
+	if IsUniqueViolation(pgx.ErrNoRows) || IsUniqueViolation(nil) {
 		t.Fatal("IsUniqueViolation must be false for other errors")
 	}
 }
@@ -175,36 +184,17 @@ func TestProjectUpdates(t *testing.T) {
 
 	updated, err := q.UpdateProjectSettings(ctx, dbpkg.UpdateProjectSettingsParams{
 		ID: project.ID, UserID: user.ID, RepoName: "octo/renamed", Branch: "release",
-		DockerfilePath: "api/Dockerfile", Port: 9000, AutoDeploy: false,
+		DockerfilePath: "api/Dockerfile", Port: 9000, AutoDeploy: false, HealthCheck: "/ready",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.RepoName != "octo/renamed" || updated.Branch != "release" || updated.Port != 9000 || updated.AutoDeploy {
+	if updated.RepoName != "octo/renamed" || updated.Branch != "release" || updated.Port != 9000 || updated.AutoDeploy || updated.HealthCheck != "/ready" {
 		t.Fatalf("settings not applied: %+v", updated)
 	}
 
-	err = q.UpdateProjectWebhook(ctx, dbpkg.UpdateProjectWebhookParams{
-		ID: project.ID, WebhookSecret: str("s2"), GithubWebhookID: sql.NullInt64{Int64: 77, Valid: true}, AutoDeploy: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, _ := q.GetProjectByID(ctx, project.ID)
-	if !got.GithubWebhookID.Valid || got.GithubWebhookID.Int64 != 77 || !got.AutoDeploy {
-		t.Fatalf("webhook not stored: %+v", got)
-	}
-	if err := q.ClearProjectWebhook(ctx, project.ID); err != nil {
-		t.Fatal(err)
-	}
-	got, _ = q.GetProjectByID(ctx, project.ID)
-	// Clearing forgets the hook and turns auto-deploy off; the secret stays.
-	if got.GithubWebhookID.Valid || got.AutoDeploy || got.WebhookSecret.String != "s2" {
-		t.Fatalf("webhook not cleared as expected: %+v", got)
-	}
-
 	deleting, err := q.MarkProjectDeleting(ctx, dbpkg.MarkProjectDeletingParams{ID: project.ID, UserID: user.ID})
-	if err != nil || deleting.Status != "deleting" || !deleting.DeleteRequestedAt.Valid {
+	if err != nil || deleting.Status != "deleting" || deleting.DeleteRequestedAt == nil {
 		t.Fatalf("MarkProjectDeleting = %+v, %v", deleting, err)
 	}
 }
@@ -216,10 +206,10 @@ func TestDeploymentLifecycle(t *testing.T) {
 	project := createProject(t, q, user, "shop")
 
 	deployment := createDeployment(t, q, project)
-	if deployment.Status != "queued" || deployment.DeployedAt.Valid || deployment.Url.Valid {
+	if deployment.Status != "queued" || deployment.DeployedAt != nil || deployment.Url != nil {
 		t.Fatalf("new deployment should be queued and not live: %+v", deployment)
 	}
-	if !deployment.CommitSha.Valid || deployment.CommitSha.String != "abc123" || deployment.Cpu != 256 {
+	if deployment.CommitSha == nil || *deployment.CommitSha != "abc123" || deployment.Cpu != 256 {
 		t.Fatalf("values did not round trip: %+v", deployment)
 	}
 
@@ -238,10 +228,10 @@ func TestDeploymentLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if live.Status != "live" || !live.DeployedAt.Valid || live.Url.String != "https://shop.example.com" || live.ImageUri.String != "registry/app:1" {
+	if live.Status != "live" || live.DeployedAt == nil || deref(live.Url) != "https://shop.example.com" || deref(live.ImageUri) != "registry/app:1" {
 		t.Fatalf("UpdateDeploymentLive = %+v", live)
 	}
-	if _, err := q.GetActiveDeploymentByProjectIDAndUserID(ctx, dbpkg.GetActiveDeploymentByProjectIDAndUserIDParams{ProjectID: project.ID, UserID: user.ID}); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := q.GetActiveDeploymentByProjectIDAndUserID(ctx, dbpkg.GetActiveDeploymentByProjectIDAndUserIDParams{ProjectID: project.ID, UserID: user.ID}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("a live deployment is not active, error = %v", err)
 	}
 }
@@ -283,14 +273,14 @@ func TestFailingAndCancelingDeployments(t *testing.T) {
 	project := createProject(t, q, alice, "shop")
 	deployment := createDeployment(t, q, project)
 
-	if _, err := q.CancelDeploymentByIDAndUserID(ctx, dbpkg.CancelDeploymentByIDAndUserIDParams{ID: deployment.ID, UserID: bob.ID}); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := q.CancelDeploymentByIDAndUserID(ctx, dbpkg.CancelDeploymentByIDAndUserIDParams{ID: deployment.ID, UserID: bob.ID}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("another user must not cancel it, error = %v", err)
 	}
 	canceled, err := q.CancelDeploymentByIDAndUserID(ctx, dbpkg.CancelDeploymentByIDAndUserIDParams{ID: deployment.ID, UserID: alice.ID})
 	if err != nil || canceled.Status != "canceled" {
 		t.Fatalf("cancel = %+v, %v", canceled, err)
 	}
-	if _, err := q.CancelDeploymentByIDAndUserID(ctx, dbpkg.CancelDeploymentByIDAndUserIDParams{ID: deployment.ID, UserID: alice.ID}); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := q.CancelDeploymentByIDAndUserID(ctx, dbpkg.CancelDeploymentByIDAndUserIDParams{ID: deployment.ID, UserID: alice.ID}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("a finished deployment cannot be canceled again, error = %v", err)
 	}
 
@@ -299,7 +289,7 @@ func TestFailingAndCancelingDeployments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failed.Status != "failed" || !failed.FailedAt.Valid || failed.ErrorStage.String != "build" || failed.ErrorMessage.String != "exit status 1" {
+	if failed.Status != "failed" || failed.FailedAt == nil || deref(failed.ErrorStage) != "build" || deref(failed.ErrorMessage) != "exit status 1" {
 		t.Fatalf("MarkDeploymentFailed = %+v", failed)
 	}
 
@@ -348,7 +338,7 @@ func TestDeploymentEnvVarSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	vars, err := q.GetEnvVarsByDeployment(ctx, deployment.ID)
-	if err != nil || len(vars) != 1 || vars[0].Key != "API_URL" || vars[0].SecretArn.String != "arn:secret" {
+	if err != nil || len(vars) != 1 || vars[0].Key != "API_URL" || deref(vars[0].SecretArn) != "arn:secret" {
 		t.Fatalf("snapshot = %v, %v", vars, err)
 	}
 }
@@ -375,7 +365,166 @@ func TestActivityLogIsNewestFirstAndLimited(t *testing.T) {
 }
 
 func TestConnectRejectsAnUnreachableDatabase(t *testing.T) {
-	if _, err := Connect("postgres://nobody@127.0.0.1:1/none?sslmode=disable&connect_timeout=1"); err == nil {
+	if _, err := Connect(context.Background(), "postgres://nobody@127.0.0.1:1/none?sslmode=disable&connect_timeout=1"); err == nil {
 		t.Fatal("expected an error")
+	}
+}
+
+func TestDeploymentLogLinesAreNumberedCappedAndReadBack(t *testing.T) {
+	q, _ := newQueries(t)
+	ctx := context.Background()
+	user := createUser(t, q, 1, "alice")
+	project := createProject(t, q, user, "shop")
+	deployment := createDeployment(t, q, project)
+
+	add := func(line string, max int64) (int64, error) {
+		return q.AppendDeploymentLog(ctx, dbpkg.AppendDeploymentLogParams{
+			DeploymentID: deployment.ID, Line: line, MaxLines: max, LimitLine: "[cut]",
+		})
+	}
+	for i, want := range []string{"a", "b", "c"} {
+		seq, err := add(want, 4)
+		if err != nil || seq != int64(i+1) {
+			t.Fatalf("append %q = %d, %v", want, seq, err)
+		}
+	}
+	// The line that reaches the limit is replaced by the note that says so ...
+	if seq, err := add("d", 4); err != nil || seq != 4 {
+		t.Fatalf("append at the limit = %d, %v", seq, err)
+	}
+	// ... and after it nothing is kept, and no row comes back.
+	if _, err := add("e", 4); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("append past the limit: %v, want no rows", err)
+	}
+
+	after, err := q.GetDeploymentLogsAfter(ctx, dbpkg.GetDeploymentLogsAfterParams{DeploymentID: deployment.ID, Seq: 1, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, row := range after {
+		got = append(got, fmt.Sprintf("%d:%s", row.Seq, row.Line))
+	}
+	if strings.Join(got, ",") != "2:b,3:c,4:[cut]" {
+		t.Errorf("lines after 1 = %v", got)
+	}
+
+	tail, err := q.GetDeploymentLogTail(ctx, dbpkg.GetDeploymentLogTailParams{DeploymentID: deployment.ID, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tail) != 2 || tail[0].Line != "c" || tail[1].Line != "[cut]" {
+		t.Errorf("last 2 lines = %+v, want the newest two, oldest first", tail)
+	}
+
+	// Lines belong to their deployment, and go when it does.
+	// (A project has one active deployment at a time, so finish the first.)
+	if err := q.SetDeploymentStatus(ctx, dbpkg.SetDeploymentStatusParams{ID: deployment.ID, Status: "live"}); err != nil {
+		t.Fatal(err)
+	}
+	other := createDeployment(t, q, project)
+	if rows, _ := q.GetDeploymentLogsAfter(ctx, dbpkg.GetDeploymentLogsAfterParams{DeploymentID: other.ID, Seq: 0, Limit: 10}); len(rows) != 0 {
+		t.Errorf("another deployment has %d lines", len(rows))
+	}
+	if err := q.DeleteProject(ctx, project.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ := q.GetDeploymentLogsAfter(ctx, dbpkg.GetDeploymentLogsAfterParams{DeploymentID: deployment.ID, Seq: 0, Limit: 10}); len(rows) != 0 {
+		t.Errorf("%d lines remain after the project was deleted", len(rows))
+	}
+}
+
+// A deployment is announced to watchers when a line is added to its log and when
+// its status changes, and not when only its log counter does.
+func TestDeploymentEventsAreNotified(t *testing.T) {
+	q, pool := newQueries(t)
+	ctx := context.Background()
+	user := createUser(t, q, 1, "alice")
+	project := createProject(t, q, user, "shop")
+	deployment := createDeployment(t, q, project)
+
+	listener, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Release()
+	if _, err := listener.Exec(ctx, "LISTEN deployment_events"); err != nil {
+		t.Fatal(err)
+	}
+	heard := func() (string, bool) {
+		waitCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer cancel()
+		n, err := listener.Conn().WaitForNotification(waitCtx)
+		if err != nil {
+			return "", false
+		}
+		return n.Payload, true
+	}
+
+	if _, err := q.AppendDeploymentLog(ctx, dbpkg.AppendDeploymentLogParams{
+		DeploymentID: deployment.ID, Line: "x", MaxLines: 10, LimitLine: "[cut]",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if payload, ok := heard(); !ok || payload != deployment.ID.String() {
+		t.Fatalf("a new log line was announced as %q, %v", payload, ok)
+	}
+	// Bumping log_seq alone (the line insert did it too) must not have announced twice.
+	if payload, ok := heard(); ok {
+		t.Fatalf("announced twice for one line: %q", payload)
+	}
+
+	if err := q.SetDeploymentStatus(ctx, dbpkg.SetDeploymentStatusParams{ID: deployment.ID, Status: "building"}); err != nil {
+		t.Fatal(err)
+	}
+	if payload, ok := heard(); !ok || payload != deployment.ID.String() {
+		t.Fatalf("a status change was announced as %q, %v", payload, ok)
+	}
+	// Setting the status it already has changes nothing, so announces nothing.
+	if err := q.SetDeploymentStatus(ctx, dbpkg.SetDeploymentStatusParams{ID: deployment.ID, Status: "building"}); err != nil {
+		t.Fatal(err)
+	}
+	if payload, ok := heard(); ok {
+		t.Fatalf("an unchanged status was announced: %q", payload)
+	}
+}
+
+func TestProjectsAreFoundByRepositoryWithoutRegardToCase(t *testing.T) {
+	q, _ := newQueries(t)
+	ctx := context.Background()
+	alice := createUser(t, q, 1, "alice")
+	bob := createUser(t, q, 2, "bob")
+	// Two projects built from one repository, one of them typed with other capitals.
+	one := createProject(t, q, alice, "shop")
+	two, err := q.CreateProject(ctx, dbpkg.CreateProjectParams{
+		UserID: bob.ID, RepoName: "shop2", RepoUrl: "https://github.com/Octo/Shop", Branch: "main",
+		DockerfilePath: "Dockerfile", Port: 80, Subdomain: str("shop2"), HealthCheck: "/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createProject(t, q, alice, "elsewhere")
+
+	got, err := q.GetProjectsByRepoURL(ctx, "https://github.com/octo/shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("found %d projects, want both of the repository's", len(got))
+	}
+	ids := map[uuid.UUID]bool{got[0].ID: true, got[1].ID: true}
+	if !ids[one.ID] || !ids[two.ID] {
+		t.Errorf("found %v, want %v and %v", ids, one.ID, two.ID)
+	}
+}
+
+func TestAProjectHasNoPerProjectWebhookColumns(t *testing.T) {
+	_, pool := newQueries(t)
+	var n int
+	err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM information_schema.columns
+		 WHERE table_name = 'projects' AND column_name IN ('webhook_secret', 'github_webhook_id')`).Scan(&n)
+	if err != nil || n != 0 {
+		t.Fatalf("per-project webhook columns remain: %d (%v)", n, err)
 	}
 }

@@ -14,12 +14,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/YHQZ1/hatch/internal/build/logs"
+	"github.com/YHQZ1/hatch/internal/build"
+	"github.com/YHQZ1/hatch/internal/stream"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 )
 
-var ErrCanceled = errors.New("build canceled")
+// ErrCanceled is build.ErrCanceled: errors from this package match either.
+var ErrCanceled = build.ErrCanceled
 
 const maxLogLineBytes = 1024 * 1024
 
@@ -53,33 +55,47 @@ func (e *CanceledError) Stage() CancelStage {
 	return e.stage
 }
 
+// Builder builds images with the Docker CLI on this host and pushes them to an
+// ECR repository. It implements build.Builder.
 type Builder struct {
 	registry string
 	repo     string
 	region   string
-	streamer *logs.Streamer
-	reporter func(id string, stage CancelStage)
+	streamer stream.Sink
+	// local builds for this host's Docker only: no registry, no push, and the
+	// host's own platform.
+	local bool
 }
 
-func NewBuilder(registry, repo, region string, streamer *logs.Streamer, reporter func(id string, stage CancelStage)) *Builder {
+// localRepository names the images the local builder leaves in Docker.
+const localRepository = "hatch-local"
+
+// NewLocalBuilder returns a Builder for the local target. It builds with the
+// host's Docker and leaves the image there as hatch-local:<deployment id>.
+func NewLocalBuilder(sink stream.Sink) *Builder {
+	return &Builder{repo: localRepository, streamer: sink, local: true}
+}
+
+func NewBuilder(registry, repo, region string, sink stream.Sink) *Builder {
 	return &Builder{
 		registry: registry,
 		repo:     repo,
 		region:   region,
-		streamer: streamer,
-		reporter: reporter,
+		streamer: sink,
 	}
 }
 
-func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath string) (string, error) {
+func (b *Builder) buildAndPush(ctx context.Context, id, repoDir, dockerfilePath string) (string, error) {
 	imageTag := imageTag(id)
 	tag := fmt.Sprintf("%s/%s:%s", b.registry, b.repo, imageTag)
+	if b.local {
+		tag = fmt.Sprintf("%s:%s", b.repo, imageTag)
+	}
 
 	if err := ensureActive(ctx, CancelStageBeforeDockerBuild); err != nil {
 		return "", err
 	}
 
-	b.reportStage(id, CancelStageDuringDockerBuild)
 	b.streamer.Publish(ctx, id, "Starting Docker build...")
 	if err := b.runBuild(ctx, id, repoDir, dockerfilePath, tag); err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -88,11 +104,18 @@ func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath 
 		return "", fmt.Errorf("docker build failed: %w", err)
 	}
 
+	if b.local {
+		if err := ensureActive(ctx, CancelStageAfterDockerPush); err != nil {
+			return "", err
+		}
+		b.streamer.Publish(ctx, id, fmt.Sprintf("Image built: %s", tag))
+		return tag, nil
+	}
+
 	if err := ensureActive(ctx, CancelStageBeforeECRAuth); err != nil {
 		return "", err
 	}
 
-	b.reportStage(id, CancelStageDuringECRAuth)
 	b.streamer.Publish(ctx, id, "Authenticating with Amazon ECR...")
 	token, err := b.getAuthToken(ctx)
 	if err != nil {
@@ -106,7 +129,6 @@ func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath 
 		return "", err
 	}
 
-	b.reportStage(id, CancelStageDuringDockerPush)
 	b.streamer.Publish(ctx, id, "Pushing image to registry...")
 	if err := b.runPush(ctx, id, tag, token); err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -115,13 +137,11 @@ func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath 
 		return "", fmt.Errorf("docker push failed: %w", err)
 	}
 
-	b.reportStage(id, CancelStageAfterDockerPush)
 	if err := ensureActive(ctx, CancelStageAfterDockerPush); err != nil {
 		return "", err
 	}
 
 	b.streamer.Publish(ctx, id, fmt.Sprintf("Image successfully pushed: %s", tag))
-	b.streamer.Publish(ctx, id, "Handoff to Deployer: Provisioning cloud infrastructure...")
 	return tag, nil
 }
 
@@ -131,12 +151,13 @@ func (b *Builder) runBuild(ctx context.Context, id, repoDir, dockerfilePath, tag
 		return err
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", "build",
-		"--platform", "linux/amd64",
-		"-t", tag,
-		"-f", dockerfileBase,
-		".",
-	)
+	args := []string{"build"}
+	if !b.local {
+		// ECS Fargate runs amd64; the local target runs on the host's platform.
+		args = append(args, "--platform", "linux/amd64")
+	}
+	args = append(args, "-t", tag, "-f", dockerfileBase, ".")
+	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Dir = contextDir
 	cmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
 
@@ -258,12 +279,6 @@ func ensureActive(ctx context.Context, stage CancelStage) error {
 
 func canceled(stage CancelStage) error {
 	return &CanceledError{stage: stage}
-}
-
-func (b *Builder) reportStage(id string, stage CancelStage) {
-	if b.reporter != nil {
-		b.reporter(id, stage)
-	}
 }
 
 func buildContext(repoDir, dockerfilePath string) (string, string, error) {

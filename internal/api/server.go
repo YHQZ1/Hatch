@@ -11,26 +11,37 @@ import (
 	"github.com/YHQZ1/hatch/internal/api/auth"
 	"github.com/YHQZ1/hatch/internal/api/handlers"
 	"github.com/YHQZ1/hatch/internal/api/middleware"
-	"github.com/YHQZ1/hatch/internal/api/queue"
 	"github.com/YHQZ1/hatch/internal/api/spa"
-	wsHub "github.com/YHQZ1/hatch/internal/api/ws"
 	"github.com/YHQZ1/hatch/internal/config"
+	"github.com/YHQZ1/hatch/internal/githubapp"
+	"github.com/YHQZ1/hatch/internal/jobs"
+	"github.com/YHQZ1/hatch/internal/proxy"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	"github.com/YHQZ1/hatch/internal/store"
+	"github.com/YHQZ1/hatch/internal/stream"
 	"github.com/YHQZ1/hatch/web"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 )
+
+// LocalTarget is what the API needs from the local target: the traffic the proxy
+// counted, and a way to find where each app listens.
+type LocalTarget struct {
+	Stats    *proxy.Stats
+	Resolver proxy.Resolver
+}
 
 // Run serves the web UI and the API until ctx is canceled, then shuts down
 // gracefully. It returns an error if it cannot start or the server fails.
-func Run(ctx context.Context, cfg *config.Config) error {
+//
+// local is what the API shares with the local target's proxy; it is nil when
+// Hatch serves no apps itself (the AWS target).
+func Run(ctx context.Context, cfg *config.Config, local *LocalTarget) error {
 	// Hatch logs requests itself (middleware.AccessLog), so Gin's own debug
 	// output, such as the route table, would only be noise.
 	gin.SetMode(gin.ReleaseMode)
 
-	db, err := store.Connect(cfg.DatabaseURL)
+	db, err := store.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
@@ -41,21 +52,25 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("initialize secret codec: %w", err)
 	}
 
-	publisher := queue.NewPublisher(cfg.RabbitMQURL)
-	defer publisher.Close()
-
-	opt, err := redis.ParseURL(cfg.RedisURL)
-	if err != nil {
-		return fmt.Errorf("parse REDIS_URL: %w", err)
-	}
-
-	rdb := redis.NewClient(opt)
-	defer rdb.Close()
-	hub, err := wsHub.NewHub(cfg.RedisURL, cfg.JWTSecret, cfg.CORSAllowedOrigins, db)
+	// The API only causes jobs; the job runner (hatch serve or hatch worker)
+	// works them.
+	inserter, err := jobs.NewInserter(db)
 	if err != nil {
 		return err
 	}
-	defer hub.Close()
+
+	sessions := auth.NewSessions(db)
+
+	// One connection listens for deployment events (new log lines, status
+	// changes) and wakes the log streams watching them. It stops with ctx, and
+	// is waited for before the pool closes.
+	broker := stream.NewBroker(db)
+	brokerDone := make(chan struct{})
+	go func() {
+		defer close(brokerDone)
+		_ = broker.Run(ctx)
+	}()
+	defer func() { <-brokerDone }()
 
 	r := gin.New()
 	r.Use(middleware.RequestID(), middleware.AccessLog(), middleware.Recovery())
@@ -70,23 +85,33 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	}))
 	r.Use(middleware.BodyLimit(4 << 20))
 
-	authHandler := auth.NewHandler(
-		cfg.GitHubClientID,
-		cfg.GitHubClientSecret,
-		cfg.GitHubRedirectURI,
-		cfg.FrontendURL,
-		cfg.JWTSecret,
-		db,
-		secretCodec,
-	)
+	authHandler := auth.NewHandler(auth.Config{
+		ClientID:     cfg.GitHubClientID,
+		ClientSecret: cfg.GitHubClientSecret,
+		RedirectURI:  cfg.GitHubRedirectURI,
+		FrontendURL:  cfg.FrontendURL,
+		AppSlug:      cfg.GitHubAppSlug,
+	}, db, sessions, secretCodec)
+	tokens := auth.NewTokens(db, secretCodec, cfg.GitHubClientID, cfg.GitHubClientSecret)
 
-	projectHandler := handlers.NewProjectHandler(db, publisher, cfg.WebhookBaseURL, secretCodec)
-	deploymentHandler := handlers.NewDeploymentHandler(db, publisher, rdb, secretCodec)
+	// Repositories are read as the GitHub App, the same way builds read them.
+	repoTokens := githubapp.New(cfg.GitHubClientID, cfg.GitHubAppKey)
+	webhooksEnabled := cfg.GitHubWebhookSecret != ""
+	projectHandler := handlers.NewProjectHandler(db, inserter, secretCodec, repoTokens, webhooksEnabled)
+	deploymentHandler := handlers.NewDeploymentHandler(db, inserter, stream.NewPostgres(db), secretCodec, repoTokens)
+	logStreamHandler := handlers.NewLogStreamHandler(db, broker, ctx.Done())
 	metricsHandler := handlers.NewMetricsHandler(db, cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN, cfg.ALBArn)
-	githubHandler := handlers.NewGitHubHandler(rdb)
-	publicConfigHandler := handlers.NewPublicConfigHandler(cfg.BaseDomain, cfg.DeploymentURLScheme)
-	webhookHandler := handlers.NewWebhookHandler(db, publisher, secretCodec)
-	authMiddleware := auth.Middleware(cfg.JWTSecret, db, secretCodec)
+	githubHandler := handlers.NewGitHubHandler()
+	var stats *proxy.Stats
+	var resolver proxy.Resolver
+	if local != nil {
+		stats, resolver = local.Stats, local.Resolver
+	}
+	trafficHandler := handlers.NewTrafficHandler(db, stats)
+	iconHandler := handlers.NewIconHandler(db, resolver)
+	publicConfigHandler := handlers.NewPublicConfigHandler(cfg.BaseDomain, cfg.DeploymentURLScheme, webhooksEnabled)
+	webhookHandler := handlers.NewWebhookHandler(db, inserter, secretCodec, cfg.GitHubWebhookSecret)
+	authMiddleware := auth.Middleware(sessions, tokens)
 	csrfMiddleware := auth.CSRFMiddleware()
 
 	r.GET("/health", func(c *gin.Context) {
@@ -96,18 +121,10 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancel()
 
-		checks := gin.H{"database": "ok", "redis": "ok", "rabbitmq": "ok"}
+		checks := gin.H{"database": "ok"}
 		ready := true
-		if err := db.PingContext(ctx); err != nil {
+		if err := db.Ping(ctx); err != nil {
 			checks["database"] = "unavailable"
-			ready = false
-		}
-		if err := rdb.Ping(ctx).Err(); err != nil {
-			checks["redis"] = "unavailable"
-			ready = false
-		}
-		if !publisher.Healthy() {
-			checks["rabbitmq"] = "unavailable"
 			ready = false
 		}
 
@@ -121,10 +138,10 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	})
 
 	r.GET("/auth/github", authHandler.RedirectToGitHub)
+	r.GET("/auth/install", authHandler.RedirectToInstall)
 	r.GET("/auth/callback", authHandler.HandleCallback)
 	r.POST("/auth/logout", authMiddleware, csrfMiddleware, authHandler.Logout)
-	r.GET("/ws/deployments/:id", hub.HandleDeploymentLogs)
-	r.POST("/api/webhooks/github", webhookHandler.HandlePush)
+	r.POST("/api/webhooks/github", webhookHandler.HandleGitHub)
 	r.GET("/api/config", publicConfigHandler.Get)
 
 	api := r.Group("/api")
@@ -148,6 +165,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 		api.GET("/projects", projectHandler.ListProjects)
 		api.POST("/projects", projectHandler.CreateProject)
+		api.GET("/subdomains/:name", projectHandler.CheckSubdomain)
 		api.GET("/projects/:id", projectHandler.GetProject)
 		api.PUT("/projects/:id", projectHandler.UpdateProject)
 		api.GET("/projects/:id/env-vars", projectHandler.GetProjectEnvVars)
@@ -157,16 +175,20 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		api.DELETE("/projects/:id", projectHandler.DeleteProject)
 		api.GET("/projects/:id/deployments", deploymentHandler.ListDeployments)
 		api.GET("/projects/:id/metrics", metricsHandler.GetProjectMetrics)
+		api.GET("/projects/:id/icon", iconHandler.Get)
 		api.GET("/activity", projectHandler.GetActivity)
+		api.GET("/traffic", trafficHandler.Get)
 		api.POST("/deployments", deploymentHandler.CreateDeployment)
 		api.GET("/deployments/:id", deploymentHandler.GetDeployment)
+		api.POST("/deployments/:id/rollback", deploymentHandler.RollbackDeployment)
 		api.POST("/deployments/:id/cancel", deploymentHandler.CancelDeployment)
 		api.GET("/deployments/:id/logs", deploymentHandler.GetDeploymentLogs)
+		api.GET("/deployments/:id/logs/stream", logStreamHandler.Stream)
 		api.GET("/github/repos", githubHandler.ListRepos)
 		api.GET("/github/repos/:owner/:repo/dockerfile", githubHandler.CheckDockerfile)
 	}
 
-	// Everything else is the web UI. Its client-side routes (such as /console)
+	// Everything else is the web UI. Its client-side routes (such as /overview)
 	// get index.html so a page reload works.
 	r.NoRoute(gin.WrapH(spa.Handler(web.Dist())))
 

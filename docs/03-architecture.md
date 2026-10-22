@@ -97,28 +97,37 @@ deploy/cloudformation/hatch-connect.yaml
 Build and runtime are separate interfaces, so they can be mixed and faked in
 tests. Sketch _(signatures will change during implementation)_:
 
+As built (`internal/build`, `internal/runtime`, `internal/cost`). Each is
+created with the `stream.Sink` its progress goes to, and cancellation is the
+context: the job cancels it when the deployment is canceled.
+
 ```go
 type Builder interface {
-    // Build turns a source revision into an image reference, streaming logs.
-    Build(ctx context.Context, spec BuildSpec, logs LogSink) (Image, error)
-    Cancel(ctx context.Context, buildID string) error
+    // Build clones, builds and pushes, and returns the image.
+    Build(ctx context.Context, spec Spec) (Image, error)
+    DeleteImages(ctx context.Context, images []Image) error
 }
 
 type Runtime interface {
-    Deploy(ctx context.Context, spec DeploySpec, logs LogSink) (Release, error)
-    Scale(ctx context.Context, app AppRef, replicas int) error
+    // canceled is checked between steps; true stops the deploy with ErrCanceled.
+    Deploy(ctx context.Context, spec DeploySpec, canceled func(context.Context) (bool, error)) (Release, error)
+    Scale(ctx context.Context, app AppRef, replicas int32) error
     Destroy(ctx context.Context, app AppRef) error
-    RuntimeLogs(ctx context.Context, app AppRef, q LogQuery) (LogPage, error)
+    // RuntimeLogs(...) arrives with the runtime log viewer.
 }
 
-type CostEstimator interface {
-    Estimate(ctx context.Context, spec DeploySpec) (MonthlyCost, error)
+type Estimator interface { // package cost
+    Estimate(ctx context.Context, spec runtime.DeploySpec) (Monthly, error)
 }
 ```
 
+`build/docker` (Docker on the host, pushing to ECR) and `runtime/ecs` implement
+the first two today; each package `fake` is used in tests. `cost` has an
+interface and a fake only; nothing calls it until Phase 4.
+
 | Provider | Builder | Runtime | Routing |
 |----------|---------|---------|---------|
-| `local` | `docker build` on the host | Docker containers | Caddy, `<app>.localhost` |
+| `local` | `docker build` on the host | Docker containers | Built-in proxy, `<app>.localhost` ([0018](decisions/0018-built-in-proxy-for-the-local-target.md)) |
 | `aws` | CodeBuild in the user's account → ECR | ECS Fargate | Shared ALB in the user's account, HTTPS via ACM |
 | `fake` | In-memory, scripted outcomes | In-memory | — (used in tests) |
 
@@ -132,7 +141,7 @@ change that causes them.
 
 | Job | Trigger | Does |
 |-----|---------|------|
-| `build` | Deploy requested | Run the Builder, record the image, enqueue `deploy` |
+| `build` | Deploy requested | Run the Builder, enqueue `deploy` and finish in one transaction |
 | `deploy` | Build finished | Run the Runtime, wait for health, mark live, retire the previous release |
 | `scale` | Pause, resume, idle policy | Set replicas |
 | `destroy_app` | Project deleted, expiry reached | Remove all inventory rows for the app |
@@ -146,16 +155,32 @@ cancellation is a flag the job checks between steps (as today).
 
 ### Log streaming
 
-Replaces Redis. Build and deploy log lines are inserted into a
-`deployment_logs` table (deployment ID, sequence number, line). After insert,
-Hatch sends `NOTIFY deployment_logs, '<deployment_id>:<seq>'`. The browser
-reads `GET /api/deployments/{id}/logs/stream` as server-sent events
-([ADR 0012](decisions/0012-server-sent-events-for-logs.md)): the handler sends
-lines after the client's `Last-Event-ID` from the table, then live lines as
-notifications arrive, so a dropped connection resumes exactly where it
-stopped. Payloads stay small because the line is read from the table, not sent
-through `NOTIFY` (Postgres limits `NOTIFY` payloads to 8,000 bytes). Old log
-rows are pruned on a schedule.
+Built ([ADR 0012](decisions/0012-server-sent-events-for-logs.md)); Redis is gone.
+Build and deploy log lines are inserted into `deployment_logs` (deployment id,
+`seq`, line). `seq` counts from 1 within the deployment: the writer bumps
+`deployments.log_seq` and inserts in one statement, so writers of the same
+deployment are serialised and lines are numbered and committed in order. A
+deployment keeps at most 20,000 lines (the last says the log was cut) and a
+line at most 8 KB. A daily job deletes a finished deployment's lines 30 days
+after it was created, except for the newest five deployments of each project.
+
+Triggers `NOTIFY deployment_events` with just the deployment id when a line is
+added or a status changes. The API holds one connection that `LISTEN`s
+(`stream.Broker`) and wakes the streams watching that deployment, which then
+read what they missed from the tables: a notification is only a hint, so a lost
+one cannot lose a line, and each stream also looks at the database every few
+seconds. Writers can be another process (`hatch worker`) from the one serving
+the browser.
+
+`GET /api/deployments/{id}/logs/stream` sends server-sent events: `log` (its
+`id` is the line's `seq`), `status` (when the stream starts and each time it
+changes), and `end` once the deployment has a final status and every line has
+been sent. A reconnecting browser sends `Last-Event-ID` and gets only what
+followed. The stream lifts the server's 30-second write timeout for itself and
+ends when Hatch shuts down. A finished deployment's whole log is read the same
+way. `GET /api/deployments/{id}/logs?tail=N` returns the last N lines as JSON.
+
+Not built yet: pruning old logs. They are removed only with their deployment.
 
 Runtime (application) logs on AWS are read on demand from CloudWatch Logs
 through the assumed role; on the local target, from Docker.
@@ -279,7 +304,8 @@ New or changed tables (names provisional):
 - `sessions`: user, SHA-256 hash of the session ID, created, last seen, and
   expiry times.
 - `github_installations`: installation ID, account, owning user; replaces the
-  stored OAuth token and the per-project `webhook_secret` and `webhook_id`.
+  stored OAuth token. (The per-project `webhook_secret` and `webhook_id` are gone:
+  pushes arrive through the App's own webhook, ADR 0010.)
 - v1 is single-user: each user owns their own connections and projects, but
   ownership columns are named so an organization owner can be added later.
 - `env_vars` and `project_env_vars`: mark each variable as secret or plain;
@@ -288,12 +314,30 @@ New or changed tables (names provisional):
 
 ## Local target details
 
-- Builds: `docker build` against the cloned repo on the Hatch host.
-- Runtime: one container per app on a dedicated Docker network, with a restart
-  policy.
-- Routing: a reverse proxy routes `<app>.localhost` to the container. Browsers
+- Builds: `docker build` against the cloned repo on the Hatch host
+  (`build/docker`, local mode). The image stays in the host's Docker as
+  `hatch-local:<deployment id>`; nothing is pushed.
+- Runtime: one container per app (`runtime/docker`) on a dedicated Docker
+  network, with a restart policy, CPU and memory limits, and its port published
+  on 127.0.0.1. A deploy starts the new container beside the old one, waits for
+  its health check, then removes the old one; a failed or canceled deploy
+  removes only what it started. Containers carry `hatch.*` labels, and Docker is
+  the source of truth for what runs where.
+- Routing: a reverse proxy built into `hatch serve` routes
+  `<app>.localhost:8081` to the container, finding it through Docker
+  ([0018](decisions/0018-built-in-proxy-for-the-local-target.md)). Browsers
   resolve `*.localhost` to 127.0.0.1, so no DNS setup is needed for
   development.
+- Project icons: `GET /api/projects/:id/icon` fetches the favicon the running
+  app declares (its `<link rel="icon">`, then `/favicon.ico`), only from the app
+  itself, and the console falls back to Hatch's mark when there is none.
+- Project addresses: subdomains are unique across all accounts, so the
+  new-project page asks `GET /api/subdomains/:name` whether one is free (or
+  reserved, or malformed) before the user fills in the rest. Creating the
+  project still has the last word.
+- Traffic: the proxy counts requests per app for the last hour (in memory) and
+  the API serves them at `GET /api/traffic`, so the console shows traffic with
+  no extra component ([0018](decisions/0018-built-in-proxy-for-the-local-target.md#traffic-counts-added-2026-10-22)).
 - Cost estimate: shows `$0 (local)`; guardrails such as expiry and idle pause
   still apply, so the flow is identical to AWS.
 
@@ -318,6 +362,6 @@ New or changed tables (names provisional):
 | AWS runtime | ECS Fargate + ALB | Keep |
 | AWS secrets | Secrets Manager | Decided |
 | Account connection | CloudFormation quick-create + STS AssumeRole with ExternalId | Decided |
-| Local proxy | Caddy, routes managed through its admin API | Decided |
+| Local proxy | Built-in reverse proxy in `hatch serve`; Caddy later ([0018](decisions/0018-built-in-proxy-for-the-local-target.md)) | Decided |
 | Tests | Go tests against a real Postgres (Docker locally, a service container in CI); fakes for cloud providers | Decided |
 | CI | GitHub Actions | In place |

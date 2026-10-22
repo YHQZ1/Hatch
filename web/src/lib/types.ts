@@ -9,6 +9,8 @@ export interface Project {
   branch: string;
   dockerfile_path: string;
   port: number;
+  /** The path Hatch waits on before calling a deployment live. */
+  health_check: string;
   subdomain: string | null;
   status: string;
   delete_requested_at: string | null;
@@ -57,4 +59,48 @@ export interface Deployment {
   created_at: string;
   deployed_at: string | null;
   failed_at: string | null;
+}
+
+/** One app's last hour of requests, as counted by Hatch's proxy (GET /api/traffic). */
+export interface AppTraffic {
+  /** Requests and 5xx errors per minute, oldest first. */
+  requests: number[];
+  errors: number[];
+  total_requests: number;
+  total_errors: number;
+  /** Mean time to first byte over the hour; 0 when there were no requests. */
+  avg_latency_ms: number;
+  /** The latest request since Hatch started counting, or null. */
+  last_request_at: string | null;
+}
+
+export interface Traffic {
+  /** False when nothing counts traffic (the AWS target). */
+  available: boolean;
+  window_minutes: number;
+  /** When counting started; the counts reset when Hatch restarts. */
+  since?: string;
+  /** Keyed by the app's subdomain. */
+  apps: Record<string, AppTraffic>;
+}
+
+/** A repository the Hatch GitHub App can read (GET /api/github/repos). */
+export interface GitHubRepo {
+  id: number;
+  name: string;
+  full_name: string;
+  private: boolean;
+  html_url: string;
+  description: string;
+  language: string;
+  updated_at: string;
+  default_branch?: string;
+}
+
+/** An account the Hatch GitHub App is installed on (GET /api/github/repos). */
+export interface GitHubInstallation {
+  id: number;
+  /** The GitHub login the App is installed on. */
+  account: string;
+  type: "User" | "Organization" | string;
 }

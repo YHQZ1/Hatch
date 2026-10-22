@@ -11,10 +11,14 @@ import (
 type PublicConfigHandler struct {
 	baseDomain          string
 	deploymentURLScheme string
+	webhooks            bool
 }
 
-func NewPublicConfigHandler(baseDomain, deploymentURLScheme string) *PublicConfigHandler {
-	return &PublicConfigHandler{baseDomain: baseDomain, deploymentURLScheme: deploymentURLScheme}
+// NewPublicConfigHandler serves the settings the UI needs before sign-in.
+// webhooks says whether the GitHub App's webhook is set up on this server, which
+// decides whether "deploy on every push" can work at all.
+func NewPublicConfigHandler(baseDomain, deploymentURLScheme string, webhooks bool) *PublicConfigHandler {
+	return &PublicConfigHandler{baseDomain: baseDomain, deploymentURLScheme: deploymentURLScheme, webhooks: webhooks}
 }
 
 func (h *PublicConfigHandler) Get(c *gin.Context) {
@@ -22,5 +26,6 @@ func (h *PublicConfigHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"base_domain":           h.baseDomain,
 		"deployment_url_scheme": h.deploymentURLScheme,
+		"webhooks":              h.webhooks,
 	})
 }

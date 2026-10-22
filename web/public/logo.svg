@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 4 52 52" fill="none" stroke-linecap="round" stroke-linejoin="round" role="img">
+  <title>Hatch</title>
+  <g transform="translate(32 32) scale(.9) translate(-32 -31)" stroke-width="2.4">
+    <path d="M13 29l9.5 5L32 29l9.5 5L51 29v7l-9.5 5L32 36l-9.5 5L13 36Z" fill="#c4b5fd" stroke="#c4b5fd"/>
+    <path d="M13 36l9.5 5L32 36l9.5 5L51 36v8L32 55 13 44ZM32 40v15" stroke="#fff"/>
+    <path d="M13 29V15L32 4l19 11v14l-9.5 5L32 29l-9.5 5ZM13 15l19 11 19-11M32 4v22" stroke="#fff"/>
+  </g>
+</svg>

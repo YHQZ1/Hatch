@@ -5,7 +5,6 @@
 package db
 
 import (
-	"database/sql"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,72 +19,91 @@ type ActivityLog struct {
 }
 
 type Deployment struct {
-	ID             uuid.UUID      `json:"id"`
-	ProjectID      uuid.UUID      `json:"project_id"`
-	Branch         string         `json:"branch"`
-	Status         string         `json:"status"`
-	Cpu            int32          `json:"cpu"`
-	MemoryMb       int32          `json:"memory_mb"`
-	Port           int32          `json:"port"`
-	HealthCheck    string         `json:"health_check"`
-	ImageUri       sql.NullString `json:"image_uri"`
-	EcsTaskArn     sql.NullString `json:"ecs_task_arn"`
-	Subdomain      sql.NullString `json:"subdomain"`
-	Url            sql.NullString `json:"url"`
-	CreatedAt      time.Time      `json:"created_at"`
-	DeployedAt     sql.NullTime   `json:"deployed_at"`
-	CommitSha      sql.NullString `json:"commit_sha"`
-	CommitMessage  sql.NullString `json:"commit_message"`
-	EcsServiceName sql.NullString `json:"ecs_service_name"`
-	TargetGroupArn sql.NullString `json:"target_group_arn"`
-	ErrorStage     sql.NullString `json:"error_stage"`
-	ErrorMessage   sql.NullString `json:"error_message"`
-	FailedAt       sql.NullTime   `json:"failed_at"`
+	ID             uuid.UUID  `json:"id"`
+	ProjectID      uuid.UUID  `json:"project_id"`
+	Branch         string     `json:"branch"`
+	Status         string     `json:"status"`
+	Cpu            int32      `json:"cpu"`
+	MemoryMb       int32      `json:"memory_mb"`
+	Port           int32      `json:"port"`
+	HealthCheck    string     `json:"health_check"`
+	ImageUri       *string    `json:"image_uri"`
+	EcsTaskArn     *string    `json:"ecs_task_arn"`
+	Subdomain      *string    `json:"subdomain"`
+	Url            *string    `json:"url"`
+	CreatedAt      time.Time  `json:"created_at"`
+	DeployedAt     *time.Time `json:"deployed_at"`
+	CommitSha      *string    `json:"commit_sha"`
+	CommitMessage  *string    `json:"commit_message"`
+	EcsServiceName *string    `json:"ecs_service_name"`
+	TargetGroupArn *string    `json:"target_group_arn"`
+	ErrorStage     *string    `json:"error_stage"`
+	ErrorMessage   *string    `json:"error_message"`
+	FailedAt       *time.Time `json:"failed_at"`
+	LogSeq         int64      `json:"log_seq"`
+}
+
+type DeploymentLog struct {
+	DeploymentID uuid.UUID `json:"deployment_id"`
+	Seq          int64     `json:"seq"`
+	Line         string    `json:"line"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type EnvVar struct {
-	ID           uuid.UUID      `json:"id"`
-	DeploymentID uuid.UUID      `json:"deployment_id"`
-	Key          string         `json:"key"`
-	Value        string         `json:"value"`
-	SecretArn    sql.NullString `json:"secret_arn"`
-	CreatedAt    time.Time      `json:"created_at"`
+	ID           uuid.UUID `json:"id"`
+	DeploymentID uuid.UUID `json:"deployment_id"`
+	Key          string    `json:"key"`
+	Value        string    `json:"value"`
+	SecretArn    *string   `json:"secret_arn"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type Project struct {
-	ID                uuid.UUID      `json:"id"`
-	UserID            uuid.UUID      `json:"user_id"`
-	RepoName          string         `json:"repo_name"`
-	RepoUrl           string         `json:"repo_url"`
-	WebhookSecret     sql.NullString `json:"webhook_secret"`
-	GithubWebhookID   sql.NullInt64  `json:"github_webhook_id"`
-	AutoDeploy        bool           `json:"auto_deploy"`
-	Branch            string         `json:"branch"`
-	DockerfilePath    string         `json:"dockerfile_path"`
-	Port              int32          `json:"port"`
-	Subdomain         sql.NullString `json:"subdomain"`
-	Status            string         `json:"status"`
-	DeleteRequestedAt sql.NullTime   `json:"delete_requested_at"`
-	DeleteError       sql.NullString `json:"delete_error"`
-	CreatedAt         time.Time      `json:"created_at"`
+	ID                uuid.UUID  `json:"id"`
+	UserID            uuid.UUID  `json:"user_id"`
+	RepoName          string     `json:"repo_name"`
+	RepoUrl           string     `json:"repo_url"`
+	AutoDeploy        bool       `json:"auto_deploy"`
+	Branch            string     `json:"branch"`
+	DockerfilePath    string     `json:"dockerfile_path"`
+	Port              int32      `json:"port"`
+	Subdomain         *string    `json:"subdomain"`
+	Status            string     `json:"status"`
+	DeleteRequestedAt *time.Time `json:"delete_requested_at"`
+	DeleteError       *string    `json:"delete_error"`
+	CreatedAt         time.Time  `json:"created_at"`
+	HealthCheck       string     `json:"health_check"`
 }
 
 type ProjectEnvVar struct {
-	ID        uuid.UUID      `json:"id"`
-	ProjectID uuid.UUID      `json:"project_id"`
-	Key       string         `json:"key"`
-	Value     string         `json:"value"`
-	SecretArn sql.NullString `json:"secret_arn"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	ID        uuid.UUID `json:"id"`
+	ProjectID uuid.UUID `json:"project_id"`
+	Key       string    `json:"key"`
+	Value     string    `json:"value"`
+	SecretArn *string   `json:"secret_arn"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type Session struct {
+	ID         uuid.UUID `json:"id"`
+	UserID     uuid.UUID `json:"user_id"`
+	TokenHash  []byte    `json:"token_hash"`
+	CreatedAt  time.Time `json:"created_at"`
+	LastSeenAt time.Time `json:"last_seen_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
 }
 
 type User struct {
-	ID             uuid.UUID `json:"id"`
-	GithubID       int64     `json:"github_id"`
-	GithubUsername string    `json:"github_username"`
-	AccessToken    string    `json:"access_token"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID                    uuid.UUID  `json:"id"`
+	GithubID              int64      `json:"github_id"`
+	GithubUsername        string     `json:"github_username"`
+	AccessToken           string     `json:"access_token"`
+	CreatedAt             time.Time  `json:"created_at"`
+	RefreshToken          *string    `json:"refresh_token"`
+	AccessTokenExpiresAt  *time.Time `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt *time.Time `json:"refresh_token_expires_at"`
 }
 
 type WebhookDelivery struct {

@@ -37,7 +37,7 @@ func TestServesIndexAtRoot(t *testing.T) {
 }
 
 func TestClientRouteFallsBackToIndex(t *testing.T) {
-	for _, target := range []string{"/console", "/projects/abc/settings", "/auth/success", "/missing.png"} {
+	for _, target := range []string{"/overview", "/projects/abc/settings", "/auth/success", "/missing.png"} {
 		rec := serve(t, Handler(testFS()), http.MethodGet, target)
 		if rec.Code != http.StatusOK || rec.Body.String() != "<html>app</html>" {
 			t.Fatalf("%s: got %d %q", target, rec.Code, rec.Body.String())
@@ -46,7 +46,7 @@ func TestClientRouteFallsBackToIndex(t *testing.T) {
 }
 
 func TestIndexResponsesCarrySecurityHeaders(t *testing.T) {
-	rec := serve(t, Handler(testFS()), http.MethodGet, "/console")
+	rec := serve(t, Handler(testFS()), http.MethodGet, "/overview")
 	for header, want := range map[string]string{
 		"X-Content-Type-Options": "nosniff",
 		"X-Frame-Options":        "DENY",
@@ -89,8 +89,8 @@ func TestOtherFilesAreServedWithoutLongCaching(t *testing.T) {
 	}
 }
 
-func TestUnknownAPIAndWebSocketPathsGetJSON404(t *testing.T) {
-	for _, target := range []string{"/api/nope", "/api/", "/ws/deployments/1"} {
+func TestUnknownAPIPathsGetJSON404(t *testing.T) {
+	for _, target := range []string{"/api/nope", "/api/", "/api/deployments/1/logs/stream-nope"} {
 		rec := serve(t, Handler(testFS()), http.MethodGet, target)
 		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `"error"`) {
 			t.Fatalf("%s: got %d %q", target, rec.Code, rec.Body.String())
@@ -102,14 +102,14 @@ func TestUnknownAPIAndWebSocketPathsGetJSON404(t *testing.T) {
 }
 
 func TestNonGetRequestsGet404(t *testing.T) {
-	rec := serve(t, Handler(testFS()), http.MethodPost, "/console")
+	rec := serve(t, Handler(testFS()), http.MethodPost, "/overview")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("POST got %d", rec.Code)
 	}
 }
 
 func TestHeadRequestHasNoBody(t *testing.T) {
-	rec := serve(t, Handler(testFS()), http.MethodHead, "/console")
+	rec := serve(t, Handler(testFS()), http.MethodHead, "/overview")
 	if rec.Code != http.StatusOK || rec.Body.Len() != 0 {
 		t.Fatalf("HEAD got %d with %d body bytes", rec.Code, rec.Body.Len())
 	}

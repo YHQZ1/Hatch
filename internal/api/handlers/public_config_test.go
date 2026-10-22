@@ -12,19 +12,31 @@ import (
 func TestPublicConfigReturnsDeploymentSettings(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/api/config", NewPublicConfigHandler("apps.example.com", "https").Get)
+	r.GET("/api/config", NewPublicConfigHandler("apps.example.com", "https", false).Get)
+	r.GET("/api/config-with-webhooks", NewPublicConfigHandler("apps.example.com", "https", true).Get)
 
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	get := func(path string) map[string]any {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d", rec.Code)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	var got map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
+	got := get("/api/config")
 	if got["base_domain"] != "apps.example.com" || got["deployment_url_scheme"] != "https" {
 		t.Fatalf("body = %v", got)
+	}
+	// Whether a push can deploy a project depends on the server, so the UI is told.
+	if got["webhooks"] != false {
+		t.Errorf("webhooks = %v, want false when the App's webhook is not set up", got["webhooks"])
+	}
+	if get("/api/config-with-webhooks")["webhooks"] != true {
+		t.Error("webhooks is not true when the App's webhook is set up")
 	}
 }

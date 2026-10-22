@@ -5,6 +5,23 @@
   --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo,
     monospace;
 
+  --color-accent: #c4b5fd;
+  --color-accent-hover: #d8ccff;
+  --color-accent-ink: #1b1233;
+  --color-ink: #ffffff;
+  --color-base: #0b0b0e;
+  --color-panel: #111115;
+  --color-tint: #14101f;
+  --color-line: #25252c;
+  --color-line-strong: #34343d;
+  --color-muted: #8b8b95;
+  --color-faint: #5c5c66;
+  --color-danger: #fca5a5;
+  --color-success: #5cc98f;
+  --color-warning: #d8ad4f;
+
+  --radius-hatch: 2px;
+
   --animate-loading-bar: loading-bar 2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
   --animate-progress: progress linear infinite;
 
@@ -14,6 +31,43 @@
     }
     100% {
       transform: translateX(100%);
+    }
+  }
+
+  --animate-marquee: marquee 50s linear infinite;
+  --animate-sweep: sweep 7s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  --animate-rise: rise 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-blink: blink 1.1s steps(1) infinite;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes marquee {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  @keyframes sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100vw);
+    }
+  }
+
+  @keyframes blink {
+    50% {
+      opacity: 0;
     }
   }
 
@@ -35,9 +89,17 @@
   --hatch-text-muted: #888888;
 }
 
+/* Tailwind's reset gives buttons the default arrow; clickable things get a hand. */
+a[href],
+button:not(:disabled),
+[role="button"],
+summary {
+  cursor: pointer;
+}
+
 body {
-  background-color: #000000;
-  color: #ffffff;
+  background-color: var(--color-base);
+  color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
 }
@@ -57,6 +119,14 @@ body {
 
 .hatch-toast-enter {
   animation: hatch-toast-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/*
+ * A spinner for a page that is still loading appears only after a beat, so a
+ * load that takes 50ms never flashes one.
+ */
+.delayed-appear {
+  animation: hatch-modal-fade 200ms ease-out 250ms both;
 }
 
 @keyframes hatch-modal-fade {
@@ -91,6 +161,331 @@ body {
 }
 
 ::selection {
-  background: #ffffff;
-  color: #000000;
+  background: #c4b5fd;
+  color: #1b1233;
+}
+
+/*
+ * The landing page's light theme. Dark is the default (the values in @theme);
+ * the page wrapper carries data-theme and the tokens below replace them.
+ */
+[data-theme="light"] {
+  --color-ink: #0d0d12;
+  --color-base: #eeeef1;
+  --color-panel: #e6e6eb;
+  --color-tint: #e7e3f4;
+  --color-line: #d8d8df;
+  --color-line-strong: #c5c5cf;
+  --color-muted: #5a5a67;
+  --color-faint: #84848f;
+  --color-danger: #b42318;
+  --color-success: #1a7f4b;
+  --color-warning: #9a6a00;
+  --color-accent: #6d4fe0;
+  --color-accent-hover: #5a3ecb;
+  --color-accent-ink: #ffffff;
+}
+
+/* The logo (components/Logo, drawn from public/hatch.svg) uses two colours: white
+   lines and a lavender glow. Here each follows the theme, so the lines are the
+   text colour and the glow is the accent: unchanged on dark, and dark lines with
+   the light theme's purple on light. If the file's colours change, change the
+   selectors and components/logoColours.ts to match; a colour nothing matches is
+   simply drawn as the file has it. */
+.hatch-logo [stroke="#fff"] {
+  stroke: var(--color-ink);
+}
+.hatch-logo [stroke="#c4b5fd"] {
+  stroke: var(--color-accent);
+}
+.hatch-logo [fill="#c4b5fd"] {
+  fill: var(--color-accent);
+}
+
+/* Circular theme switch: the new theme is revealed by an expanding circle. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* Colour transitions would lag behind the circle, so pause them while it runs. */
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+}
+
+/* Elements that ease in as they scroll into view (see landing/Reveal). */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 700ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reveal[data-visible="true"] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Fine square grid behind hero and call-to-action bands. */
+.bg-line-grid {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cpath d='M64 0H0V64' fill='none' stroke='white' stroke-opacity='0.055'/%3E%3C/svg%3E");
+}
+
+[data-theme="light"] .bg-line-grid {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cpath d='M64 0H0V64' fill='none' stroke='black' stroke-opacity='0.06'/%3E%3C/svg%3E");
+}
+
+/*
+ * The sign-in page's 3D scene: a floor of grid lines seen in perspective that
+ * slides toward the viewer, with wireframe cubes riding along it at the same
+ * speed. Opacity is animated on the faces, not on the cubes, because opacity on
+ * an element that has 3D children flattens them.
+ */
+.scene {
+  perspective: 2000px;
+  perspective-origin: 50% 0;
+}
+
+.floor {
+  position: absolute;
+  top: 0;
+  right: -90%;
+  left: -90%;
+  height: 2000px;
+  transform-origin: 50% 0;
+  transform: rotateX(78deg);
+  transform-style: preserve-3d;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cpath d='M96 0H0V96' fill='none' stroke='white' stroke-opacity='0.2'/%3E%3C/svg%3E");
+  background-size: 96px 96px;
+  animation: floor-slide 2s linear infinite;
+}
+
+[data-theme="light"] .floor {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cpath d='M96 0H0V96' fill='none' stroke='black' stroke-opacity='0.16'/%3E%3C/svg%3E");
+}
+
+@keyframes floor-slide {
+  to {
+    background-position: 0 96px;
+  }
+}
+
+.mover {
+  position: absolute;
+  top: 0;
+  transform-style: preserve-3d;
+  animation: cube-run 28s linear infinite;
+  animation-delay: var(--delay);
+}
+
+/* The grid moves 48px a second, so the cubes do too: 1344px in 28 seconds. */
+@keyframes cube-run {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(1344px);
+  }
+}
+
+.cube {
+  position: relative;
+  width: var(--s);
+  height: var(--s);
+  transform-style: preserve-3d;
+  transform: translateZ(calc(var(--s) / 2));
+}
+
+.face {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--face-line, color-mix(in oklab, var(--color-ink) 32%, transparent));
+  background: var(--face-fill, color-mix(in oklab, var(--color-base) 82%, transparent));
+  animation: cube-fade 28s linear infinite;
+  animation-delay: var(--delay);
+}
+
+.face-top {
+  transform: translateZ(calc(var(--s) / 2));
+}
+.face-n {
+  transform: rotateX(90deg) translateZ(calc(var(--s) / 2));
+}
+.face-s {
+  transform: rotateX(-90deg) translateZ(calc(var(--s) / 2));
+}
+.face-e {
+  transform: rotateY(90deg) translateZ(calc(var(--s) / 2));
+}
+.face-w {
+  transform: rotateY(-90deg) translateZ(calc(var(--s) / 2));
+}
+
+.cube-accent {
+  --face-line: var(--color-accent);
+  --face-fill: color-mix(in oklab, var(--color-accent) 20%, var(--color-base));
+}
+
+@keyframes cube-fade {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  12%,
+  82% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floor {
+    animation: none;
+  }
+
+  .mover {
+    animation: none;
+    transform: translateY(var(--rest));
+  }
+
+  .face {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .delayed-appear,
+  .animate-rise,
+  .animate-blink,
+  .animate-sweep {
+    animation: none;
+  }
+
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/*
+ * Auth success, "the hatch opens": a wireframe cube whose lid hinges open on
+ * its back edge once the session is confirmed. Lines and flat fills only.
+ */
+.hx-stage {
+  perspective: 1400px;
+}
+
+.hx-cube {
+  --s: 168px;
+  position: relative;
+  width: var(--s);
+  height: var(--s);
+  transform-style: preserve-3d;
+  transform: rotateX(-26deg) rotateY(-34deg);
+}
+
+.hx-face {
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in oklab, var(--color-ink) 34%, transparent);
+  background: color-mix(in oklab, var(--color-base) 88%, transparent);
+  transition:
+    border-color 600ms,
+    background-color 600ms;
+}
+
+.hx-front {
+  transform: translateZ(calc(var(--s) / 2));
+}
+.hx-back {
+  transform: rotateY(180deg) translateZ(calc(var(--s) / 2));
+}
+.hx-left {
+  transform: rotateY(-90deg) translateZ(calc(var(--s) / 2));
+}
+.hx-right {
+  transform: rotateY(90deg) translateZ(calc(var(--s) / 2));
+}
+.hx-bottom {
+  transform: rotateX(-90deg) translateZ(calc(var(--s) / 2));
+}
+
+/* What the open lid reveals: a flat accent floor inside the box. */
+.hx-inner {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--color-accent);
+  background: color-mix(in oklab, var(--color-accent) 30%, var(--color-base));
+  opacity: 0;
+  transform: rotateX(90deg) translateZ(calc(var(--s) / 2 - 2px));
+  transition: opacity 600ms 300ms;
+}
+
+.hx-lid {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 0;
+  transform: translateZ(calc(var(--s) / -2)) rotateX(90deg);
+  transition: transform 1100ms cubic-bezier(0.34, 1.3, 0.5, 1) 350ms;
+}
+
+.hx-lid .hx-face {
+  inset: 0;
+}
+
+.hx-cube[data-open="true"] .hx-lid {
+  transform: translateZ(calc(var(--s) / -2)) rotateX(196deg);
+}
+
+.hx-cube[data-open="true"] .hx-lid .hx-face,
+.hx-cube[data-open="true"] .hx-face:not(.hx-bottom) {
+  border-color: var(--color-accent);
+}
+
+.hx-cube[data-open="true"] .hx-inner {
+  opacity: 1;
+}
+
+/* Square outlines that rise out of the open box and fade. */
+.hx-ring {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--color-accent);
+  opacity: 0;
+  transform: rotateX(90deg);
+}
+
+.hx-cube[data-open="true"] .hx-ring {
+  animation: hx-rise 2.4s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+  animation-delay: calc(1.2s + var(--i) * 0.6s);
+}
+
+@keyframes hx-rise {
+  0% {
+    opacity: 0;
+    transform: translateZ(calc(var(--s) / 2)) rotateX(90deg) translateZ(0) scale(0.9);
+  }
+  15% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(calc(var(--s) * -1.7)) rotateX(90deg) scale(0.9);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hx-lid,
+  .hx-inner,
+  .hx-face {
+    transition: none;
+  }
+
+  .hx-ring {
+    animation: none !important;
+  }
 }

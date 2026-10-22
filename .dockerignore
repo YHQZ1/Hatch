@@ -20,3 +20,5 @@ bin
 
 # Not needed to build the image
 docs
+# Private keys never belong in an image.
+**/*.pem

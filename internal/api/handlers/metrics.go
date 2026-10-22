@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 	"math"
 	"net/http"
@@ -17,6 +16,7 @@ import (
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type MetricsHandler struct {
@@ -53,7 +53,7 @@ type projectMetricsResponse struct {
 	Summary   metricSummary `json:"summary"`
 }
 
-func NewMetricsHandler(db *sql.DB, awsRegion, ecsClusterName, albListenerARN, albARN string) *MetricsHandler {
+func NewMetricsHandler(pool *pgxpool.Pool, awsRegion, ecsClusterName, albListenerARN, albARN string) *MetricsHandler {
 	if awsRegion == "" {
 		awsRegion = "ap-south-1"
 	}
@@ -64,7 +64,7 @@ func NewMetricsHandler(db *sql.DB, awsRegion, ecsClusterName, albListenerARN, al
 	}
 
 	return &MetricsHandler{
-		queries:        dbpkg.New(db),
+		queries:        dbpkg.New(pool),
 		cloudwatch:     cloudwatch.NewFromConfig(cfg),
 		awsRegion:      awsRegion,
 		ecsClusterName: ecsClusterName,
@@ -148,8 +148,8 @@ func (h *MetricsHandler) fetchProjectMetrics(ctx context.Context, deployment dbp
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 
-	serviceName := deployment.EcsServiceName.String
-	targetGroup := targetGroupDimension(deployment.TargetGroupArn.String)
+	serviceName := derefString(deployment.EcsServiceName)
+	targetGroup := targetGroupDimension(derefString(deployment.TargetGroupArn))
 	queries := []cwtypes.MetricDataQuery{
 		metricQuery("cpu", "AWS/ECS", "CPUUtilization", "Average", period, []cwtypes.Dimension{
 			{Name: aws.String("ClusterName"), Value: aws.String(h.ecsClusterName)},
@@ -282,7 +282,7 @@ func latestObservableDeployment(deployments []dbpkg.Deployment) (dbpkg.Deploymen
 		return deployments[i].CreatedAt.After(deployments[j].CreatedAt)
 	})
 	for _, deployment := range deployments {
-		if deployment.EcsServiceName.Valid && deployment.TargetGroupArn.Valid {
+		if deployment.EcsServiceName != nil && deployment.TargetGroupArn != nil {
 			return deployment, true
 		}
 	}

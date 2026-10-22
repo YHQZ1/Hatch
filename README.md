@@ -38,8 +38,8 @@ The prototype runs the full flow on AWS:
 
 - Sign in with GitHub, browse your repositories, and detect the Dockerfile and
   exposed port.
-- Create a project; Hatch registers a GitHub webhook so pushes redeploy
-  automatically.
+- Create a project; with the GitHub App's webhook set up, pushes to its branch
+  redeploy it automatically.
 - Build the Dockerfile, push the image to ECR, and run it on ECS Fargate behind
   a shared Application Load Balancer, with a subdomain per project.
 - Stream build and deploy logs to the browser live, and cancel a deployment at
@@ -56,25 +56,27 @@ Known problems, including the ones the rebuild exists to fix, are listed in
 ## How the prototype works
 
 ```text
-Browser ── REST + WebSocket ──▶ API (Go, Gin)
-                                 │  GitHub OAuth, sessions, projects, webhooks
+Browser ── REST + server-sent events ──▶ API (Go, Gin)
+                                 │  GitHub App sign-in, sessions, projects, webhooks
                                  │
-                                 ▼  RabbitMQ: hatch.build.jobs
-                               Builder (Go)
+                                 ▼  job "build" (River, in Postgres)
+                               Build job
                                  │  git clone → docker build → push to ECR
                                  │
-                                 ▼  RabbitMQ: hatch.deploy.jobs
-                               Deployer (Go)
+                                 ▼  job "deploy"
+                               Deploy job
                                     task definition → target group →
                                     host-based ALB rule → ECS service →
                                     wait until healthy
 
-Logs:  builder / deployer → Redis → API WebSocket hub → browser
-Data:  PostgreSQL (sqlc queries, migrations embedded in the binary)
+Logs:  build / deploy jobs → Postgres (deployment_logs, NOTIFY) → API log stream (SSE) → browser
+Data:  PostgreSQL (sqlc queries on pgx, jobs on River, migrations embedded in the binary)
 ```
 
-The API also sends project cleanup and suspend/resume jobs to the deployer
-through `hatch.cleanup.jobs` and `hatch.service.jobs`.
+Deleting, suspending, and resuming a project are jobs too (`destroy_app`,
+`scale`). Each job is queued in the same database transaction as the change that
+causes it. `hatch serve` runs the API and the job runner together; `hatch worker`
+runs only the job runner.
 
 ## Where it is going
 
@@ -91,18 +93,17 @@ and tested without AWS. Details are in the
 You need Go 1.27 (an older Go downloads it automatically), Node.js 24 (set by
 `engines` in `web/package.json`), [pnpm](https://pnpm.io/installation) (it
 switches itself to the version pinned in `web/package.json`), Docker, and a
-[GitHub OAuth app](https://github.com/settings/developers) with the callback
-URL `http://localhost:8080/auth/callback`.
+GitHub App for sign-in; [setting one up](docs/07-github-app-setup.md) takes a
+few minutes.
 
 ```bash
 git clone https://github.com/YHQZ1/Hatch.git && cd Hatch
 (cd web && pnpm install)
 
-# Configuration: fill in the GitHub OAuth values, JWT_SECRET, and
-# DATA_ENCRYPTION_KEY. Every hatch command reads this one file.
+# Configuration: fill in the GitHub App values and DATA_ENCRYPTION_KEY. Every hatch command reads this one file.
 cp .env.example .env
 
-make infra     # Postgres, Redis, and RabbitMQ in Docker
+make infra     # Postgres in Docker
 make migrate   # apply database migrations (hatch migrate)
 make dev       # run hatch serve and the Vite dev server
 ```
@@ -115,18 +116,25 @@ To run the single binary instead, `make build` builds the web UI into
 `bin/hatch`, and `bin/hatch serve` then serves the UI and the API together on
 port 8080.
 
-Signing in, browsing repositories, and creating projects work with only the
-local services. Building and deploying need an AWS account with an ECR
-repository, an ECS cluster, and an ALB, set in `.env`. The rebuild removes
-that requirement for local development.
+By default Hatch uses the **local target** (`HATCH_TARGET=local`): it clones a
+repository, builds its Dockerfile with this machine's Docker, runs the image as
+a container, and serves it at `http://<name>.localhost:8081` through a reverse
+proxy built into `hatch serve`. It needs Docker running and no AWS account.
+Deploying a repository still needs the GitHub App installed on it, because the
+build clones with the App's installation token.
+
+`HATCH_TARGET=aws` keeps the old hosted path, which needs an AWS account with an
+ECR repository, an ECS cluster, and an ALB, set in `.env`.
 
 ## Repository layout
 
 ```text
 cmd/hatch          the hatch binary: `serve`, `worker`, and `migrate` commands
-internal/api       REST API, GitHub OAuth and webhooks, WebSocket log hub
-internal/build     cloning, building, and pushing images
-internal/runtime   ECS services and ALB routing
+internal/api       REST API, GitHub OAuth and webhooks, the log stream (SSE)
+internal/build     cloning, building, and pushing images (Docker, ECR)
+internal/runtime   running apps: local Docker containers, or ECS services and ALB routing
+internal/proxy     the built-in reverse proxy for <name>.localhost
+internal/jobs      the background jobs (build, deploy, delete, pause and resume)
 internal/store     database access (sqlc) and migrations
 internal/config    configuration loading
 internal/secrets   encryption at rest

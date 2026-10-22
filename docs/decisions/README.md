@@ -23,6 +23,8 @@ reversed; do not rewrite history in old records, mark them superseded instead.
 | [0015](0015-v1-runs-web-services-only.md) | v1 runs web services only | Accepted |
 | [0016](0016-pnpm-for-the-web-app.md) | pnpm for the web app | Accepted |
 | [0017](0017-structured-logging-with-slog.md) | Structured logging with log/slog | Accepted |
+| [0018](0018-built-in-proxy-for-the-local-target.md) | A built-in reverse proxy for the local target; Caddy later | Accepted |
+| [0019](0019-rollback-runs-a-kept-image-again.md) | Rollback runs a kept image again | Accepted |
 
 Template:
 

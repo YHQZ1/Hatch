@@ -4,36 +4,43 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 
-	"github.com/YHQZ1/hatch/internal/api/queue"
+	"github.com/YHQZ1/hatch/internal/jobs"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// WebhookHandler receives the GitHub App's webhook (ADR 0010). GitHub sends one
+// delivery per event for every repository the App is installed on, signed with
+// the secret set on the App; there is no hook, and no secret, per project.
 type WebhookHandler struct {
-	queries   *dbpkg.Queries
-	db        *sql.DB
-	publisher *queue.Publisher
-	secrets   *secrets.Codec
+	queries *dbpkg.Queries
+	pool    *pgxpool.Pool
+	jobs    jobs.Inserter
+	secrets *secrets.Codec
+	// secret is the App's webhook secret. Without one nothing can be verified,
+	// so every delivery is refused.
+	secret string
 }
 
-func NewWebhookHandler(db *sql.DB, publisher *queue.Publisher, secretCodec *secrets.Codec) *WebhookHandler {
+func NewWebhookHandler(pool *pgxpool.Pool, inserter jobs.Inserter, secretCodec *secrets.Codec, appSecret string) *WebhookHandler {
 	return &WebhookHandler{
-		queries:   dbpkg.New(db),
-		db:        db,
-		publisher: publisher,
-		secrets:   secretCodec,
+		queries: dbpkg.New(pool),
+		pool:    pool,
+		jobs:    inserter,
+		secrets: secretCodec,
+		secret:  appSecret,
 	}
 }
 
@@ -73,18 +80,18 @@ type githubPushEvent struct {
 	} `json:"head_commit"`
 }
 
-const maxWebhookBodyBytes = 1 << 20
+// maxWebhookBodyBytes bounds a delivery. A push lists at most a few commits, so
+// real ones are far smaller.
+const maxWebhookBodyBytes = 5 << 20
 
-func (h *WebhookHandler) HandlePush(c *gin.Context) {
-	if c.GetHeader("X-GitHub-Event") != "push" {
-		c.Status(http.StatusNoContent)
-		return
-	}
-
-	signature := strings.TrimSpace(c.GetHeader("X-Hub-Signature-256"))
-	deliveryID := strings.TrimSpace(c.GetHeader("X-GitHub-Delivery"))
-	if signature == "" || deliveryID == "" || len(deliveryID) > 128 {
-		c.Status(http.StatusUnauthorized)
+// HandleGitHub is POST /api/webhooks/github, the URL the GitHub App's webhook
+// points at. It checks the signature before anything else, so an unsigned
+// request learns nothing, then answers a ping, queues a deployment for every
+// project that follows the pushed branch, and ignores other events.
+func (h *WebhookHandler) HandleGitHub(c *gin.Context) {
+	ctx := c.Request.Context()
+	if h.secret == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "webhooks are not set up on this Hatch server"})
 		return
 	}
 
@@ -100,201 +107,174 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		return
 	}
 
+	if !verifySignature(body, h.secret, strings.TrimSpace(c.GetHeader("X-Hub-Signature-256"))) {
+		slog.WarnContext(ctx, "a webhook delivery was refused: bad or missing signature", "alert", "security")
+		c.Status(http.StatusUnauthorized)
+		return
+	}
+
+	switch c.GetHeader("X-GitHub-Event") {
+	case "ping":
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	case "push":
+		h.handlePush(c, body)
+	default:
+		c.Status(http.StatusNoContent)
+	}
+}
+
+func (h *WebhookHandler) handlePush(c *gin.Context, body []byte) {
+	ctx := c.Request.Context()
+	deliveryID := strings.TrimSpace(c.GetHeader("X-GitHub-Delivery"))
+	if deliveryID == "" || len(deliveryID) > 128 {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
 	var payload githubPushEvent
 	if err := json.Unmarshal(body, &payload); err != nil {
 		c.Status(http.StatusBadRequest)
 		return
 	}
-
-	if payload.Deleted {
+	// Deleting a branch, and tags, deploy nothing.
+	if payload.Deleted || !strings.HasPrefix(payload.Ref, "refs/heads/") {
 		c.Status(http.StatusNoContent)
 		return
 	}
-
 	repoURL, err := normalizeGitHubRepoURL(payload.Repository.HTMLURL)
 	if err != nil {
 		c.Status(http.StatusBadRequest)
 		return
 	}
 
-	projects, err := h.queries.GetProjectsByRepoURL(c.Request.Context(), repoURL)
+	projects, err := h.queries.GetProjectsByRepoURL(ctx, repoURL)
 	if err != nil {
-		c.Status(http.StatusAccepted)
+		slog.ErrorContext(ctx, "could not look up the projects of a pushed repository", "repo_url", repoURL, "error", err)
+		c.Status(http.StatusInternalServerError)
 		return
 	}
 
-	project, ok := h.matchWebhookProject(c.Request.Context(), projects, body, signature)
-	if !ok {
-		slog.WarnContext(c.Request.Context(), "no webhook signature matched", "alert", "security", "repo_url", repoURL)
-		c.Status(http.StatusUnauthorized)
-		return
+	// One push can deploy several projects built from the same repository. Each
+	// gets its own transaction, so one that fails does not stop the others.
+	var deployed []string
+	failed := 0
+	for _, project := range projects {
+		if !project.AutoDeploy || (project.Status != "" && project.Status != "active") {
+			continue
+		}
+		if payload.Ref != "refs/heads/"+project.Branch {
+			continue
+		}
+		id, err := h.queuePushDeployment(ctx, project, payload, deliveryID)
+		switch {
+		case err != nil:
+			failed++
+			slog.ErrorContext(ctx, "could not queue the deployment of a push", "project_id", project.ID, "error", err)
+		case id != uuid.Nil:
+			deployed = append(deployed, id.String())
+		}
 	}
 
-	if !project.AutoDeploy {
+	if failed > 0 && len(deployed) == 0 {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	if len(deployed) == 0 {
 		c.Status(http.StatusNoContent)
 		return
 	}
-	if project.Status != "" && project.Status != "active" {
-		c.Status(http.StatusNoContent)
-		return
-	}
+	c.JSON(http.StatusAccepted, gin.H{"status": "deploying", "deployments": deployed})
+}
 
-	targetRef := fmt.Sprintf("refs/heads/%s", project.Branch)
-	if payload.Ref != targetRef {
-		c.Status(http.StatusNoContent)
-		return
-	}
-
+// queuePushDeployment starts a deployment of the project for a push, unless this
+// delivery was already handled for it or the project is already deploying. It
+// returns the new deployment's id, or uuid.Nil when it deliberately did nothing.
+func (h *WebhookHandler) queuePushDeployment(ctx context.Context, project dbpkg.Project, payload githubPushEvent, deliveryID string) (uuid.UUID, error) {
 	resourceName := project.ID.String()[:8]
-	if project.Subdomain.Valid && project.Subdomain.String != "" {
-		resourceName = project.Subdomain.String
+	if project.Subdomain != nil && *project.Subdomain != "" {
+		resourceName = *project.Subdomain
 	}
-	healthCheck := h.latestHealthCheck(c.Request.Context(), project.ID)
-
-	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	healthCheck, err := effectiveHealthCheck("", project.HealthCheck)
 	if err != nil {
-		c.Status(http.StatusInternalServerError)
-		return
+		healthCheck = "/"
 	}
-	defer tx.Rollback()
 
-	_, _ = tx.ExecContext(
-		c.Request.Context(),
-		"DELETE FROM webhook_deliveries WHERE project_id = $1 AND created_at < now() - interval '30 days'",
-		project.ID,
-	)
-	var storedDeliveryID string
-	err = tx.QueryRowContext(
-		c.Request.Context(),
-		`
-			INSERT INTO webhook_deliveries (project_id, delivery_id)
-			VALUES ($1, $2)
-			ON CONFLICT DO NOTHING
-			RETURNING delivery_id`,
-		project.ID,
-		deliveryID,
-	).Scan(&storedDeliveryID)
-	if errors.Is(err, sql.ErrNoRows) {
-		c.JSON(http.StatusAccepted, gin.H{"status": "delivery already processed"})
-		return
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Deliveries are remembered for 30 days, so GitHub redelivering one (or a retry
+	// by hand) does not deploy twice.
+	_, _ = tx.Exec(ctx, "DELETE FROM webhook_deliveries WHERE project_id = $1 AND created_at < now() - interval '30 days'", project.ID)
+	var stored string
+	err = tx.QueryRow(ctx, `
+		INSERT INTO webhook_deliveries (project_id, delivery_id)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+		RETURNING delivery_id`, project.ID, deliveryID).Scan(&stored)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, nil
 	}
 	if err != nil {
-		c.Status(http.StatusInternalServerError)
-		return
+		return uuid.Nil, err
 	}
 
 	qtx := h.queries.WithTx(tx)
-	deployment, err := qtx.CreateDeployment(c.Request.Context(), dbpkg.CreateDeploymentParams{
+	deployment, err := qtx.CreateDeployment(ctx, dbpkg.CreateDeploymentParams{
 		ProjectID:     project.ID,
 		Branch:        project.Branch,
 		Cpu:           defaultDeploymentCPU,
 		MemoryMb:      defaultDeploymentMemoryMB,
 		Port:          project.Port,
 		HealthCheck:   healthCheck,
-		Subdomain:     sql.NullString{String: resourceName, Valid: true},
+		Subdomain:     ptr(resourceName),
 		CommitSha:     nullString(payload.HeadCommit.ID),
 		CommitMessage: nullString(firstCommitLine(payload.HeadCommit.Message)),
 	})
 	if err != nil {
 		if isActiveDeploymentConflict(err) {
-			c.JSON(http.StatusAccepted, gin.H{"status": "deployment already running"})
-			return
+			return uuid.Nil, nil // already building; this push is not lost, the next deploy has it
 		}
-		c.Status(http.StatusInternalServerError)
-		return
+		return uuid.Nil, err
 	}
 
-	envSnapshot, err := h.buildDeploymentEnvSnapshot(c.Request.Context(), qtx, project.ID, nil)
+	envSnapshot, err := h.buildDeploymentEnvSnapshot(ctx, qtx, project.ID, nil)
 	if err != nil {
-		c.Status(http.StatusInternalServerError)
-		return
+		return uuid.Nil, err
 	}
 	for key, value := range envSnapshot {
 		storedValue, err := h.secrets.Encrypt(value)
 		if err != nil {
-			c.Status(http.StatusInternalServerError)
-			return
+			return uuid.Nil, err
 		}
-		if _, err := qtx.CreateEnvVar(c.Request.Context(), dbpkg.CreateEnvVarParams{
-			DeploymentID: deployment.ID,
-			Key:          key,
-			Value:        storedValue,
-			SecretArn:    sql.NullString{},
-		}); err != nil {
-			c.Status(http.StatusInternalServerError)
-			return
+		if _, err := qtx.CreateEnvVar(ctx, dbpkg.CreateEnvVarParams{DeploymentID: deployment.ID, Key: key, Value: storedValue}); err != nil {
+			return uuid.Nil, err
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		c.Status(http.StatusInternalServerError)
-		return
-	}
-
-	if err := h.publisher.PublishBuildJob(c.Request.Context(), queue.BuildJobEvent{
-		DeploymentID:   deployment.ID.String(),
+	if _, err := h.jobs.InsertTx(ctx, tx, jobs.BuildArgs{
+		DeploymentID:   deployment.ID,
 		RepoURL:        project.RepoUrl,
 		Branch:         project.Branch,
 		DockerfilePath: project.DockerfilePath,
-		UserID:         project.UserID.String(),
-		Port:           int(project.Port),
+		Port:           project.Port,
 		Subdomain:      resourceName,
 		CPU:            defaultDeploymentCPU,
 		MemoryMB:       defaultDeploymentMemoryMB,
 		HealthCheck:    healthCheck,
-	}); err != nil {
-		_, _ = h.queries.MarkDeploymentFailed(c.Request.Context(), dbpkg.MarkDeploymentFailedParams{
-			ID:           deployment.ID,
-			ErrorStage:   sql.NullString{String: "queue", Valid: true},
-			ErrorMessage: sql.NullString{String: "failed to queue webhook deployment", Valid: true},
-		})
-		c.Status(http.StatusServiceUnavailable)
-		return
+	}, nil); err != nil {
+		return uuid.Nil, err
 	}
-
-	c.JSON(http.StatusAccepted, gin.H{
-		"status": "deploying",
-		"id":     deployment.ID,
-	})
+	if err := tx.Commit(ctx); err != nil {
+		return uuid.Nil, err
+	}
+	return deployment.ID, nil
 }
 
-func (h *WebhookHandler) latestHealthCheck(ctx context.Context, projectID uuid.UUID) string {
-	var healthCheck string
-	err := h.db.QueryRowContext(
-		ctx,
-		`
-			SELECT health_check
-			FROM deployments
-			WHERE project_id = $1
-			ORDER BY created_at DESC
-			LIMIT 1`,
-		projectID,
-	).Scan(&healthCheck)
-	if err != nil || strings.TrimSpace(healthCheck) == "" {
-		return "/"
-	}
-	return healthCheck
-}
-
-func (h *WebhookHandler) matchWebhookProject(ctx context.Context, projects []dbpkg.Project, body []byte, signature string) (dbpkg.Project, bool) {
-	for _, project := range projects {
-		if project.WebhookSecret.Valid && project.WebhookSecret.String != "" {
-			secret, err := h.secrets.Decrypt(project.WebhookSecret.String)
-			if err != nil {
-				slog.ErrorContext(ctx, "failed to decrypt a webhook secret", "alert", "security", "project_id", project.ID, "error", err)
-				continue
-			}
-			if verifySignature(body, secret, signature) {
-				return project, true
-			}
-			continue
-		}
-	}
-
-	return dbpkg.Project{}, false
-}
-
+// verifySignature checks the X-Hub-Signature-256 header GitHub sends: the
+// HMAC-SHA256 of the body under the webhook secret, compared in constant time.
 func verifySignature(body []byte, secret, signature string) bool {
-	// If secret is missing but verification was called, fail safe.
 	if secret == "" || signature == "" {
 		return false
 	}

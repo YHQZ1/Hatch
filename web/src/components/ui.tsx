@@ -2,8 +2,7 @@ import { Link } from "react-router";
 import { cn } from "@/lib/cn";
 import { safeHttpUrl } from "@/lib/url";
 import { useEffect } from "react";
-
-type Tone = "default" | "success" | "warning" | "danger" | "muted";
+import Container from "./Container";
 
 export function AppShell({
   children,
@@ -15,65 +14,9 @@ export function AppShell({
   contentClassName?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "min-h-[calc(100vh-64px)] w-full bg-[#050505] text-white",
-        className,
-      )}
-    >
-      <div
-        className={cn(
-          "w-full px-4 py-6 sm:px-6 lg:px-8 xl:px-10",
-          contentClassName,
-        )}
-      >
-        {children}
-      </div>
+    <div className={cn("min-h-[calc(100vh-64px)] w-full text-ink", className)}>
+      <Container className={cn("py-10", contentClassName)}>{children}</Container>
     </div>
-  );
-}
-
-export function PageTitle({
-  eyebrow,
-  title,
-  description,
-  actions,
-  className,
-}: {
-  eyebrow?: string;
-  title: string;
-  description?: string;
-  actions?: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <header
-      className={cn(
-        "mb-8 flex flex-col gap-5 border-b border-white/[0.08] pb-7 md:flex-row md:items-end md:justify-between",
-        className,
-      )}
-    >
-      <div className="min-w-0">
-        {eyebrow && (
-          <p className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-600">
-            {eyebrow}
-          </p>
-        )}
-        <h1 className="text-3xl font-medium tracking-tight text-white sm:text-4xl">
-          {title}
-        </h1>
-        {description && (
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
-            {description}
-          </p>
-        )}
-      </div>
-      {actions && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {actions}
-        </div>
-      )}
-    </header>
   );
 }
 
@@ -86,10 +29,7 @@ export function Panel({
 }) {
   return (
     <section
-      className={cn(
-        "border-y border-white/[0.08]",
-        className,
-      )}
+      className={cn("rounded-hatch border border-line-strong bg-base", className)}
     >
       {children}
     </section>
@@ -133,17 +73,15 @@ export function Button({
   type?: "button" | "submit";
 }) {
   const classes = cn(
-    "inline-flex h-9 items-center justify-center rounded-md px-3.5 text-[11px] font-semibold uppercase tracking-[0.14em] transition-all",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30",
+    "inline-flex h-9 items-center justify-center gap-2 rounded-hatch px-3.5 text-sm font-medium transition-colors",
+    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
     disabled ? "cursor-not-allowed opacity-45" : "cursor-pointer",
-    variant === "primary" &&
-      "bg-white text-black hover:bg-zinc-200 active:bg-zinc-300",
+    variant === "primary" && "bg-accent text-accent-ink hover:bg-accent-hover",
     variant === "secondary" &&
-      "border border-white/[0.11] bg-transparent text-zinc-300 hover:border-white/25 hover:bg-white/[0.045] hover:text-white",
-    variant === "ghost" &&
-      "text-zinc-500 hover:bg-white/[0.06] hover:text-white",
+      "border border-line-strong text-ink hover:border-ink/40 hover:bg-ink/5",
+    variant === "ghost" && "text-muted hover:text-ink",
     variant === "danger" &&
-      "border border-red-500/20 bg-red-500/[0.05] text-red-300 hover:border-red-400/35 hover:bg-red-500/[0.09]",
+      "border border-danger/40 bg-danger/10 text-danger hover:bg-danger/15",
     className,
   );
 
@@ -167,91 +105,6 @@ export function Button({
     <button type={type} onClick={onClick} disabled={disabled} className={classes}>
       {children}
     </button>
-  );
-}
-
-export function StatusText({
-  children,
-  tone = "default",
-  pulse = false,
-  className,
-}: {
-  children: React.ReactNode;
-  tone?: Tone;
-  pulse?: boolean;
-  className?: string;
-}) {
-  const colors = {
-    default: "text-zinc-300 before:bg-zinc-500",
-    success: "text-[#5cc98f] before:bg-[#3fba78]",
-    warning: "text-[#d8ad4f] before:bg-[#d8ad4f]",
-    danger: "text-[#d86666] before:bg-[#d05252]",
-    muted: "text-zinc-600 before:bg-zinc-700",
-  } satisfies Record<Tone, string>;
-
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-2 truncate font-mono text-[10px] font-semibold uppercase tracking-[0.16em]",
-        "before:h-1.5 before:w-1.5 before:shrink-0 before:rounded-full",
-        pulse && "before:animate-pulse",
-        colors[tone],
-        className,
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
-export function MetricCard({
-  label,
-  value,
-  tone = "default",
-}: {
-  label: string;
-  value: string;
-  tone?: Tone;
-}) {
-  const valueColor = {
-    default: "text-white",
-    success: "text-[#5cc98f]",
-    warning: "text-[#d8ad4f]",
-    danger: "text-[#d86666]",
-    muted: "text-zinc-500",
-  } satisfies Record<Tone, string>;
-
-  return (
-    <div className="min-w-0">
-      <p className="mb-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600">
-        {label}
-      </p>
-      <p className={cn("text-xl font-medium tracking-tight", valueColor[tone])}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
-export function EmptyStateBlock({
-  title,
-  description,
-  action,
-}: {
-  title: string;
-  description: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-h-[360px] flex-col items-center justify-center px-6 py-16 text-center">
-      <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.28em] text-zinc-500">
-        {title}
-      </p>
-      <p className="mt-3 max-w-md text-sm leading-6 text-zinc-600">
-        {description}
-      </p>
-      {action && <div className="mt-7">{action}</div>}
-    </div>
   );
 }
 
@@ -284,16 +137,14 @@ export function Modal({
       <button
         type="button"
         aria-label="Close modal"
-        className="hatch-modal-backdrop absolute inset-0 bg-black/70 backdrop-blur-sm cursor-default"
+        className="hatch-modal-backdrop absolute inset-0 cursor-default bg-black/70 backdrop-blur-sm"
         onClick={onClose}
       />
-      <section className="hatch-modal-panel relative w-full max-w-md overflow-hidden rounded-xl border border-white/[0.1] bg-[#090909] shadow-2xl">
-        <div className="border-b border-white/[0.08] px-5 py-4">
-          <p className="text-base font-medium tracking-tight text-white">
-            {title}
-          </p>
+      <section className="hatch-modal-panel relative w-full max-w-md overflow-hidden rounded-hatch border border-line-strong bg-base shadow-2xl">
+        <div className="border-b border-line px-5 py-4">
+          <p className="text-[1rem] font-semibold tracking-tight">{title}</p>
           {description && (
-            <p className="mt-1 text-sm leading-6 text-zinc-500">
+            <p className="mt-1 text-sm leading-relaxed text-muted">
               {description}
             </p>
           )}

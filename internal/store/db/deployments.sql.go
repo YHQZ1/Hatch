@@ -7,7 +7,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/google/uuid"
 )
@@ -23,7 +22,7 @@ WHERE deployments.id = $1
   AND deployments.project_id = projects.id
   AND projects.user_id = $2
   AND deployments.status IN ('queued', 'building', 'deploying')
-RETURNING deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at
+RETURNING deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at, deployments.log_seq
 `
 
 type CancelDeploymentByIDAndUserIDParams struct {
@@ -32,7 +31,7 @@ type CancelDeploymentByIDAndUserIDParams struct {
 }
 
 func (q *Queries) CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelDeploymentByIDAndUserIDParams) (Deployment, error) {
-	row := q.db.QueryRowContext(ctx, cancelDeploymentByIDAndUserID, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, cancelDeploymentByIDAndUserID, arg.ID, arg.UserID)
 	var i Deployment
 	err := row.Scan(
 		&i.ID,
@@ -56,6 +55,7 @@ func (q *Queries) CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelD
 		&i.ErrorStage,
 		&i.ErrorMessage,
 		&i.FailedAt,
+		&i.LogSeq,
 	)
 	return i, err
 }
@@ -63,23 +63,23 @@ func (q *Queries) CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelD
 const createDeployment = `-- name: CreateDeployment :one
 INSERT INTO deployments (project_id, branch, cpu, memory_mb, port, health_check, subdomain, commit_sha, commit_message)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at
+RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at, log_seq
 `
 
 type CreateDeploymentParams struct {
-	ProjectID     uuid.UUID      `json:"project_id"`
-	Branch        string         `json:"branch"`
-	Cpu           int32          `json:"cpu"`
-	MemoryMb      int32          `json:"memory_mb"`
-	Port          int32          `json:"port"`
-	HealthCheck   string         `json:"health_check"`
-	Subdomain     sql.NullString `json:"subdomain"`
-	CommitSha     sql.NullString `json:"commit_sha"`
-	CommitMessage sql.NullString `json:"commit_message"`
+	ProjectID     uuid.UUID `json:"project_id"`
+	Branch        string    `json:"branch"`
+	Cpu           int32     `json:"cpu"`
+	MemoryMb      int32     `json:"memory_mb"`
+	Port          int32     `json:"port"`
+	HealthCheck   string    `json:"health_check"`
+	Subdomain     *string   `json:"subdomain"`
+	CommitSha     *string   `json:"commit_sha"`
+	CommitMessage *string   `json:"commit_message"`
 }
 
 func (q *Queries) CreateDeployment(ctx context.Context, arg CreateDeploymentParams) (Deployment, error) {
-	row := q.db.QueryRowContext(ctx, createDeployment,
+	row := q.db.QueryRow(ctx, createDeployment,
 		arg.ProjectID,
 		arg.Branch,
 		arg.Cpu,
@@ -113,12 +113,142 @@ func (q *Queries) CreateDeployment(ctx context.Context, arg CreateDeploymentPara
 		&i.ErrorStage,
 		&i.ErrorMessage,
 		&i.FailedAt,
+		&i.LogSeq,
 	)
 	return i, err
 }
 
+const createRollbackDeployment = `-- name: CreateRollbackDeployment :one
+INSERT INTO deployments (
+    project_id, branch, cpu, memory_mb, port, health_check, subdomain,
+    commit_sha, commit_message, image_uri
+)
+SELECT source.project_id, source.branch, source.cpu, source.memory_mb, source.port,
+       source.health_check, source.subdomain, source.commit_sha, source.commit_message,
+       source.image_uri
+FROM deployments source
+WHERE source.id = $1
+  AND source.status = 'live'
+  AND source.image_uri IS NOT NULL AND source.image_uri <> ''
+RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at, log_seq
+`
+
+// A deployment that runs an earlier release again: its image, settings and
+// commit are copied, so nothing is built. Only a release that went live and
+// still has its image can be copied; otherwise no row comes back.
+func (q *Queries) CreateRollbackDeployment(ctx context.Context, id uuid.UUID) (Deployment, error) {
+	row := q.db.QueryRow(ctx, createRollbackDeployment, id)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Branch,
+		&i.Status,
+		&i.Cpu,
+		&i.MemoryMb,
+		&i.Port,
+		&i.HealthCheck,
+		&i.ImageUri,
+		&i.EcsTaskArn,
+		&i.Subdomain,
+		&i.Url,
+		&i.CreatedAt,
+		&i.DeployedAt,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.EcsServiceName,
+		&i.TargetGroupArn,
+		&i.ErrorStage,
+		&i.ErrorMessage,
+		&i.FailedAt,
+		&i.LogSeq,
+	)
+	return i, err
+}
+
+const failDeployment = `-- name: FailDeployment :exec
+UPDATE deployments
+SET status = 'failed',
+    error_stage = $2,
+    error_message = $3,
+    failed_at = now()
+WHERE id = $1 AND status <> 'canceled'
+`
+
+type FailDeploymentParams struct {
+	ID           uuid.UUID `json:"id"`
+	ErrorStage   *string   `json:"error_stage"`
+	ErrorMessage *string   `json:"error_message"`
+}
+
+// Records why a deployment failed. A canceled deployment stays canceled.
+func (q *Queries) FailDeployment(ctx context.Context, arg FailDeploymentParams) error {
+	_, err := q.db.Exec(ctx, failDeployment, arg.ID, arg.ErrorStage, arg.ErrorMessage)
+	return err
+}
+
+const finishDeployment = `-- name: FinishDeployment :execrows
+UPDATE deployments
+SET status = 'live',
+    image_uri = $2,
+    url = $3,
+    ecs_task_arn = $4,
+    ecs_service_name = $5,
+    target_group_arn = $6,
+    error_stage = NULL,
+    error_message = NULL,
+    failed_at = NULL,
+    deployed_at = now()
+WHERE id = $1 AND status <> 'canceled'
+`
+
+type FinishDeploymentParams struct {
+	ID             uuid.UUID `json:"id"`
+	ImageUri       *string   `json:"image_uri"`
+	Url            *string   `json:"url"`
+	EcsTaskArn     *string   `json:"ecs_task_arn"`
+	EcsServiceName *string   `json:"ecs_service_name"`
+	TargetGroupArn *string   `json:"target_group_arn"`
+}
+
+// Marks a deployment live. It reports 0 rows when the deployment was canceled
+// in the meantime.
+func (q *Queries) FinishDeployment(ctx context.Context, arg FinishDeploymentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, finishDeployment,
+		arg.ID,
+		arg.ImageUri,
+		arg.Url,
+		arg.EcsTaskArn,
+		arg.EcsServiceName,
+		arg.TargetGroupArn,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const forgetImages = `-- name: ForgetImages :exec
+UPDATE deployments
+SET image_uri = NULL
+WHERE project_id = $1
+  AND image_uri = ANY($2::text[])
+`
+
+type ForgetImagesParams struct {
+	ProjectID uuid.UUID `json:"project_id"`
+	ImageUris []string  `json:"image_uris"`
+}
+
+// Records that images were removed, so their releases can no longer be rolled
+// back to and nothing tries to remove them again.
+func (q *Queries) ForgetImages(ctx context.Context, arg ForgetImagesParams) error {
+	_, err := q.db.Exec(ctx, forgetImages, arg.ProjectID, arg.ImageUris)
+	return err
+}
+
 const getActiveDeploymentByProjectIDAndUserID = `-- name: GetActiveDeploymentByProjectIDAndUserID :one
-SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at
+SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at, deployments.log_seq
 FROM deployments
 JOIN projects ON projects.id = deployments.project_id
 WHERE deployments.project_id = $1
@@ -134,7 +264,7 @@ type GetActiveDeploymentByProjectIDAndUserIDParams struct {
 }
 
 func (q *Queries) GetActiveDeploymentByProjectIDAndUserID(ctx context.Context, arg GetActiveDeploymentByProjectIDAndUserIDParams) (Deployment, error) {
-	row := q.db.QueryRowContext(ctx, getActiveDeploymentByProjectIDAndUserID, arg.ProjectID, arg.UserID)
+	row := q.db.QueryRow(ctx, getActiveDeploymentByProjectIDAndUserID, arg.ProjectID, arg.UserID)
 	var i Deployment
 	err := row.Scan(
 		&i.ID,
@@ -158,16 +288,17 @@ func (q *Queries) GetActiveDeploymentByProjectIDAndUserID(ctx context.Context, a
 		&i.ErrorStage,
 		&i.ErrorMessage,
 		&i.FailedAt,
+		&i.LogSeq,
 	)
 	return i, err
 }
 
 const getDeploymentByID = `-- name: GetDeploymentByID :one
-SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at FROM deployments WHERE id = $1
+SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at, log_seq FROM deployments WHERE id = $1
 `
 
 func (q *Queries) GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployment, error) {
-	row := q.db.QueryRowContext(ctx, getDeploymentByID, id)
+	row := q.db.QueryRow(ctx, getDeploymentByID, id)
 	var i Deployment
 	err := row.Scan(
 		&i.ID,
@@ -191,12 +322,13 @@ func (q *Queries) GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployme
 		&i.ErrorStage,
 		&i.ErrorMessage,
 		&i.FailedAt,
+		&i.LogSeq,
 	)
 	return i, err
 }
 
 const getDeploymentByIDAndUserID = `-- name: GetDeploymentByIDAndUserID :one
-SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at
+SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at, deployments.log_seq
 FROM deployments
 JOIN projects ON projects.id = deployments.project_id
 WHERE deployments.id = $1 AND projects.user_id = $2
@@ -208,7 +340,7 @@ type GetDeploymentByIDAndUserIDParams struct {
 }
 
 func (q *Queries) GetDeploymentByIDAndUserID(ctx context.Context, arg GetDeploymentByIDAndUserIDParams) (Deployment, error) {
-	row := q.db.QueryRowContext(ctx, getDeploymentByIDAndUserID, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, getDeploymentByIDAndUserID, arg.ID, arg.UserID)
 	var i Deployment
 	err := row.Scan(
 		&i.ID,
@@ -232,16 +364,44 @@ func (q *Queries) GetDeploymentByIDAndUserID(ctx context.Context, arg GetDeploym
 		&i.ErrorStage,
 		&i.ErrorMessage,
 		&i.FailedAt,
+		&i.LogSeq,
 	)
 	return i, err
 }
 
-const getDeploymentsByProjectID = `-- name: GetDeploymentsByProjectID :many
-SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at FROM deployments WHERE project_id = $1 ORDER BY created_at DESC
+const getDeploymentStatus = `-- name: GetDeploymentStatus :one
+SELECT status FROM deployments WHERE id = $1
 `
 
-func (q *Queries) GetDeploymentsByProjectID(ctx context.Context, projectID uuid.UUID) ([]Deployment, error) {
-	rows, err := q.db.QueryContext(ctx, getDeploymentsByProjectID, projectID)
+func (q *Queries) GetDeploymentStatus(ctx context.Context, id uuid.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, getDeploymentStatus, id)
+	var status string
+	err := row.Scan(&status)
+	return status, err
+}
+
+const getDeploymentsByIDRangeAndUserID = `-- name: GetDeploymentsByIDRangeAndUserID :many
+SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at, deployments.log_seq
+FROM deployments
+JOIN projects ON projects.id = deployments.project_id
+WHERE projects.user_id = $1
+  AND deployments.id >= $2::uuid
+  AND deployments.id <= $3::uuid
+ORDER BY deployments.created_at DESC
+LIMIT 2
+`
+
+type GetDeploymentsByIDRangeAndUserIDParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	Low    uuid.UUID `json:"low"`
+	High   uuid.UUID `json:"high"`
+}
+
+// The user's deployments whose id lies between low and high: how a short id (the
+// first hex digits of a UUID) is looked up, as a range over the primary key's
+// index. At most two rows come back, which is enough to tell one match from several.
+func (q *Queries) GetDeploymentsByIDRangeAndUserID(ctx context.Context, arg GetDeploymentsByIDRangeAndUserIDParams) ([]Deployment, error) {
+	rows, err := q.db.Query(ctx, getDeploymentsByIDRangeAndUserID, arg.UserID, arg.Low, arg.High)
 	if err != nil {
 		return nil, err
 	}
@@ -271,13 +431,58 @@ func (q *Queries) GetDeploymentsByProjectID(ctx context.Context, projectID uuid.
 			&i.ErrorStage,
 			&i.ErrorMessage,
 			&i.FailedAt,
+			&i.LogSeq,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	return items, nil
+}
+
+const getDeploymentsByProjectID = `-- name: GetDeploymentsByProjectID :many
+SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at, log_seq FROM deployments WHERE project_id = $1 ORDER BY created_at DESC
+`
+
+func (q *Queries) GetDeploymentsByProjectID(ctx context.Context, projectID uuid.UUID) ([]Deployment, error) {
+	rows, err := q.db.Query(ctx, getDeploymentsByProjectID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Deployment
+	for rows.Next() {
+		var i Deployment
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.Branch,
+			&i.Status,
+			&i.Cpu,
+			&i.MemoryMb,
+			&i.Port,
+			&i.HealthCheck,
+			&i.ImageUri,
+			&i.EcsTaskArn,
+			&i.Subdomain,
+			&i.Url,
+			&i.CreatedAt,
+			&i.DeployedAt,
+			&i.CommitSha,
+			&i.CommitMessage,
+			&i.EcsServiceName,
+			&i.TargetGroupArn,
+			&i.ErrorStage,
+			&i.ErrorMessage,
+			&i.FailedAt,
+			&i.LogSeq,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -286,7 +491,7 @@ func (q *Queries) GetDeploymentsByProjectID(ctx context.Context, projectID uuid.
 }
 
 const getDeploymentsByProjectIDAndUserID = `-- name: GetDeploymentsByProjectIDAndUserID :many
-SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at
+SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at, deployments.log_seq
 FROM deployments
 JOIN projects ON projects.id = deployments.project_id
 WHERE deployments.project_id = $1 AND projects.user_id = $2
@@ -299,7 +504,7 @@ type GetDeploymentsByProjectIDAndUserIDParams struct {
 }
 
 func (q *Queries) GetDeploymentsByProjectIDAndUserID(ctx context.Context, arg GetDeploymentsByProjectIDAndUserIDParams) ([]Deployment, error) {
-	rows, err := q.db.QueryContext(ctx, getDeploymentsByProjectIDAndUserID, arg.ProjectID, arg.UserID)
+	rows, err := q.db.Query(ctx, getDeploymentsByProjectIDAndUserID, arg.ProjectID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -329,13 +534,117 @@ func (q *Queries) GetDeploymentsByProjectIDAndUserID(ctx context.Context, arg Ge
 			&i.ErrorStage,
 			&i.ErrorMessage,
 			&i.FailedAt,
+			&i.LogSeq,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	return items, nil
+}
+
+const getLatestLiveDeploymentByProject = `-- name: GetLatestLiveDeploymentByProject :one
+SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at, log_seq FROM deployments
+WHERE project_id = $1 AND status = 'live'
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+// The release a project is running: its newest deployment that went live.
+func (q *Queries) GetLatestLiveDeploymentByProject(ctx context.Context, projectID uuid.UUID) (Deployment, error) {
+	row := q.db.QueryRow(ctx, getLatestLiveDeploymentByProject, projectID)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Branch,
+		&i.Status,
+		&i.Cpu,
+		&i.MemoryMb,
+		&i.Port,
+		&i.HealthCheck,
+		&i.ImageUri,
+		&i.EcsTaskArn,
+		&i.Subdomain,
+		&i.Url,
+		&i.CreatedAt,
+		&i.DeployedAt,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.EcsServiceName,
+		&i.TargetGroupArn,
+		&i.ErrorStage,
+		&i.ErrorMessage,
+		&i.FailedAt,
+		&i.LogSeq,
+	)
+	return i, err
+}
+
+const getProjectImageURIs = `-- name: GetProjectImageURIs :many
+SELECT DISTINCT image_uri::text
+FROM deployments
+WHERE project_id = $1 AND image_uri IS NOT NULL AND image_uri <> ''
+`
+
+func (q *Queries) GetProjectImageURIs(ctx context.Context, projectID uuid.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, getProjectImageURIs, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var image_uri string
+		if err := rows.Scan(&image_uri); err != nil {
+			return nil, err
+		}
+		items = append(items, image_uri)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getStaleImageURIs = `-- name: GetStaleImageURIs :many
+SELECT image_uri::text
+FROM (
+    SELECT image_uri, max(deployed_at) AS last_live
+    FROM deployments
+    WHERE project_id = $1
+      AND status = 'live'
+      AND image_uri IS NOT NULL AND image_uri <> ''
+    GROUP BY image_uri
+) images
+ORDER BY last_live DESC
+OFFSET $2::int
+`
+
+type GetStaleImageURIsParams struct {
+	ProjectID uuid.UUID `json:"project_id"`
+	Keep      int32     `json:"keep"`
+}
+
+// The images of a project's releases beyond the newest `keep` distinct ones, by
+// when they last went live. A rollback deploys an old image again, which makes
+// it new again, so an image in use is never among them.
+func (q *Queries) GetStaleImageURIs(ctx context.Context, arg GetStaleImageURIsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, getStaleImageURIs, arg.ProjectID, arg.Keep)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var image_uri string
+		if err := rows.Scan(&image_uri); err != nil {
+			return nil, err
+		}
+		items = append(items, image_uri)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -350,17 +659,17 @@ SET status = 'failed',
     error_message = $3,
     failed_at = now()
 WHERE id = $1
-RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at
+RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at, log_seq
 `
 
 type MarkDeploymentFailedParams struct {
-	ID           uuid.UUID      `json:"id"`
-	ErrorStage   sql.NullString `json:"error_stage"`
-	ErrorMessage sql.NullString `json:"error_message"`
+	ID           uuid.UUID `json:"id"`
+	ErrorStage   *string   `json:"error_stage"`
+	ErrorMessage *string   `json:"error_message"`
 }
 
 func (q *Queries) MarkDeploymentFailed(ctx context.Context, arg MarkDeploymentFailedParams) (Deployment, error) {
-	row := q.db.QueryRowContext(ctx, markDeploymentFailed, arg.ID, arg.ErrorStage, arg.ErrorMessage)
+	row := q.db.QueryRow(ctx, markDeploymentFailed, arg.ID, arg.ErrorStage, arg.ErrorMessage)
 	var i Deployment
 	err := row.Scan(
 		&i.ID,
@@ -384,8 +693,51 @@ func (q *Queries) MarkDeploymentFailed(ctx context.Context, arg MarkDeploymentFa
 		&i.ErrorStage,
 		&i.ErrorMessage,
 		&i.FailedAt,
+		&i.LogSeq,
 	)
 	return i, err
+}
+
+const projectHasOtherLiveDeployment = `-- name: ProjectHasOtherLiveDeployment :one
+SELECT EXISTS (
+    SELECT 1
+    FROM deployments current_deployment
+    JOIN deployments live_deployment
+      ON live_deployment.project_id = current_deployment.project_id
+    WHERE current_deployment.id = $1
+      AND live_deployment.id <> current_deployment.id
+      AND live_deployment.status = 'live'
+)
+`
+
+// Reports whether the deployment's project has a different live deployment.
+func (q *Queries) ProjectHasOtherLiveDeployment(ctx context.Context, id uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, projectHasOtherLiveDeployment, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const setDeploymentStatus = `-- name: SetDeploymentStatus :exec
+UPDATE deployments
+SET status = $1::text,
+    error_stage = NULL,
+    error_message = NULL,
+    failed_at = NULL
+WHERE id = $2
+  AND ($1::text = 'canceled' OR status <> 'canceled')
+`
+
+type SetDeploymentStatusParams struct {
+	Status string    `json:"status"`
+	ID     uuid.UUID `json:"id"`
+}
+
+// Moves a deployment to a new status and clears its failure. A canceled
+// deployment stays canceled unless the new status is 'canceled'.
+func (q *Queries) SetDeploymentStatus(ctx context.Context, arg SetDeploymentStatusParams) error {
+	_, err := q.db.Exec(ctx, setDeploymentStatus, arg.Status, arg.ID)
+	return err
 }
 
 const updateDeploymentLive = `-- name: UpdateDeploymentLive :one
@@ -401,20 +753,20 @@ SET status      = 'live',
     failed_at = NULL,
     deployed_at = now()
 WHERE id = $1
-RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at
+RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at, log_seq
 `
 
 type UpdateDeploymentLiveParams struct {
-	ID             uuid.UUID      `json:"id"`
-	ImageUri       sql.NullString `json:"image_uri"`
-	EcsTaskArn     sql.NullString `json:"ecs_task_arn"`
-	Url            sql.NullString `json:"url"`
-	EcsServiceName sql.NullString `json:"ecs_service_name"`
-	TargetGroupArn sql.NullString `json:"target_group_arn"`
+	ID             uuid.UUID `json:"id"`
+	ImageUri       *string   `json:"image_uri"`
+	EcsTaskArn     *string   `json:"ecs_task_arn"`
+	Url            *string   `json:"url"`
+	EcsServiceName *string   `json:"ecs_service_name"`
+	TargetGroupArn *string   `json:"target_group_arn"`
 }
 
 func (q *Queries) UpdateDeploymentLive(ctx context.Context, arg UpdateDeploymentLiveParams) (Deployment, error) {
-	row := q.db.QueryRowContext(ctx, updateDeploymentLive,
+	row := q.db.QueryRow(ctx, updateDeploymentLive,
 		arg.ID,
 		arg.ImageUri,
 		arg.EcsTaskArn,
@@ -445,12 +797,13 @@ func (q *Queries) UpdateDeploymentLive(ctx context.Context, arg UpdateDeployment
 		&i.ErrorStage,
 		&i.ErrorMessage,
 		&i.FailedAt,
+		&i.LogSeq,
 	)
 	return i, err
 }
 
 const updateDeploymentStatus = `-- name: UpdateDeploymentStatus :one
-UPDATE deployments SET status = $2 WHERE id = $1 RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at
+UPDATE deployments SET status = $2 WHERE id = $1 RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at, log_seq
 `
 
 type UpdateDeploymentStatusParams struct {
@@ -459,7 +812,7 @@ type UpdateDeploymentStatusParams struct {
 }
 
 func (q *Queries) UpdateDeploymentStatus(ctx context.Context, arg UpdateDeploymentStatusParams) (Deployment, error) {
-	row := q.db.QueryRowContext(ctx, updateDeploymentStatus, arg.ID, arg.Status)
+	row := q.db.QueryRow(ctx, updateDeploymentStatus, arg.ID, arg.Status)
 	var i Deployment
 	err := row.Scan(
 		&i.ID,
@@ -483,6 +836,7 @@ func (q *Queries) UpdateDeploymentStatus(ctx context.Context, arg UpdateDeployme
 		&i.ErrorStage,
 		&i.ErrorMessage,
 		&i.FailedAt,
+		&i.LogSeq,
 	)
 	return i, err
 }

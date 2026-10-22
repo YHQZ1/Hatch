@@ -94,7 +94,9 @@ activity, user profile, and a static docs section.
 
 ## What works
 
-- GitHub OAuth login with state validation; session JWT in an HttpOnly cookie.
+- GitHub sign-in through a GitHub App with state validation; server-side
+  sessions in Postgres (ADR 0010 and 0013), the session ID in an HttpOnly
+  cookie. Before the sign-in slice this was an OAuth App with a JWT cookie.
 - Repo listing with pagination and Dockerfile and EXPOSE-port detection.
 - Project creation with GitHub webhook registration for auto-deploy, plus
   signature verification and redelivery deduplication.
@@ -118,8 +120,8 @@ Severity is for the target product, not the old hosted model.
 | 3   | Hosted cost model: every user app runs in Hatch's account as an always-on Fargate service. This produced a large bill.                                                                 | Whole design                                                                        | High     |
 | 4   | Each app takes one listener rule on a shared ALB; the default quota is about 100 rules per load balancer.                                                                              | `apps/deployer/internal/ecs/deploy.go` (`upsertListenerRule`)                       | Medium   |
 | 5   | Listener rule priority is picked by scanning existing rules; concurrent deploys can collide.                                                                                           | `nextAvailablePriority`                                                             | Medium   |
-| 6   | The GitHub OAuth App requests the `repo` scope, which grants access to all of the user's repositories.                                                                                 | `apps/api/internal/auth/github.go`                                                  | Medium   |
-| 7   | Sessions are stateless JWTs and cannot be revoked before expiry.                                                                                                                       | `apps/api/internal/auth`                                                            | Medium   |
+| 6   | The GitHub OAuth App requests the `repo` scope, which grants access to all of the user's repositories. Fixed in the sign-in slice: Hatch is now a GitHub App.                                                                                 | `apps/api/internal/auth/github.go`                                                  | Medium   |
+| 7   | Sessions are stateless JWTs and cannot be revoked before expiry. Fixed in the sign-in slice: server-side sessions.                                                                                                                       | `apps/api/internal/auth`                                                            | Medium   |
 | 8   | Four services plus Postgres, Redis, and RabbitMQ is a heavy install for a self-hosted tool.                                                                                            | Whole design                                                                        | Medium   |
 | 9   | No rollback, custom domains, or runtime log viewer.                                                                                                                                    | —                                                                                   | Medium   |
 | 10  | Resolved 2026-10-21: CI added (`.github/workflows/ci.yml`).                                                                                                                            | `.github/`                                                                          | Medium   |

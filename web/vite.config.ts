@@ -40,8 +40,7 @@ export default defineConfig({
     // the Go server, as `hatch api` serves both in production.
     proxy: {
       '/api': apiTarget,
-      '^/auth/(github|callback|logout)$': apiTarget,
-      '/ws': { target: apiTarget, ws: true },
+      '^/auth/(github|install|callback|logout)$': apiTarget,
     },
   },
   test: {

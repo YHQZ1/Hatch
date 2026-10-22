@@ -24,7 +24,7 @@ type CreateActivityLogParams struct {
 }
 
 func (q *Queries) CreateActivityLog(ctx context.Context, arg CreateActivityLogParams) (ActivityLog, error) {
-	row := q.db.QueryRowContext(ctx, createActivityLog, arg.UserID, arg.Type, arg.Message)
+	row := q.db.QueryRow(ctx, createActivityLog, arg.UserID, arg.Type, arg.Message)
 	var i ActivityLog
 	err := row.Scan(
 		&i.ID,
@@ -44,7 +44,7 @@ LIMIT 50
 `
 
 func (q *Queries) GetActivityLogsByUserID(ctx context.Context, userID uuid.UUID) ([]ActivityLog, error) {
-	rows, err := q.db.QueryContext(ctx, getActivityLogsByUserID, userID)
+	rows, err := q.db.Query(ctx, getActivityLogsByUserID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -62,9 +62,6 @@ func (q *Queries) GetActivityLogsByUserID(ctx context.Context, userID uuid.UUID)
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

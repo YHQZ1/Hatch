@@ -6,48 +6,100 @@ package db
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/google/uuid"
 )
 
 type Querier interface {
+	// Adds a line to a deployment's log and returns its number. Nothing is added
+	// (no row comes back) once the deployment has max_lines lines; the last line
+	// kept is limit_line, so a log that was cut says so.
+	AppendDeploymentLog(ctx context.Context, arg AppendDeploymentLogParams) (int64, error)
 	CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelDeploymentByIDAndUserIDParams) (Deployment, error)
-	ClearProjectWebhook(ctx context.Context, id uuid.UUID) error
+	// Gives a deployment the environment another one ran with, values as stored.
+	CopyDeploymentEnvVars(ctx context.Context, arg CopyDeploymentEnvVarsParams) error
 	CreateActivityLog(ctx context.Context, arg CreateActivityLogParams) (ActivityLog, error)
 	CreateDeployment(ctx context.Context, arg CreateDeploymentParams) (Deployment, error)
 	CreateEnvVar(ctx context.Context, arg CreateEnvVarParams) (EnvVar, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateProjectEnvVar(ctx context.Context, arg CreateProjectEnvVarParams) (ProjectEnvVar, error)
+	// A deployment that runs an earlier release again: its image, settings and
+	// commit are copied, so nothing is built. Only a release that went live and
+	// still has its image can be copied; otherwise no row comes back.
+	CreateRollbackDeployment(ctx context.Context, id uuid.UUID) (Deployment, error)
+	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) (int64, error)
 	DeleteProject(ctx context.Context, id uuid.UUID) error
 	DeleteProjectByIDAndUserID(ctx context.Context, arg DeleteProjectByIDAndUserIDParams) error
 	DeleteProjectEnvVarsByProject(ctx context.Context, projectID uuid.UUID) error
+	DeleteSessionByTokenHash(ctx context.Context, tokenHash []byte) error
+	// Records why a deployment failed. A canceled deployment stays canceled.
+	FailDeployment(ctx context.Context, arg FailDeploymentParams) error
+	// Marks a deployment live. It reports 0 rows when the deployment was canceled
+	// in the meantime.
+	FinishDeployment(ctx context.Context, arg FinishDeploymentParams) (int64, error)
+	// Records that images were removed, so their releases can no longer be rolled
+	// back to and nothing tries to remove them again.
+	ForgetImages(ctx context.Context, arg ForgetImagesParams) error
 	GetActiveDeploymentByProjectIDAndUserID(ctx context.Context, arg GetActiveDeploymentByProjectIDAndUserIDParams) (Deployment, error)
 	GetActivityLogsByUserID(ctx context.Context, userID uuid.UUID) ([]ActivityLog, error)
 	GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployment, error)
 	GetDeploymentByIDAndUserID(ctx context.Context, arg GetDeploymentByIDAndUserIDParams) (Deployment, error)
+	GetDeploymentLogTail(ctx context.Context, arg GetDeploymentLogTailParams) ([]GetDeploymentLogTailRow, error)
+	GetDeploymentLogsAfter(ctx context.Context, arg GetDeploymentLogsAfterParams) ([]GetDeploymentLogsAfterRow, error)
+	GetDeploymentStatus(ctx context.Context, id uuid.UUID) (string, error)
+	// The user's deployments whose id lies between low and high: how a short id (the
+	// first hex digits of a UUID) is looked up, as a range over the primary key's
+	// index. At most two rows come back, which is enough to tell one match from several.
+	GetDeploymentsByIDRangeAndUserID(ctx context.Context, arg GetDeploymentsByIDRangeAndUserIDParams) ([]Deployment, error)
 	GetDeploymentsByProjectID(ctx context.Context, projectID uuid.UUID) ([]Deployment, error)
 	GetDeploymentsByProjectIDAndUserID(ctx context.Context, arg GetDeploymentsByProjectIDAndUserIDParams) ([]Deployment, error)
 	GetEnvVarsByDeployment(ctx context.Context, deploymentID uuid.UUID) ([]EnvVar, error)
+	// The release a project is running: its newest deployment that went live.
+	GetLatestLiveDeploymentByProject(ctx context.Context, projectID uuid.UUID) (Deployment, error)
 	GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error)
 	GetProjectByIDAndUserID(ctx context.Context, arg GetProjectByIDAndUserIDParams) (Project, error)
 	GetProjectByRepoURL(ctx context.Context, repoUrl string) (Project, error)
-	GetProjectBySubdomain(ctx context.Context, subdomain sql.NullString) (Project, error)
+	GetProjectBySubdomain(ctx context.Context, subdomain *string) (Project, error)
 	GetProjectEnvVarsByProject(ctx context.Context, projectID uuid.UUID) ([]ProjectEnvVar, error)
-	GetProjectsByRepoURL(ctx context.Context, repoUrl string) ([]Project, error)
+	GetProjectImageURIs(ctx context.Context, projectID uuid.UUID) ([]string, error)
+	// GitHub treats owner and repository names without regard to case, so a push
+	// finds the project however its address was typed.
+	GetProjectsByRepoURL(ctx context.Context, lower string) ([]Project, error)
 	GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]Project, error)
+	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (Session, error)
+	// The images of a project's releases beyond the newest `keep` distinct ones, by
+	// when they last went live. A rollback deploys an old image again, which makes
+	// it new again, so an image in use is never among them.
+	GetStaleImageURIs(ctx context.Context, arg GetStaleImageURIsParams) ([]string, error)
 	GetUserByGithubID(ctx context.Context, githubID int64) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
+	// Locks the row so that two requests do not spend the same single-use refresh
+	// token. Call it inside a transaction.
+	GetUserByIDForUpdate(ctx context.Context, id uuid.UUID) (User, error)
 	MarkDeploymentFailed(ctx context.Context, arg MarkDeploymentFailedParams) (Deployment, error)
 	MarkProjectDeleteFailed(ctx context.Context, arg MarkProjectDeleteFailedParams) error
 	MarkProjectDeleting(ctx context.Context, arg MarkProjectDeletingParams) (Project, error)
 	MarkProjectOperationFailed(ctx context.Context, arg MarkProjectOperationFailedParams) error
+	// Reports whether the deployment's project has a different live deployment.
+	ProjectHasOtherLiveDeployment(ctx context.Context, id uuid.UUID) (bool, error)
+	// Deletes up to batch_size log lines of deployments that have finished, were
+	// created before older_than and are not among their project's newest `keep`
+	// deployments (those keep their log however old). Deployments that are queued
+	// or running are never touched. Called until it deletes nothing, so a large
+	// backlog is removed in small transactions.
+	PruneDeploymentLogs(ctx context.Context, arg PruneDeploymentLogsParams) (int64, error)
+	// Moves a deployment to a new status and clears its failure. A canceled
+	// deployment stays canceled unless the new status is 'canceled'.
+	SetDeploymentStatus(ctx context.Context, arg SetDeploymentStatusParams) error
+	SetProjectStatus(ctx context.Context, arg SetProjectStatusParams) error
+	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	UpdateDeploymentLive(ctx context.Context, arg UpdateDeploymentLiveParams) (Deployment, error)
 	UpdateDeploymentStatus(ctx context.Context, arg UpdateDeploymentStatusParams) (Deployment, error)
 	UpdateProjectLifecycleStatus(ctx context.Context, arg UpdateProjectLifecycleStatusParams) (Project, error)
 	UpdateProjectSettings(ctx context.Context, arg UpdateProjectSettingsParams) (Project, error)
-	UpdateProjectWebhook(ctx context.Context, arg UpdateProjectWebhookParams) error
+	UpdateUserTokens(ctx context.Context, arg UpdateUserTokensParams) error
 }
 
 var _ Querier = (*Queries)(nil)

@@ -58,7 +58,7 @@ wildcard domain" at connect time.
 | Q7 | Single Go module or workspace? | One module. | [0008](decisions/0008-repository-structure.md) |
 | Q8 | Keep Gin or move to stdlib routing? | Keep Gin. | [Architecture](03-architecture.md#technology-stack) |
 | Q9 | Sessions: JWT or server-side? | Server-side sessions in Postgres. | [0013](decisions/0013-server-side-sessions.md) |
-| Q10 | Local reverse proxy? | Caddy, through its admin API. | [Architecture](03-architecture.md#technology-stack) |
+| Q10 | Local reverse proxy? | A built-in proxy in `hatch serve` for now; Caddy later, when HTTPS or custom domains need it. | [0018](decisions/0018-built-in-proxy-for-the-local-target.md) |
 | Q11 | How does CodeBuild get the source? | A GitHub App installation token scoped to the repository. | [0010](decisions/0010-github-app.md) |
 | Q15 | Frontend restructuring scope? | Move to a React + Vite single-page app served by the Go binary, in Phase 1; split large components as pages are touched. | [0009](decisions/0009-react-spa-served-by-go.md) |
 | — | Dockerfile-less builds | Not in v1; builds require a Dockerfile. | [0014](decisions/0014-dockerfile-only-builds.md) |

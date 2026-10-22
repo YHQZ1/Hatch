@@ -52,12 +52,12 @@ Out of scope:
 - **Env vars are visible in ECS.** They are encrypted in Postgres but written
   in plain text into ECS task definitions, so anyone with ECS read access in
   the account can see them.
-- **Use strong secrets.** Generate `JWT_SECRET` and `DATA_ENCRYPTION_KEY` with
+- **Use strong secrets.** Generate `DATA_ENCRYPTION_KEY` with
   `openssl rand -hex 32`. `DATA_ENCRYPTION_KEY` must be identical in the api,
   builder, and deployer, and changing it makes stored tokens and env vars
   unreadable.
-- **Keep the backing services private.** Postgres, Redis, and RabbitMQ must not
-  be reachable from the internet, and the default credentials in
+- **Keep the backing service private.** Postgres must not be reachable from the
+  internet, and the default credentials in
   `docker-compose.yaml` are for local development only.
 - **Limit AWS permissions.** Give the builder and deployer only the ECR, ECS,
   ELB, and CloudWatch permissions they use.

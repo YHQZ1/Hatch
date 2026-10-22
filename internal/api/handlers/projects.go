@@ -1,11 +1,7 @@
 package handlers
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,20 +14,30 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YHQZ1/hatch/internal/api/queue"
+	"github.com/YHQZ1/hatch/internal/api/auth"
+	"github.com/YHQZ1/hatch/internal/jobs"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	"github.com/YHQZ1/hatch/internal/store"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ProjectHandler struct {
-	queries        *dbpkg.Queries
-	db             *sql.DB
-	publisher      *queue.Publisher
-	webhookBaseURL string
-	secrets        *secrets.Codec
+	queries *dbpkg.Queries
+	pool    *pgxpool.Pool
+	jobs    jobs.Inserter
+	secrets *secrets.Codec
+	// tokens reads repositories through the GitHub App; githubAPI is where.
+	tokens    InstallationTokens
+	githubAPI string
+	// userToken is the signed-in user's own GitHub token. It is how Hatch knows the
+	// user may use a repository (see requireRepoAccess); tests replace it.
+	userToken func(*gin.Context) (string, bool)
+	// webhooks is whether the GitHub App's webhook is set up, so that a push
+	// can deploy a project at all.
+	webhooks bool
 }
 
 type ProjectResponse struct {
@@ -43,6 +49,7 @@ type ProjectResponse struct {
 	Branch            string  `json:"branch"`
 	DockerfilePath    string  `json:"dockerfile_path"`
 	Port              int32   `json:"port"`
+	HealthCheck       string  `json:"health_check"`
 	Subdomain         *string `json:"subdomain"`
 	Status            string  `json:"status"`
 	DeleteRequestedAt *string `json:"delete_requested_at"`
@@ -50,13 +57,19 @@ type ProjectResponse struct {
 	CreatedAt         string  `json:"created_at"`
 }
 
-func NewProjectHandler(db *sql.DB, publisher *queue.Publisher, webhookBaseURL string, secretCodec *secrets.Codec) *ProjectHandler {
+// NewProjectHandler serves projects. tokens reads their repositories through
+// the GitHub App; webhooksEnabled says whether the App's webhook is set up, which
+// is what lets a push deploy a project.
+func NewProjectHandler(pool *pgxpool.Pool, inserter jobs.Inserter, secretCodec *secrets.Codec, tokens InstallationTokens, webhooksEnabled bool) *ProjectHandler {
 	return &ProjectHandler{
-		queries:        dbpkg.New(db),
-		db:             db,
-		publisher:      publisher,
-		webhookBaseURL: webhookBaseURL,
-		secrets:        secretCodec,
+		queries:   dbpkg.New(pool),
+		pool:      pool,
+		jobs:      inserter,
+		secrets:   secretCodec,
+		tokens:    tokens,
+		githubAPI: "https://api.github.com",
+		userToken: accessTokenFromContext,
+		webhooks:  webhooksEnabled,
 	}
 }
 
@@ -94,6 +107,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		Branch         string            `json:"branch"`
 		DockerfilePath string            `json:"dockerfile_path" binding:"required"`
 		Port           int32             `json:"port" binding:"required"`
+		HealthCheck    string            `json:"health_check"`
 		EnvVars        map[string]string `json:"env_vars"`
 	}
 
@@ -129,33 +143,37 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		return
 	}
 
-	userToken, ok := accessTokenFromContext(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: missing access token"})
-		return
-	}
-	if err := validateGitHubDeployInputs(c.Request.Context(), repoURL, branch, dockerfilePath, userToken); err != nil {
+	healthCheck, err := normalizeHealthCheckPath(body.HealthCheck)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	secret, err := generateSecret()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate webhook secret"})
+	// First, that the signed-in user may use this repository. The App can read every
+	// repository it is installed on, whoever installed it, so without this one
+	// user could deploy another's private repository.
+	if status, message := h.requireRepoAccess(c, repoURL); message != "" {
+		c.JSON(status, gin.H{"error": message})
 		return
 	}
-	storedSecret, err := h.secureWebhookSecret(secret)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to secure webhook secret"})
+	// Then, that Hatch can read it as the GitHub App, as the build will, so a
+	// project that passes this can be built.
+	token, access := tokenForRepo(c.Request.Context(), h.tokens, repoURL, http.StatusBadRequest)
+	if access != nil {
+		c.JSON(access.status, gin.H{"error": access.message})
+		return
+	}
+	if err := validateGitHubDeployInputs(c.Request.Context(), h.githubAPI, repoURL, branch, dockerfilePath, token); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	tx, err := h.pool.Begin(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start project transaction"})
 		return
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback(c.Request.Context()) }()
 
 	qtx := h.queries.WithTx(tx)
 	project, err := qtx.CreateProject(c.Request.Context(), dbpkg.CreateProjectParams{
@@ -165,8 +183,10 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		Branch:         branch,
 		DockerfilePath: dockerfilePath,
 		Port:           body.Port,
-		Subdomain:      sql.NullString{String: subdomain, Valid: true},
-		WebhookSecret:  sql.NullString{String: storedSecret, Valid: true},
+		Subdomain:      ptr(subdomain),
+		HealthCheck:    healthCheck,
+		// A push deploys the project when the App's webhook is set up.
+		AutoDeploy: h.webhooks,
 	})
 
 	if err != nil {
@@ -187,46 +207,12 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		return
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(c.Request.Context()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit project"})
 		return
 	}
 
 	h.recordActivity(c, userID, "CREATE", fmt.Sprintf("Project %s initialized", project.RepoName))
-
-	if userToken != "" {
-		hookID, err := h.registerGitHubWebhook(c.Request.Context(), repoURL, userToken, secret)
-		if err != nil {
-			slog.ErrorContext(c.Request.Context(), "failed to register the GitHub webhook", "project_id", project.ID, "error", err)
-			if updateErr := h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
-				ID:              project.ID,
-				WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
-				GithubWebhookID: sql.NullInt64{},
-				AutoDeploy:      false,
-			}); updateErr != nil {
-				slog.ErrorContext(c.Request.Context(), "failed to disable auto-deploy after a webhook registration error", "project_id", project.ID, "error", updateErr)
-			}
-			project.AutoDeploy = false
-		} else {
-			if updateErr := h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
-				ID:              project.ID,
-				WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
-				GithubWebhookID: sql.NullInt64{Int64: hookID, Valid: true},
-				AutoDeploy:      true,
-			}); updateErr != nil {
-				slog.ErrorContext(c.Request.Context(), "failed to save the GitHub webhook state", "project_id", project.ID, "error", updateErr)
-				if deleteErr := h.deleteGitHubWebhook(c.Request.Context(), repoURL, userToken, hookID); deleteErr != nil {
-					slog.ErrorContext(c.Request.Context(), "failed to remove an orphaned GitHub webhook", "hook_id", hookID, "project_id", project.ID, "error", deleteErr)
-				}
-				if clearErr := h.queries.ClearProjectWebhook(c.Request.Context(), project.ID); clearErr != nil {
-					slog.ErrorContext(c.Request.Context(), "failed to clear the webhook state", "project_id", project.ID, "error", clearErr)
-				}
-				project.AutoDeploy = false
-			} else {
-				project.GithubWebhookID = sql.NullInt64{Int64: hookID, Valid: true}
-			}
-		}
-	}
 
 	c.JSON(http.StatusCreated, toProjectResponse(project))
 }
@@ -273,6 +259,7 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 		Branch         string `json:"branch"`
 		DockerfilePath string `json:"dockerfile_path"`
 		Port           int32  `json:"port"`
+		HealthCheck    string `json:"health_check"`
 		AutoDeploy     *bool  `json:"auto_deploy"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -317,13 +304,19 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 		return
 	}
 
-	userToken, ok := accessTokenFromContext(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: missing access token"})
+	healthCheck, err := effectiveHealthCheck(body.HealthCheck, current.HealthCheck)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
 	if branch != current.Branch || dockerfilePath != current.DockerfilePath {
-		if err := validateGitHubDeployInputs(c.Request.Context(), current.RepoUrl, branch, dockerfilePath, userToken); err != nil {
+		token, access := tokenForRepo(c.Request.Context(), h.tokens, current.RepoUrl, http.StatusConflict)
+		if access != nil {
+			c.JSON(access.status, gin.H{"error": access.message})
+			return
+		}
+		if err := validateGitHubDeployInputs(c.Request.Context(), h.githubAPI, current.RepoUrl, branch, dockerfilePath, token); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -333,75 +326,11 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 	if body.AutoDeploy != nil {
 		autoDeploy = *body.AutoDeploy
 	}
-
-	if current.AutoDeploy && !autoDeploy {
-		if current.GithubWebhookID.Valid {
-			if err := h.deleteGitHubWebhook(c.Request.Context(), current.RepoUrl, userToken, current.GithubWebhookID.Int64); err != nil {
-				c.JSON(http.StatusBadGateway, gin.H{
-					"error": "auto-deploy could not be disabled because Hatch could not remove the GitHub webhook",
-				})
-				return
-			}
-		}
-		if err := h.queries.ClearProjectWebhook(c.Request.Context(), projectID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to clear webhook state"})
-			return
-		}
-	}
-
-	if autoDeploy && !current.AutoDeploy {
-		secret := ""
-		if current.WebhookSecret.Valid {
-			secret, err = h.secrets.Decrypt(current.WebhookSecret.String)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load webhook secret"})
-				return
-			}
-			secret = strings.TrimSpace(secret)
-		}
-		if secret == "" {
-			secret, err = generateSecret()
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate webhook secret"})
-				return
-			}
-			storedSecret, err := h.secureWebhookSecret(secret)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to secure webhook secret"})
-				return
-			}
-			if err := h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
-				ID:              projectID,
-				WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
-				GithubWebhookID: current.GithubWebhookID,
-				AutoDeploy:      current.AutoDeploy,
-			}); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save webhook secret"})
-				return
-			}
-		}
-
-		hookID, err := h.registerGitHubWebhook(c.Request.Context(), current.RepoUrl, userToken, secret)
-		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{
-				"error": "auto-deploy could not be enabled because Hatch could not register the GitHub webhook",
-			})
-			return
-		}
-		storedSecret, err := h.secureWebhookSecret(secret)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to secure webhook secret"})
-			return
-		}
-		if err := h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
-			ID:              projectID,
-			WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
-			GithubWebhookID: sql.NullInt64{Int64: hookID, Valid: true},
-			AutoDeploy:      true,
-		}); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save webhook state"})
-			return
-		}
+	// Turning it on is refused where nothing could deliver a push. Turning it off,
+	// or leaving a setting from before alone, is always fine.
+	if autoDeploy && !current.AutoDeploy && !h.webhooks {
+		c.JSON(http.StatusConflict, gin.H{"error": "This Hatch server has no GitHub webhook set up (GITHUB_WEBHOOK_SECRET), so a push cannot deploy a project. See docs/07-github-app-setup.md."})
+		return
 	}
 
 	project, err := h.queries.UpdateProjectSettings(c.Request.Context(), dbpkg.UpdateProjectSettingsParams{
@@ -412,6 +341,7 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 		DockerfilePath: dockerfilePath,
 		Port:           port,
 		AutoDeploy:     autoDeploy,
+		HealthCheck:    healthCheck,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update project"})
@@ -486,12 +416,12 @@ func (h *ProjectHandler) UpdateProjectEnvVars(c *gin.Context) {
 		return
 	}
 
-	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	tx, err := h.pool.Begin(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start environment transaction"})
 		return
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback(c.Request.Context()) }()
 
 	qtx := h.queries.WithTx(tx)
 	if err := h.replaceProjectEnvVars(c.Request.Context(), qtx, projectID, body.EnvVars); err != nil {
@@ -502,7 +432,7 @@ func (h *ProjectHandler) UpdateProjectEnvVars(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save environment variables"})
 		return
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(c.Request.Context()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit environment variables"})
 		return
 	}
@@ -552,15 +482,15 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 	}
 
 	resourceName := projectResourceName(project)
-	if tokenRaw, ok := c.Get("access_token"); ok && project.GithubWebhookID.Valid {
-		if token, ok := tokenRaw.(string); ok && token != "" {
-			if err := h.deleteGitHubWebhook(c.Request.Context(), project.RepoUrl, token, project.GithubWebhookID.Int64); err != nil {
-				slog.WarnContext(c.Request.Context(), "failed to delete the GitHub webhook", "project_id", project.ID, "error", err)
-			}
-		}
+	// Marking the project deleting and queuing the cleanup commit together.
+	tx, err := h.pool.Begin(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start project deletion"})
+		return
 	}
+	defer func() { _ = tx.Rollback(c.Request.Context()) }()
 
-	project, err = h.queries.MarkProjectDeleting(c.Request.Context(), dbpkg.MarkProjectDeletingParams{
+	project, err = h.queries.WithTx(tx).MarkProjectDeleting(c.Request.Context(), dbpkg.MarkProjectDeletingParams{
 		ID:     id,
 		UserID: userID,
 	})
@@ -568,16 +498,16 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to mark project for deletion"})
 		return
 	}
-
-	if err := h.publisher.PublishCleanupJob(c.Request.Context(), queue.CleanupJobEvent{
-		ProjectID: project.ID.String(),
-		Slug:      resourceName,
-	}); err != nil {
-		_ = h.queries.MarkProjectDeleteFailed(c.Request.Context(), dbpkg.MarkProjectDeleteFailedParams{
-			ID:          id,
-			DeleteError: sql.NullString{String: "failed to queue cleanup", Valid: true},
-		})
+	if _, err := h.jobs.InsertTx(c.Request.Context(), tx, jobs.DestroyAppArgs{
+		ProjectID: project.ID,
+		Subdomain: resourceName,
+	}, nil); err != nil {
+		slog.ErrorContext(c.Request.Context(), "failed to queue project cleanup", "project_id", id, "error", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to queue cleanup"})
+		return
+	}
+	if err := tx.Commit(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to mark project for deletion"})
 		return
 	}
 
@@ -649,7 +579,20 @@ func (h *ProjectHandler) handleServiceControl(c *gin.Context, action, nextStatus
 	}
 
 	resourceName := projectResourceName(project)
-	project, err = h.queries.UpdateProjectLifecycleStatus(c.Request.Context(), dbpkg.UpdateProjectLifecycleStatusParams{
+	replicas := int32(0)
+	if action == "resume" {
+		replicas = 1
+	}
+
+	// Changing the project's status and queuing the scale job commit together.
+	tx, err := h.pool.Begin(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update project status"})
+		return
+	}
+	defer func() { _ = tx.Rollback(c.Request.Context()) }()
+
+	project, err = h.queries.WithTx(tx).UpdateProjectLifecycleStatus(c.Request.Context(), dbpkg.UpdateProjectLifecycleStatusParams{
 		ID:     id,
 		UserID: userID,
 		Status: nextStatus,
@@ -658,22 +601,17 @@ func (h *ProjectHandler) handleServiceControl(c *gin.Context, action, nextStatus
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update project status"})
 		return
 	}
-
-	if err := h.publisher.PublishServiceControlJob(c.Request.Context(), queue.ServiceControlJobEvent{
-		ProjectID: project.ID.String(),
-		Slug:      resourceName,
-		Action:    action,
-	}); err != nil {
-		failedStatus := "suspend_failed"
-		if action == "resume" {
-			failedStatus = "resume_failed"
-		}
-		_ = h.queries.MarkProjectOperationFailed(c.Request.Context(), dbpkg.MarkProjectOperationFailedParams{
-			ID:          id,
-			Status:      failedStatus,
-			DeleteError: sql.NullString{String: "failed to queue service operation", Valid: true},
-		})
+	if _, err := h.jobs.InsertTx(c.Request.Context(), tx, jobs.ScaleArgs{
+		ProjectID: project.ID,
+		Subdomain: resourceName,
+		Replicas:  replicas,
+	}, nil); err != nil {
+		slog.ErrorContext(c.Request.Context(), "failed to queue service operation", "project_id", id, "error", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to queue service operation"})
+		return
+	}
+	if err := tx.Commit(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update project status"})
 		return
 	}
 
@@ -695,40 +633,32 @@ func toProjectResponse(project dbpkg.Project) ProjectResponse {
 		Branch:         project.Branch,
 		DockerfilePath: project.DockerfilePath,
 		Port:           project.Port,
+		HealthCheck:    project.HealthCheck,
 		Status:         project.Status,
 		CreatedAt:      project.CreatedAt.Format(time.RFC3339),
 	}
-	if project.Subdomain.Valid {
-		response.Subdomain = &project.Subdomain.String
-	}
-	if project.DeleteRequestedAt.Valid {
-		value := project.DeleteRequestedAt.Time.Format(time.RFC3339)
+	response.Subdomain = project.Subdomain
+	if project.DeleteRequestedAt != nil {
+		value := project.DeleteRequestedAt.Format(time.RFC3339)
 		response.DeleteRequestedAt = &value
 	}
-	if project.DeleteError.Valid {
-		response.DeleteError = &project.DeleteError.String
-	}
+	response.DeleteError = project.DeleteError
 	return response
 }
 
 func projectResourceName(project dbpkg.Project) string {
 	resourceName := project.ID.String()[:8]
-	if project.Subdomain.Valid && project.Subdomain.String != "" {
-		resourceName = project.Subdomain.String
+	if project.Subdomain != nil && *project.Subdomain != "" {
+		resourceName = *project.Subdomain
 	}
 	return resourceName
-}
-
-type githubHook struct {
-	ID     int64             `json:"id"`
-	Config map[string]string `json:"config"`
 }
 
 type githubContentMetadata struct {
 	Type string `json:"type"`
 }
 
-func validateGitHubDeployInputs(ctx context.Context, repoURL, branch, dockerfilePath, token string) error {
+func validateGitHubDeployInputs(ctx context.Context, apiBase, repoURL, branch, dockerfilePath, token string) error {
 	owner, repo, err := parseRepoURL(repoURL)
 	if err != nil {
 		return err
@@ -740,7 +670,7 @@ func validateGitHubDeployInputs(ctx context.Context, repoURL, branch, dockerfile
 		return fmt.Errorf("authentication required: missing access token")
 	}
 
-	branchURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/branches/%s", owner, repo, url.PathEscape(branch))
+	branchURL := fmt.Sprintf("%s/repos/%s/%s/branches/%s", apiBase, owner, repo, url.PathEscape(branch))
 	branchStatus, branchBody, err := githubGet(ctx, branchURL, token)
 	if err != nil {
 		return err
@@ -753,7 +683,8 @@ func validateGitHubDeployInputs(ctx context.Context, repoURL, branch, dockerfile
 	}
 
 	dockerfileURL := fmt.Sprintf(
-		"https://api.github.com/repos/%s/%s/contents/%s?ref=%s",
+		"%s/repos/%s/%s/contents/%s?ref=%s",
+		apiBase,
 		owner,
 		repo,
 		escapeGitHubPath(dockerfilePath),
@@ -777,13 +708,18 @@ func validateGitHubDeployInputs(ctx context.Context, repoURL, branch, dockerfile
 	return nil
 }
 
+// accessTokenFromContext returns the signed-in user's GitHub token, renewing
+// it if it has expired. It reports false when there is none to give, in which
+// case the user has to sign in again.
 func accessTokenFromContext(c *gin.Context) (string, bool) {
-	tokenRaw, ok := c.Get("access_token")
-	if !ok {
+	token, err := auth.GitHubToken(c)
+	if err != nil {
+		if !errors.Is(err, auth.ErrReauthRequired) {
+			slog.ErrorContext(c.Request.Context(), "failed to get the user's GitHub token", "error", err)
+		}
 		return "", false
 	}
-	token, ok := tokenRaw.(string)
-	return token, ok && token != ""
+	return token, token != ""
 }
 
 func escapeGitHubPath(value string) string {
@@ -809,145 +745,6 @@ func githubGet(ctx context.Context, endpoint, token string) (int, string, error)
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 	return resp.StatusCode, strings.TrimSpace(string(body)), nil
-}
-
-func (h *ProjectHandler) registerGitHubWebhook(ctx context.Context, repoURL, token, secret string) (int64, error) {
-	owner, repo, err := parseRepoURL(repoURL)
-	if err != nil {
-		return 0, err
-	}
-
-	webhookURL := fmt.Sprintf("%s/api/webhooks/github", h.webhookBaseURL)
-	payload := map[string]interface{}{
-		"name":   "web",
-		"active": true,
-		"events": []string{"push"},
-		"config": map[string]string{
-			"url":          webhookURL,
-			"content_type": "json",
-			"secret":       secret,
-		},
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return 0, err
-	}
-
-	if existingHookID, ok, err := h.findGitHubWebhook(ctx, owner, repo, token, webhookURL); err != nil {
-		return 0, err
-	} else if ok {
-		return existingHookID, h.updateGitHubWebhook(ctx, owner, repo, token, existingHookID, body)
-	}
-
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks", owner, repo)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return 0, err
-	}
-	setGitHubHeaders(req, token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := outboundHTTPClient.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
-		var hook githubHook
-		if err := json.NewDecoder(resp.Body).Decode(&hook); err != nil {
-			return 0, err
-		}
-		return hook.ID, nil
-	}
-	if resp.StatusCode == http.StatusUnprocessableEntity {
-		existingHookID, ok, err := h.findGitHubWebhook(ctx, owner, repo, token, webhookURL)
-		if err != nil {
-			return 0, err
-		}
-		if ok {
-			return existingHookID, h.updateGitHubWebhook(ctx, owner, repo, token, existingHookID, body)
-		}
-	}
-
-	responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	return 0, fmt.Errorf("github webhook registration failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
-}
-
-func (h *ProjectHandler) findGitHubWebhook(ctx context.Context, owner, repo, token, webhookURL string) (int64, bool, error) {
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks?per_page=100", owner, repo)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return 0, false, err
-	}
-	setGitHubHeaders(req, token)
-
-	resp, err := outboundHTTPClient.Do(req)
-	if err != nil {
-		return 0, false, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return 0, false, fmt.Errorf("github webhook lookup failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
-	}
-
-	var hooks []githubHook
-	if err := json.NewDecoder(resp.Body).Decode(&hooks); err != nil {
-		return 0, false, err
-	}
-	for _, hook := range hooks {
-		if hook.Config["url"] == webhookURL {
-			return hook.ID, true, nil
-		}
-	}
-	return 0, false, nil
-}
-
-func (h *ProjectHandler) updateGitHubWebhook(ctx context.Context, owner, repo, token string, hookID int64, body []byte) error {
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks/%d", owner, repo, hookID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	setGitHubHeaders(req, token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := outboundHTTPClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return nil
-	}
-	responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	return fmt.Errorf("github webhook update failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
-}
-
-func (h *ProjectHandler) deleteGitHubWebhook(ctx context.Context, repoURL, token string, hookID int64) error {
-	owner, repo, err := parseRepoURL(repoURL)
-	if err != nil {
-		return err
-	}
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks/%d", owner, repo, hookID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
-	if err != nil {
-		return err
-	}
-	setGitHubHeaders(req, token)
-
-	resp, err := outboundHTTPClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound {
-		return nil
-	}
-	responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	return fmt.Errorf("github webhook deletion failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
 }
 
 func parseRepoURL(url string) (string, string, error) {
@@ -1092,16 +889,12 @@ func (h *ProjectHandler) replaceProjectEnvVars(ctx context.Context, q *dbpkg.Que
 			ProjectID: projectID,
 			Key:       key,
 			Value:     storedValue,
-			SecretArn: sql.NullString{},
+			SecretArn: nil,
 		}); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func (h *ProjectHandler) secureWebhookSecret(secret string) (string, error) {
-	return h.secrets.Encrypt(strings.TrimSpace(secret))
 }
 
 func normalizeEnvVars(envVars map[string]string) (map[string]string, error) {
@@ -1146,14 +939,6 @@ func (h *ProjectHandler) projectEnvVarsResponse(envVars []dbpkg.ProjectEnvVar) (
 		}
 	}
 	return response, nil
-}
-
-func generateSecret() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
 }
 
 func (h *ProjectHandler) recordActivity(c *gin.Context, userID uuid.UUID, logType, message string) {

@@ -30,3 +30,15 @@ not end a session. Every authenticated request already queries Postgres.
   queries each request already makes.
 - Bearer-token API access, if needed later, uses separate API tokens stored the
   same way.
+
+## As built (2026-10-21)
+
+- `sessions` table: `token_hash` (SHA-256, unique), `user_id` (cascade delete),
+  `created_at`, `last_seen_at`, `expires_at`.
+- Sessions last 30 days from sign-in and end after 7 days without use.
+  `last_seen_at` is written at most every 5 minutes.
+- Ended sessions are deleted whenever someone signs in; there is no separate
+  sweeper yet.
+- Bearer-token access was removed with the JWT. The log stream
+  checks the same session cookie as any API call.
+- "Sign out everywhere" is not built; the data model supports it.
