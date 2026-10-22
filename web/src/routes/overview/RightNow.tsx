@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { Panel } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import { deploymentPath, projectPath } from "@/lib/paths";
 import { deploymentLastLogQuery } from "@/lib/queries";
 import { useNow } from "@/lib/useNow";
 import { type ServiceRow, formatCommit } from "../services/service";
@@ -58,7 +59,7 @@ function InProgress({ row, actions }: { row: ServiceRow; actions: ReturnType<typ
       <div className="flex items-center gap-3">
         <ProjectIcon projectId={project.id} version={deployment.id} running={false} size={32} />
         <div className="min-w-0 flex-1">
-          <Link to={`/projects/${project.id}`} className="block truncate text-sm font-semibold leading-5 transition-colors hover:text-accent">
+          <Link to={projectPath(project)} className="block truncate text-sm font-semibold leading-5 transition-colors hover:text-accent">
             {displayName(row)}
           </Link>
           <p className="truncate text-[13px] leading-5 text-muted">{commit.message ?? deployment.branch}</p>
@@ -113,7 +114,7 @@ function InProgress({ row, actions }: { row: ServiceRow; actions: ReturnType<typ
 
       <div className="mt-3 -mb-1 flex items-center justify-between">
         <Link
-          to={`/projects/${project.id}/deployments/${deployment.id}`}
+          to={deploymentPath(deployment)}
           className="-ml-2 inline-flex h-7 items-center rounded-hatch px-2 text-[13px] text-muted transition-colors hover:bg-ink/5 hover:text-ink"
         >
           View logs

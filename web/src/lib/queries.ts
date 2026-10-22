@@ -89,6 +89,18 @@ export const projectQuery = (projectId: string) =>
 export const isActiveDeployment = (status: string | undefined) =>
   ACTIVE_DEPLOYMENT_STATUSES.has(status?.toLowerCase() ?? "");
 
+/**
+ * One deployment, by what an address holds: its whole id or the first eight or
+ * more characters of it. It says which project it belongs to. Its key does not
+ * start with "deployments", so it is not kept between visits.
+ */
+export const deploymentByRefQuery = (ref: string) =>
+  queryOptions({
+    queryKey: ["deployment-ref", ref],
+    queryFn: () => apiJson<Deployment>(`/api/deployments/${encodeURIComponent(ref)}`),
+    retry: false,
+  });
+
 /** A project's environment variables. */
 export const projectEnvVarsQuery = (projectId: string) =>
   queryOptions({

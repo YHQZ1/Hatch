@@ -1,3 +1,4 @@
+import { deploymentPath, projectPath, settingsPath } from "@/lib/paths";
 import type { ServiceRow } from "../services/service";
 import type { MenuItem } from "./ActionsMenu";
 import { abilities } from "./overview";
@@ -14,9 +15,7 @@ export function projectMenuItems(
 ): MenuItem[] {
   const { project, lastDeployment, liveUrl, status } = row;
   const can = abilities(project, lastDeployment);
-  const logs = lastDeployment
-    ? `/projects/${project.id}/deployments/${lastDeployment.id}`
-    : `/projects/${project.id}`;
+  const logs = lastDeployment ? deploymentPath(lastDeployment) : projectPath(project);
 
   const items: MenuItem[] = [
     // Things you do to the running project.
@@ -28,7 +27,7 @@ export function projectMenuItems(
       : { label: "Suspend", onSelect: () => void actions.suspend(row), disabled: !can.suspend, group: 0 },
     // Places to go.
     { label: "View logs", href: logs, group: 1 },
-    { label: "Project settings", href: `/projects/${project.id}/settings`, group: 1 },
+    { label: "Project settings", href: settingsPath(project), group: 1 },
   ];
   if (onDelete) {
     items.push({

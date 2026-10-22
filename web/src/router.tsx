@@ -53,11 +53,6 @@ export const router = createBrowserRouter([
             handle: { title: "Resources" },
             ...page(() => import("./routes/Resources")),
           },
-          {
-            path: "insights",
-            handle: { title: "Insights" },
-            ...page(() => import("./routes/Insights")),
-          },
           // Recent activity is a panel on the Overview; this path is an old link.
           { path: "activity", element: <Navigate to="/overview" replace /> },
           {
@@ -66,19 +61,25 @@ export const router = createBrowserRouter([
             ...page(() => import("./routes/NewProject")),
           },
           {
-            path: "projects/:id",
+            path: "projects/:project",
             handle: { title: "Project" },
             ...page(() => import("./routes/Project")),
           },
           {
-            path: "projects/:id/settings",
+            path: "projects/:project/settings",
             handle: { title: "Project Settings" },
             ...page(() => import("./routes/ProjectSettings")),
           },
+          // A deployment has a page of its own, named by its short id. It used to
+          // live under its project; old links are sent to the new address.
           {
-            path: "projects/:id/deployments/:deploymentId",
+            path: "deployments/:id",
             handle: { title: "Deployment" },
             ...page(() => import("./routes/Deployment")),
+          },
+          {
+            path: "projects/:project/deployments/:deployment",
+            ...page(() => import("./routes/LegacyDeploymentRedirect")),
           },
           {
             path: "settings",
@@ -87,10 +88,9 @@ export const router = createBrowserRouter([
           },
           // Settings used to live at /u/<username>.
           { path: "u/:id", element: <Navigate to="/settings" replace /> },
-          {
-            path: "infrastructure",
-            element: <Navigate to="/insights" replace />,
-          },
+          // The Insights page is gone; its old addresses go to the Overview.
+          { path: "insights", element: <Navigate to="/overview" replace /> },
+          { path: "infrastructure", element: <Navigate to="/overview" replace /> },
         ],
       },
       { path: "*", ...page(() => import("./routes/NotFound")) },

@@ -396,26 +396,49 @@ func (h *DeploymentHandler) RollbackDeployment(c *gin.Context) {
 	c.JSON(http.StatusCreated, h.toDeploymentResponse(deployment))
 }
 
+// GetDeployment is GET /api/deployments/:id. The id may be a whole UUID or its
+// first eight or more hex digits, which is what the web app puts in an address
+// (/deployments/430b592c). A short id is looked up among the signed-in user's own
+// deployments only; if it fits more than one of them the answer is 409 and the
+// whole id is needed.
 func (h *DeploymentHandler) GetDeployment(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
+	ctx := c.Request.Context()
+	ref := c.Param("id")
 
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
-
-	deployment, err := h.queries.GetDeploymentByIDAndUserID(c.Request.Context(), dbpkg.GetDeploymentByIDAndUserIDParams{
-		ID:     id,
-		UserID: userID,
-	})
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
-		return
+	var deployment dbpkg.Deployment
+	if id, err := uuid.Parse(ref); err == nil {
+		deployment, err = h.queries.GetDeploymentByIDAndUserID(ctx, dbpkg.GetDeploymentByIDAndUserIDParams{ID: id, UserID: userID})
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+			return
+		}
+	} else {
+		low, high, ok := shortIDRange(ref)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		matches, err := h.queries.GetDeploymentsByIDRangeAndUserID(ctx, dbpkg.GetDeploymentsByIDRangeAndUserIDParams{UserID: userID, Low: low, High: high})
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to look up a deployment by its short id", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch deployment"})
+			return
+		}
+		switch len(matches) {
+		case 0:
+			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+			return
+		case 1:
+			deployment = matches[0]
+		default:
+			c.JSON(http.StatusConflict, gin.H{"error": "that short id fits more than one deployment; use more of the id"})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, h.toDeploymentResponse(deployment))

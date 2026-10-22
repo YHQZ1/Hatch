@@ -11,6 +11,7 @@ import {
   redirectIfUnauthorized,
 } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { projectPath } from "@/lib/paths";
 import { activityQuery, projectsQuery } from "@/lib/queries";
 import type { GitHubRepo } from "@/lib/types";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
@@ -151,7 +152,7 @@ export default function Configure({
           ),
         });
       }
-      navigate(`/projects/${project.id}`);
+      navigate(projectPath(project));
     } catch {
       onNotice({
         type: "error",

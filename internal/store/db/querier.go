@@ -49,6 +49,10 @@ type Querier interface {
 	GetDeploymentLogTail(ctx context.Context, arg GetDeploymentLogTailParams) ([]GetDeploymentLogTailRow, error)
 	GetDeploymentLogsAfter(ctx context.Context, arg GetDeploymentLogsAfterParams) ([]GetDeploymentLogsAfterRow, error)
 	GetDeploymentStatus(ctx context.Context, id uuid.UUID) (string, error)
+	// The user's deployments whose id lies between low and high: how a short id (the
+	// first hex digits of a UUID) is looked up, as a range over the primary key's
+	// index. At most two rows come back, which is enough to tell one match from several.
+	GetDeploymentsByIDRangeAndUserID(ctx context.Context, arg GetDeploymentsByIDRangeAndUserIDParams) ([]Deployment, error)
 	GetDeploymentsByProjectID(ctx context.Context, projectID uuid.UUID) ([]Deployment, error)
 	GetDeploymentsByProjectIDAndUserID(ctx context.Context, arg GetDeploymentsByProjectIDAndUserIDParams) ([]Deployment, error)
 	GetEnvVarsByDeployment(ctx context.Context, deploymentID uuid.UUID) ([]EnvVar, error)

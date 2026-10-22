@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
+import { deploymentPath } from "@/lib/paths";
 import type { Deployment, Project } from "@/lib/types";
 import { durationSeconds, formatDuration } from "../deployments/deployments";
 import CopyUrlButton from "../overview/CopyUrlButton";
@@ -93,7 +94,7 @@ export default function DeploymentDetails({
         <nav aria-label="Other deployments" className="mt-4 flex items-center justify-between gap-4 text-sm">
           {older ? (
             <Link
-              to={`/projects/${project.id}/deployments/${older.id}`}
+              to={deploymentPath(older)}
               className="inline-flex items-center gap-1.5 text-muted transition-colors hover:text-ink"
             >
               <ArrowLeftIcon className="h-3.5 w-3.5" />
@@ -104,7 +105,7 @@ export default function DeploymentDetails({
           )}
           {newer && (
             <Link
-              to={`/projects/${project.id}/deployments/${newer.id}`}
+              to={deploymentPath(newer)}
               className="inline-flex items-center gap-1.5 text-muted transition-colors hover:text-ink"
             >
               Newer

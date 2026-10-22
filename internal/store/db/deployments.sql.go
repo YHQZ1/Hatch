@@ -380,6 +380,69 @@ func (q *Queries) GetDeploymentStatus(ctx context.Context, id uuid.UUID) (string
 	return status, err
 }
 
+const getDeploymentsByIDRangeAndUserID = `-- name: GetDeploymentsByIDRangeAndUserID :many
+SELECT deployments.id, deployments.project_id, deployments.branch, deployments.status, deployments.cpu, deployments.memory_mb, deployments.port, deployments.health_check, deployments.image_uri, deployments.ecs_task_arn, deployments.subdomain, deployments.url, deployments.created_at, deployments.deployed_at, deployments.commit_sha, deployments.commit_message, deployments.ecs_service_name, deployments.target_group_arn, deployments.error_stage, deployments.error_message, deployments.failed_at, deployments.log_seq
+FROM deployments
+JOIN projects ON projects.id = deployments.project_id
+WHERE projects.user_id = $1
+  AND deployments.id >= $2::uuid
+  AND deployments.id <= $3::uuid
+ORDER BY deployments.created_at DESC
+LIMIT 2
+`
+
+type GetDeploymentsByIDRangeAndUserIDParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	Low    uuid.UUID `json:"low"`
+	High   uuid.UUID `json:"high"`
+}
+
+// The user's deployments whose id lies between low and high: how a short id (the
+// first hex digits of a UUID) is looked up, as a range over the primary key's
+// index. At most two rows come back, which is enough to tell one match from several.
+func (q *Queries) GetDeploymentsByIDRangeAndUserID(ctx context.Context, arg GetDeploymentsByIDRangeAndUserIDParams) ([]Deployment, error) {
+	rows, err := q.db.Query(ctx, getDeploymentsByIDRangeAndUserID, arg.UserID, arg.Low, arg.High)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Deployment
+	for rows.Next() {
+		var i Deployment
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.Branch,
+			&i.Status,
+			&i.Cpu,
+			&i.MemoryMb,
+			&i.Port,
+			&i.HealthCheck,
+			&i.ImageUri,
+			&i.EcsTaskArn,
+			&i.Subdomain,
+			&i.Url,
+			&i.CreatedAt,
+			&i.DeployedAt,
+			&i.CommitSha,
+			&i.CommitMessage,
+			&i.EcsServiceName,
+			&i.TargetGroupArn,
+			&i.ErrorStage,
+			&i.ErrorMessage,
+			&i.FailedAt,
+			&i.LogSeq,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDeploymentsByProjectID = `-- name: GetDeploymentsByProjectID :many
 SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at, log_seq FROM deployments WHERE project_id = $1 ORDER BY created_at DESC
 `

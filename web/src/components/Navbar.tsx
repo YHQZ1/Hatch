@@ -24,7 +24,8 @@ const NAV_ITEMS: NavItem[] = [
     // A project's own pages and the flow that adds one belong to the Overview.
     active: (p) => p === "/overview" || p === "/new" || p.startsWith("/projects/"),
   },
-  { label: "Deployments", href: "/deployments", active: (p) => p === "/deployments" },
+  // A single deployment's page belongs to the Deployments.
+  { label: "Deployments", href: "/deployments", active: (p) => p === "/deployments" || p.startsWith("/deployments/") },
   { label: "Cost", href: "/cost", active: (p) => p === "/cost" },
   { label: "Resources", href: "/resources", active: (p) => p === "/resources" },
   { label: "Settings", href: "/settings", active: (p) => p.startsWith("/settings") },

@@ -12,6 +12,19 @@ FROM deployments
 JOIN projects ON projects.id = deployments.project_id
 WHERE deployments.id = $1 AND projects.user_id = $2;
 
+-- name: GetDeploymentsByIDRangeAndUserID :many
+-- The user's deployments whose id lies between low and high: how a short id (the
+-- first hex digits of a UUID) is looked up, as a range over the primary key's
+-- index. At most two rows come back, which is enough to tell one match from several.
+SELECT deployments.*
+FROM deployments
+JOIN projects ON projects.id = deployments.project_id
+WHERE projects.user_id = sqlc.arg(user_id)
+  AND deployments.id >= sqlc.arg(low)::uuid
+  AND deployments.id <= sqlc.arg(high)::uuid
+ORDER BY deployments.created_at DESC
+LIMIT 2;
+
 -- name: GetDeploymentsByProjectID :many
 SELECT * FROM deployments WHERE project_id = $1 ORDER BY created_at DESC;
 

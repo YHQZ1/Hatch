@@ -12,7 +12,10 @@ import {
   projectQuery,
   projectsQuery,
 } from "@/lib/queries";
+import { projectPath, projectRef, settingsPath } from "@/lib/paths";
 import type { Deployment } from "@/lib/types";
+import { useCanonicalPath } from "@/lib/useCanonicalPath";
+import { useProjectByRef } from "@/lib/useProjectByRef";
 import { currentIds, stateOf } from "./deployments/deployments";
 import { Address } from "./overview/Address";
 import { ArrowLeftIcon } from "./overview/Glyphs";
@@ -31,15 +34,21 @@ import { toServiceRow } from "./services/service";
  * the deployment you choose, and every deployment it has had.
  */
 export default function ProjectPage() {
-  const { id: projectId = "" } = useParams();
+  const { project: ref = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const projectResult = useQuery(projectQuery(projectId));
-  const deploymentsResult = useQuery(projectDeploymentsQuery(projectId));
-  const project = projectResult.data ?? null;
+  // The address names the project; its id, for the server, comes from the list.
+  const resolved = useProjectByRef(ref);
+  const projectId = resolved.project?.id ?? "";
+  const known = projectId !== "";
+  const projectResult = useQuery({ ...projectQuery(projectId), enabled: known });
+  const deploymentsResult = useQuery({ ...projectDeploymentsQuery(projectId), enabled: known });
+  const project = projectResult.data ?? resolved.project;
   const deployments = deploymentsResult.data ?? NO_DEPLOYMENTS;
-  const loading = projectResult.isPending || deploymentsResult.isPending;
+  const loading = resolved.resolving || (known && (projectResult.isPending || deploymentsResult.isPending));
+  // Opened by an older or longer address (a whole id): show the short one.
+  useCanonicalPath(project && ref !== projectRef(project) ? projectPath(project) : null);
 
   // The deployment being viewed: the one picked, else the latest.
   const [pickedId, setPickedId] = useState<string | null>(null);
@@ -211,7 +220,7 @@ export default function ProjectPage() {
               <ArrowLeftIcon className="h-4 w-4" />
               Back
             </Button>
-            <Button href={`/projects/${projectId}/settings`}>Settings</Button>
+            {project ? <Button href={settingsPath(project)}>Settings</Button> : <Button disabled>Settings</Button>}
             <Button variant="primary" onClick={deploy} disabled={!project || deploying || canceling}>
               {deploying ? "Deploying…" : "Deploy"}
             </Button>

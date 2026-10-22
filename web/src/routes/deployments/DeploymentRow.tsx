@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { useState } from "react";
 import { cn } from "@/lib/cn";
+import { deploymentPath, projectPath } from "@/lib/paths";
 import { safeHttpUrl } from "@/lib/url";
 import ActionsMenu from "../overview/ActionsMenu";
 import { BranchIcon, CommitIcon } from "../overview/Glyphs";
@@ -37,7 +38,7 @@ export default function DeploymentRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const commit = formatCommit(deployment);
   const name = projectName(project);
-  const logs = `/projects/${project.id}/deployments/${deployment.id}`;
+  const logs = deploymentPath(deployment);
   const address = info.state === "current" ? safeHttpUrl(deployment.url) : null;
   const running = info.state === "building";
   const seconds = durationSeconds(deployment);
@@ -51,7 +52,7 @@ export default function DeploymentRow({
       label={`Actions for the deployment of ${name}`}
       items={[
         { label: "View logs", href: logs },
-        { label: "Open project", href: `/projects/${project.id}` },
+        { label: "Open project", href: projectPath(project) },
         { label: "Visit", href: address ?? undefined, disabled: !address },
         ...(canRollBack(deployment, info)
           ? [{ label: "Roll back to this deployment", onSelect: () => void actions.rollback(project, deployment), group: 1 }]

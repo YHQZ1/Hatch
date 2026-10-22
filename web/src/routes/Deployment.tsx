@@ -4,7 +4,10 @@ import { Link, useNavigate, useParams } from "react-router";
 import { NoticeToast } from "@/components/NoticeToast";
 import { AppShell, Button } from "@/components/ui";
 import { useNotice } from "@/components/useNotice";
-import { NO_DEPLOYMENTS, projectDeploymentsQuery, projectQuery } from "@/lib/queries";
+import { ApiError } from "@/lib/api";
+import { deploymentPath, deploymentRef, projectPath } from "@/lib/paths";
+import { NO_DEPLOYMENTS, deploymentByRefQuery, projectDeploymentsQuery, projectQuery } from "@/lib/queries";
+import { useCanonicalPath } from "@/lib/useCanonicalPath";
 import DeploymentDetails from "./deployment/DeploymentDetails";
 import { neighbours, shortId } from "./deployment/deployment";
 import { canRollBack, currentIds, stateOf } from "./deployments/deployments";
@@ -25,15 +28,24 @@ import { formatRepoSlug, projectName, toServiceRow } from "./services/service";
  * same pieces for whichever deployment is chosen in its list.
  */
 export default function DeploymentPage() {
-  const { id: projectId = "", deploymentId = "" } = useParams();
+  const { id: ref = "" } = useParams();
   const navigate = useNavigate();
 
-  const projectResult = useQuery(projectQuery(projectId));
-  const deploymentsResult = useQuery(projectDeploymentsQuery(projectId));
+  // The address holds a short id; the deployment says which project it is in.
+  const lookup = useQuery(deploymentByRefQuery(ref));
+  const projectId = lookup.data?.project_id ?? "";
+  const known = projectId !== "";
+  const projectResult = useQuery({ ...projectQuery(projectId), enabled: known });
+  const deploymentsResult = useQuery({ ...projectDeploymentsQuery(projectId), enabled: known });
   const project = projectResult.data ?? null;
   const deployments = deploymentsResult.data ?? NO_DEPLOYMENTS;
-  const deployment = deployments.find((item) => item.id === deploymentId) ?? null;
-  const loading = projectResult.isPending || deploymentsResult.isPending;
+  // The list is the live copy (the log stream keeps its statuses current); the
+  // lookup is where it comes from before the list has loaded.
+  const deployment = deployments.find((item) => item.id === lookup.data?.id) ?? lookup.data ?? null;
+  const deploymentId = deployment?.id ?? "";
+  const loading = lookup.isPending || (known && (projectResult.isPending || deploymentsResult.isPending));
+  // Opened by a whole id: show the short one.
+  useCanonicalPath(deployment && ref !== deploymentRef(deployment.id) ? deploymentPath(deployment) : null);
 
   const { notice, setNotice, dismiss } = useNotice({
     failedAt: projectResult.isError
@@ -56,15 +68,19 @@ export default function DeploymentPage() {
   const around = useMemo(() => neighbours(deployments, deploymentId), [deployments, deploymentId]);
 
   if (!loading && (!project || !deployment)) {
+    // The server explains an id that fits more than one deployment; anything else is just not found.
+    const ambiguous = lookup.error instanceof ApiError && lookup.error.status === 409;
     return (
       <AppShell contentClassName="py-8">
         <div className="flex flex-col items-start gap-4 rounded-hatch border border-dashed border-line-strong px-6 py-12">
-          <p className="text-xl font-semibold tracking-tight">Deployment not found</p>
+          <p className="text-xl font-semibold tracking-tight">{ambiguous ? "That id fits more than one deployment" : "Deployment not found"}</p>
           <p className="max-w-md leading-relaxed text-muted">
-            It may have been removed along with its project, or the link is wrong.
+            {ambiguous
+              ? "Use more of the deployment's id in the address."
+              : "It may have been removed along with its project, or the link is wrong."}
           </p>
-          <Button href={project ? `/projects/${projectId}` : "/overview"} variant="secondary">
-            {project ? "Back to the project" : "Go to the Overview"}
+          <Button href={project ? projectPath(project) : "/deployments"} variant="secondary">
+            {project ? "Back to the project" : "Go to the Deployments"}
           </Button>
         </div>
         <NoticeToast notice={notice} onDismiss={dismiss} />
@@ -79,7 +95,7 @@ export default function DeploymentPage() {
   const rollBack = async () => {
     if (!project || !deployment) return;
     const created = await actions.rollback(project, deployment);
-    if (created) navigate(`/projects/${projectId}/deployments/${created.id}`);
+    if (created) navigate(deploymentPath(created));
   };
 
   return (
@@ -101,12 +117,12 @@ export default function DeploymentPage() {
               {project ? (
                 <>
                   <h1 className="truncate text-2xl font-semibold tracking-tight">
-                    <Link to={`/projects/${project.id}`} className="transition-colors hover:text-muted">
+                    <Link to={projectPath(project)} className="transition-colors hover:text-muted">
                       {projectName(project)}
                     </Link>
                   </h1>
                   <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-5 gap-y-1 text-sm text-muted">
-                    <span>Deployment {shortId(deploymentId)}</span>
+                    <span>Deployment {shortId(deploymentId || ref)}</span>
                     <RepoLink url={project.repo_url} slug={formatRepoSlug(project.repo_url)} />
                   </div>
                 </>
@@ -121,7 +137,7 @@ export default function DeploymentPage() {
           </div>
 
           <div className="flex shrink-0 gap-2">
-            <Button href={`/projects/${projectId}`}>
+            <Button href={project ? projectPath(project) : "/deployments"}>
               <ArrowLeftIcon className="h-4 w-4" />
               Back
             </Button>

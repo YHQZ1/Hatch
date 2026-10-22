@@ -15,6 +15,9 @@ import {
   projectsQuery,
 } from "@/lib/queries";
 import type { Project } from "@/lib/types";
+import { projectPath, projectRef, settingsPath } from "@/lib/paths";
+import { useCanonicalPath } from "@/lib/useCanonicalPath";
+import { useProjectByRef } from "@/lib/useProjectByRef";
 import { ArrowLeftIcon } from "./overview/Glyphs";
 import { abilities } from "./overview/overview";
 import { useDeleteProject } from "./overview/useDeleteProject";
@@ -46,19 +49,26 @@ const SECTIONS: NavSection[] = [
  * variables) applies to the next one, and the page offers to deploy right away.
  */
 export default function ProjectSettingsPage() {
-  const { id = "" } = useParams();
+  const { project: ref = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  // The address names the project; its id, for the server, comes from the list.
+  const resolved = useProjectByRef(ref);
+  const id = resolved.project?.id ?? "";
+  const known = id !== "";
   const projectResult = useQuery({
     ...projectQuery(id),
+    enabled: known,
     // Suspending, resuming and deleting finish on their own; keep checking.
     refetchInterval: (query) => (isProjectTransitioning(query.state.data?.status) ? 3500 : false),
   });
-  const deploymentsResult = useQuery(projectDeploymentsQuery(id));
-  const project = projectResult.data ?? null;
+  const deploymentsResult = useQuery({ ...projectDeploymentsQuery(id), enabled: known });
+  const project = projectResult.data ?? resolved.project;
   const deployments = deploymentsResult.data ?? NO_DEPLOYMENTS;
-  const loading = projectResult.isPending;
+  const loading = resolved.resolving || (known && projectResult.isPending);
+  // Opened by an older or longer address (a whole id): show the short one.
+  useCanonicalPath(project && ref !== projectRef(project) ? settingsPath(project) : null);
 
   const { notice, setNotice, dismiss } = useNotice({
     failedAt: projectResult.isError ? projectResult.errorUpdatedAt : null,
@@ -105,7 +115,7 @@ export default function ProjectSettingsPage() {
         title: "Deployment queued",
         message: "Live logs stream here as the build starts.",
       });
-      navigate(`/projects/${id}`);
+      navigate(projectPath(project));
     } catch {
       setNotice({ type: "error", title: "Deploy request failed", message: "We couldn't reach the API." });
     } finally {
@@ -149,7 +159,7 @@ export default function ProjectSettingsPage() {
                 <div aria-hidden className="mt-2 h-4 w-28 animate-pulse rounded-hatch bg-line/60" />
               </div>
             )}
-            <Button href={`/projects/${id}`} className="shrink-0">
+            <Button href={project ? projectPath(project) : "/overview"} className="shrink-0">
               <ArrowLeftIcon className="h-4 w-4" />
               Back
             </Button>

@@ -25,6 +25,17 @@ const actions = () =>
   ({ copyUrl: vi.fn(), redeploy: vi.fn(), suspend: vi.fn(), resume: vi.fn(), cancel: vi.fn(), busy: new Set<string>() }) as never;
 
 describe("projectMenuItems", () => {
+  it("links to short addresses: the project by name, a deployment by its own page", () => {
+    const items = projectMenuItems(row(), actions());
+    expect(items.find((i) => i.label === "View logs")?.href).toBe("/deployments/d1");
+    expect(items.find((i) => i.label === "Project settings")?.href).toBe("/projects/shop/settings");
+  });
+
+  it("opens the project itself when it has no deployment to show", () => {
+    const noDeployments: ServiceRow = { ...row(), lastDeployment: undefined };
+    expect(projectMenuItems(noDeployments, actions()).find((i) => i.label === "View logs")?.href).toBe("/projects/shop");
+  });
+
   it("offers Copy URL next to Visit, and copies the full address", () => {
     const a = actions();
     const items = projectMenuItems(row(), a);

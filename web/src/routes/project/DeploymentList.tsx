@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
+import { deploymentPath } from "@/lib/paths";
 import type { Deployment, Project } from "@/lib/types";
 import StatusLine from "../deployments/StatusLine";
 import { type StateInfo, canRollBack, durationSeconds, stateOf } from "../deployments/deployments";
@@ -85,7 +86,7 @@ export default function DeploymentList({
                 </button>
                 <div className="flex shrink-0 flex-col items-start justify-center gap-1 px-4 text-sm">
                   <Link
-                    to={`/projects/${project.id}/deployments/${deployment.id}`}
+                    to={deploymentPath(deployment)}
                     aria-label={`Details of the deployment ${deployment.id.slice(0, 8)}`}
                     className="text-muted transition-colors hover:text-ink"
                   >

@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
+import { deploymentPath } from "@/lib/paths";
 import type { StatusKind } from "../services/service";
 import { type Tick, tickSummary } from "./history";
 
@@ -20,11 +21,9 @@ const TICK_COLOR: Record<StatusKind, string> = {
  * sentence to a screen reader.
  */
 export default function DeployTicks({
-  projectId,
   ticks,
   slots = 16,
 }: {
-  projectId: string;
   ticks: Tick[];
   /** How many marks fit; unused slots are drawn empty so the strip keeps its width. */
   slots?: number;
@@ -38,7 +37,7 @@ export default function DeployTicks({
       {ticks.map((tick) => (
         <Link
           key={tick.id}
-          to={`/projects/${projectId}/deployments/${tick.id}`}
+          to={deploymentPath(tick)}
           tabIndex={-1}
           title={tick.title}
           aria-hidden

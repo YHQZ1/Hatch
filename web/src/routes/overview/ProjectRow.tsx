@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
+import { projectPath } from "@/lib/paths";
 import { type ServiceRow, formatCommit, formatRelativeTime } from "../services/service";
 import { Address } from "./Address";
 import ActionsMenu from "./ActionsMenu";
@@ -44,7 +45,7 @@ export default function ProjectRow({
       )}
     >
       <Link
-        to={`/projects/${project.id}`}
+        to={projectPath(project)}
         aria-label={`Open ${name}`}
         className="absolute inset-0 z-0 transition-colors hover:bg-ink/[0.03] focus-visible:outline-2 focus-visible:outline-accent"
       />

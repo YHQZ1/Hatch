@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
+import { projectPath } from "@/lib/paths";
 import { type ServiceRow, formatCommit, formatRelativeTime } from "../services/service";
 import ActionsMenu from "./ActionsMenu";
 import { Address } from "./Address";
@@ -49,7 +50,7 @@ export default function ProjectCard({
       )}
     >
       <Link
-        to={`/projects/${project.id}`}
+        to={projectPath(project)}
         aria-label={`Open ${name}`}
         className="absolute inset-0 z-0 rounded-hatch focus-visible:outline-2 focus-visible:outline-accent"
       />
@@ -89,7 +90,7 @@ export default function ProjectCard({
             <span className="truncate">{lastDeployment?.branch ?? project.branch}</span>
             {note && <span className={cn("shrink-0", NOTE_TEXT[note.tone])}>· {note.text}</span>}
           </p>
-          <DeployTicks projectId={project.id} ticks={ticks} slots={12} />
+          <DeployTicks ticks={ticks} slots={12} />
         </div>
       </div>
     </article>

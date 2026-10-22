@@ -4,17 +4,6 @@ import { safeHttpUrl } from "@/lib/url";
 import { useEffect } from "react";
 import Container from "./Container";
 
-type Tone = "default" | "success" | "warning" | "danger" | "muted";
-
-/** The tone of a status, as a text colour that reads in both themes. */
-const TONE_TEXT = {
-  default: "text-ink",
-  success: "text-success",
-  warning: "text-warning",
-  danger: "text-danger",
-  muted: "text-faint",
-} satisfies Record<Tone, string>;
-
 export function AppShell({
   children,
   className,
@@ -28,50 +17,6 @@ export function AppShell({
     <div className={cn("min-h-[calc(100vh-64px)] w-full text-ink", className)}>
       <Container className={cn("py-10", contentClassName)}>{children}</Container>
     </div>
-  );
-}
-
-export function PageTitle({
-  eyebrow,
-  title,
-  description,
-  actions,
-  className,
-}: {
-  eyebrow?: string;
-  title: string;
-  description?: string;
-  actions?: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <header
-      className={cn(
-        "mb-8 flex flex-col gap-5 md:flex-row md:items-end md:justify-between",
-        className,
-      )}
-    >
-      <div className="min-w-0">
-        {eyebrow && (
-          <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.2em] text-accent">
-            {eyebrow}
-          </p>
-        )}
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-          {title}
-        </h1>
-        {description && (
-          <p className="mt-3 max-w-2xl leading-relaxed text-muted">
-            {description}
-          </p>
-        )}
-      </div>
-      {actions && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {actions}
-        </div>
-      )}
-    </header>
   );
 }
 
@@ -160,62 +105,6 @@ export function Button({
     <button type={type} onClick={onClick} disabled={disabled} className={classes}>
       {children}
     </button>
-  );
-}
-
-export function StatusText({
-  children,
-  tone = "default",
-  pulse = false,
-  className,
-}: {
-  children: React.ReactNode;
-  tone?: Tone;
-  pulse?: boolean;
-  className?: string;
-}) {
-  const dots = {
-    default: "before:bg-muted",
-    success: "before:bg-success",
-    warning: "before:bg-warning",
-    danger: "before:bg-danger",
-    muted: "before:bg-faint",
-  } satisfies Record<Tone, string>;
-
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-2 truncate font-mono text-[11px] font-medium uppercase tracking-[0.14em]",
-        "before:h-1.5 before:w-1.5 before:shrink-0 before:rounded-full",
-        pulse && "before:animate-pulse",
-        tone === "default" ? "text-muted" : TONE_TEXT[tone],
-        dots[tone],
-        className,
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
-export function MetricCard({
-  label,
-  value,
-  tone = "default",
-}: {
-  label: string;
-  value: string;
-  tone?: Tone;
-}) {
-  return (
-    <div className="min-w-0">
-      <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.16em] text-faint">
-        {label}
-      </p>
-      <p className={cn("text-2xl font-semibold tracking-tight", TONE_TEXT[tone])}>
-        {value}
-      </p>
-    </div>
   );
 }
 
