@@ -11,11 +11,16 @@ import { mergeEnv, parseEnvText, pasteIntoEnv, type EnvVar } from "./newProject"
 export default function EnvEditor({
   vars,
   onChange,
+  maskValues = false,
 }: {
   vars: EnvVar[];
   onChange: (vars: EnvVar[]) => void;
+  /** Hide the values (they are often secrets) until "Show values" is pressed. */
+  maskValues?: boolean;
 }) {
   const [importing, setImporting] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const hidden = maskValues && !revealed;
   const [text, setText] = useState("");
 
   const update = (index: number, patch: Partial<EnvVar>) =>
@@ -57,9 +62,10 @@ export default function EnvEditor({
               <input
                 value={item.value}
                 onChange={(event) => update(index, { value: event.target.value })}
+                type={hidden ? "password" : "text"}
                 placeholder="Value"
                 aria-label={`Value of variable ${index + 1}`}
-                autoComplete="off"
+                autoComplete={hidden ? "new-password" : "off"}
                 spellCheck={false}
                 className={`${INPUT_CLASS} min-w-0 flex-[3] font-mono`}
               />
@@ -88,6 +94,11 @@ export default function EnvEditor({
           <PlusIcon className="h-3.5 w-3.5" />
           Add variable
         </Button>
+        {maskValues && vars.length > 0 && (
+          <Button variant="ghost" onClick={() => setRevealed((value) => !value)}>
+            {revealed ? "Hide values" : "Show values"}
+          </Button>
+        )}
       </div>
 
       <Modal

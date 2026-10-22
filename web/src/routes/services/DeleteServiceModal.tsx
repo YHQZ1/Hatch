@@ -33,14 +33,14 @@ export default function DeleteServiceModal({
     <Modal
       open={open}
       title={`Delete ${project.repo_name}?`}
-      description="Hatch will queue cloud cleanup and remove this project after the AWS resources are gone."
+      description="Hatch will stop this project, remove what it created, and then delete it."
       onClose={deleting ? () => {} : handleClose}
     >
       <div className="border-y border-line py-3">
         <p className="truncate font-mono text-xs text-muted">{project.repo_url}</p>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          Existing deployment URLs will stop serving once cleanup completes.
-          This action cannot be undone from the console.
+          Its address stops serving, and its deployments and variables are removed.
+          This cannot be undone.
         </p>
       </div>
       <label className="mt-4 block">

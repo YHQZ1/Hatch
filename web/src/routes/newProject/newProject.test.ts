@@ -4,6 +4,7 @@ import {
   dockerfilePathIn,
   envMap,
   firstProblem,
+  folderOf,
   mergeEnv,
   parseEnvText,
   parseGitHubRepo,
@@ -64,6 +65,17 @@ describe("naming", () => {
     expect(cleanSubdomain("My App")).toBe("my-app");
     expect(cleanSubdomain("my-")).toBe("my-");
     expect(cleanSubdomain("-my--app")).toBe("my-app");
+  });
+});
+
+describe("folderOf", () => {
+  it("shows where a Dockerfile is, the way the form takes it", () => {
+    expect(folderOf("Dockerfile")).toBe("./");
+    expect(folderOf("")).toBe("./");
+    expect(folderOf("api/Dockerfile")).toBe("./api");
+    expect(folderOf("services/api/Dockerfile")).toBe("./services/api");
+    // and back again
+    expect(dockerfilePathIn(folderOf("services/api/Dockerfile"))).toBe("services/api/Dockerfile");
   });
 });
 

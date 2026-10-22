@@ -11,6 +11,7 @@ export default function Field({
   onChange,
   placeholder,
   hint,
+  error,
   suffix,
   inputClassName,
   className,
@@ -20,6 +21,8 @@ export default function Field({
   onChange: (value: string) => void;
   placeholder?: string;
   hint?: React.ReactNode;
+  /** What is wrong with the value; shown instead of the hint. */
+  error?: string;
   /** Fixed text shown inside the box after the value, such as a domain. */
   suffix?: string;
   inputClassName?: string;
@@ -29,6 +32,7 @@ export default function Field({
   const input = (
     <input
       id={id}
+      aria-invalid={error ? true : undefined}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
@@ -39,6 +43,7 @@ export default function Field({
         suffix
           ? "h-full min-w-0 flex-1 bg-transparent px-3 text-sm text-ink placeholder:text-faint focus:outline-none"
           : INPUT_CLASS,
+        error && "border-danger",
         inputClassName,
       )}
     />
@@ -57,7 +62,13 @@ export default function Field({
       ) : (
         input
       )}
-      {hint && <p className="mt-1.5 text-xs leading-relaxed text-faint">{hint}</p>}
+      {error ? (
+        <p role="alert" className="mt-1.5 text-xs leading-relaxed text-danger">
+          {error}
+        </p>
+      ) : (
+        hint && <p className="mt-1.5 text-xs leading-relaxed text-faint">{hint}</p>
+      )}
     </div>
   );
 }

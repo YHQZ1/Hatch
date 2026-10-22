@@ -82,6 +82,13 @@ export function cleanSubdomain(value: string): string {
 export const sanitizePath = (path: string) =>
   path.replace(/^\.\//, "").replace(/\/+$/, "").replace(/\/+/g, "/").trim();
 
+/** The folder a Dockerfile path is in, as the form shows it: "./" for the root. */
+export const folderOf = (dockerfilePath: string) => {
+  const clean = sanitizePath(dockerfilePath || "Dockerfile");
+  if (clean === "Dockerfile") return "./";
+  return clean.endsWith("/Dockerfile") ? `./${clean.slice(0, -"/Dockerfile".length)}` : `./${clean}`;
+};
+
 export const dockerfilePathIn = (folder: string) => {
   const clean = sanitizePath(folder);
   return clean ? `${clean}/Dockerfile` : "Dockerfile";

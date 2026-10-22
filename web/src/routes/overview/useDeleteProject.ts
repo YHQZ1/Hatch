@@ -11,7 +11,11 @@ import type { ServiceRow } from "../services/service";
  * retrying a cleanup that failed goes straight through. The project stays in
  * the list, marked as being deleted, until Hatch has removed what it created.
  */
-export function useDeleteProject(notify: (notice: NoticePayload) => void) {
+export function useDeleteProject(
+  notify: (notice: NoticePayload) => void,
+  /** Called once the deletion has been queued, for a page that should move on. */
+  onQueued?: () => void,
+) {
   const queryClient = useQueryClient();
   const [target, setTarget] = useState<ServiceRow | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -39,8 +43,9 @@ export function useDeleteProject(notify: (notice: NoticePayload) => void) {
         title: retrying ? "Cleanup retry queued" : "Deletion queued",
         message: retrying
           ? `${project.repo_name} cleanup is being retried.`
-          : `${project.repo_name} will disappear after cloud cleanup finishes.`,
+          : `${project.repo_name} will disappear once Hatch has removed what it created.`,
       });
+      onQueued?.();
     } catch {
       notify({ type: "error", title: "Delete failed", message: "We couldn't reach the API." });
     } finally {
