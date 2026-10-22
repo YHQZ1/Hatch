@@ -72,6 +72,15 @@ export function stateOf(item: FeedItem, current: Set<string>): StateInfo {
   }
 }
 
+/**
+ * Whether a deployment is a release that can be run again: one that went live,
+ * is no longer what runs, and whose image Hatch still keeps (it keeps the last
+ * few). The server refuses anything else.
+ */
+export function canRollBack(deployment: Deployment, info: StateInfo): boolean {
+  return info.state === "replaced" && Boolean(deployment.image_uri);
+}
+
 export type StatusTab = "all" | "succeeded" | "building" | "failed" | "canceled";
 
 export const TAB_LABELS: Record<StatusTab, string> = {

@@ -3,6 +3,7 @@ import type { Deployment, Project } from "@/lib/types";
 import type { FeedItem } from "../services/useDeploymentFeed";
 import {
   bucketsByDay,
+  canRollBack,
   countByTab,
   currentIds,
   dayLabel,
@@ -146,5 +147,27 @@ describe("statistics", () => {
     const even = [item("a", shop, "live", 1, 30), item("b", shop, "live", 2, 90)];
     expect(medianDuration(even)).toBe(60);
     expect(medianDuration([item("f", shop, "failed", 1, 5)])).toBeNull();
+  });
+});
+
+describe("canRollBack", () => {
+  const withImage = (over: Partial<Deployment> = {}): Deployment =>
+    item("d", project("p"), "live", 5, 60, { image_uri: "hatch-local:d", ...over }).deployment;
+  const state = (state: ReturnType<typeof stateOf>["state"]): ReturnType<typeof stateOf> => ({ state, label: "", badge: null, succeeded: state === "replaced" || state === "current" });
+
+  it("is for an earlier release whose image is still kept", () => {
+    expect(canRollBack(withImage(), state("replaced"))).toBe(true);
+  });
+  it("is not for the release that runs now", () => {
+    expect(canRollBack(withImage(), state("current"))).toBe(false);
+  });
+  it("is not for a release whose image was removed", () => {
+    expect(canRollBack(withImage({ image_uri: null }), state("replaced"))).toBe(false);
+    expect(canRollBack(withImage({ image_uri: "" }), state("replaced"))).toBe(false);
+  });
+  it("is not for a deployment that did not go live", () => {
+    for (const s of ["failed", "canceled", "building", "other"] as const) {
+      expect(canRollBack(withImage(), state(s)), s).toBe(false);
+    }
   });
 });

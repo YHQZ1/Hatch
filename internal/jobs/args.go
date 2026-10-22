@@ -80,9 +80,17 @@ type DeployArgs struct {
 	CPU          int32     `json:"cpu"`
 	MemoryMB     int32     `json:"memory_mb"`
 	HealthCheck  string    `json:"health_check"`
+	// RollbackOf is the deployment whose release this one runs again. Such a
+	// deployment shares that release's image instead of owning one, so nothing
+	// here may delete it.
+	RollbackOf *uuid.UUID `json:"rollback_of,omitempty"`
 }
 
 func (DeployArgs) Kind() string { return "deploy" }
+
+// OwnsImage reports whether the image was built for this deployment, and so
+// goes when the deployment does.
+func (a DeployArgs) OwnsImage() bool { return a.RollbackOf == nil }
 
 func (DeployArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: queueDeploy, MaxAttempts: maxAttempts}

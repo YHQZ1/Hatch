@@ -2,13 +2,14 @@ import { Link } from "react-router";
 import { cn } from "@/lib/cn";
 import type { Deployment, Project } from "@/lib/types";
 import StatusLine from "../deployments/StatusLine";
-import { type StateInfo, durationSeconds, stateOf } from "../deployments/deployments";
+import { type StateInfo, canRollBack, durationSeconds, stateOf } from "../deployments/deployments";
 import { BranchIcon, CommitIcon } from "../overview/Glyphs";
 import { formatCommit, formatRelativeTime } from "../services/service";
 
 /**
  * Every deployment of the project, newest first. Choosing one shows its log
- * and details; "Details" opens its own page.
+ * and details; "Details" opens its own page, and an earlier release that can
+ * be run again offers "Roll back".
  */
 export default function DeploymentList({
   project,
@@ -16,12 +17,17 @@ export default function DeploymentList({
   current,
   activeId,
   onSelect,
+  onRollback,
+  rollbackDisabled,
 }: {
   project: Project;
   deployments: Deployment[];
   current: Set<string>;
   activeId: string | null;
   onSelect: (deployment: Deployment) => void;
+  onRollback: (deployment: Deployment) => void;
+  /** True while the project cannot take a deployment (it is building, or suspended). */
+  rollbackDisabled: boolean;
 }) {
   return (
     <section aria-label="Deployments" className="min-w-0">
@@ -77,13 +83,27 @@ export default function DeploymentList({
                     <span className="ml-auto shrink-0">{formatRelativeTime(deployment.created_at)}</span>
                   </span>
                 </button>
-                <Link
-                  to={`/projects/${project.id}/deployments/${deployment.id}`}
-                  aria-label={`Details of the deployment ${deployment.id.slice(0, 8)}`}
-                  className="flex items-center px-4 text-sm text-muted transition-colors hover:text-ink"
-                >
-                  Details
-                </Link>
+                <div className="flex shrink-0 flex-col items-start justify-center gap-1 px-4 text-sm">
+                  <Link
+                    to={`/projects/${project.id}/deployments/${deployment.id}`}
+                    aria-label={`Details of the deployment ${deployment.id.slice(0, 8)}`}
+                    className="text-muted transition-colors hover:text-ink"
+                  >
+                    Details
+                  </Link>
+                  {canRollBack(deployment, info) && (
+                    <button
+                      type="button"
+                      onClick={() => onRollback(deployment)}
+                      disabled={rollbackDisabled}
+                      aria-label={`Roll back to the deployment ${deployment.id.slice(0, 8)}`}
+                      title={rollbackDisabled ? "Wait for the current deployment to finish" : "Run this release again"}
+                      className="cursor-pointer text-muted transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:text-muted"
+                    >
+                      Roll back
+                    </button>
+                  )}
+                </div>
               </li>
             );
           })}

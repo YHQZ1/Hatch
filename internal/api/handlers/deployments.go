@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/YHQZ1/hatch/internal/stream"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -275,6 +277,110 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 	}
 
 	if err := tx.Commit(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit deployment"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, h.toDeploymentResponse(deployment))
+}
+
+// RollbackDeployment is POST /api/deployments/:id/rollback. It runs an earlier
+// release again as a new deployment: the image, settings and environment the
+// release had, with nothing built. Only a deployment that went live, and whose
+// image has not been removed (Hatch keeps the last few), can be rolled back to.
+func (h *DeploymentHandler) RollbackDeployment(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	ctx := c.Request.Context()
+
+	source, err := h.queries.GetDeploymentByIDAndUserID(ctx, dbpkg.GetDeploymentByIDAndUserIDParams{ID: id, UserID: userID})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+		return
+	}
+	project, err := h.queries.GetProjectByIDAndUserID(ctx, dbpkg.GetProjectByIDAndUserIDParams{ID: source.ProjectID, UserID: userID})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+		return
+	}
+	if project.Status != "" && project.Status != "active" {
+		c.JSON(http.StatusConflict, gin.H{"error": "project is not active"})
+		return
+	}
+	if source.Status != "live" || source.ImageUri == nil || *source.ImageUri == "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "only a deployment that went live, and whose image is still kept, can be rolled back to"})
+		return
+	}
+	if running, err := h.queries.GetLatestLiveDeploymentByProject(ctx, project.ID); err == nil && running.ID == source.ID {
+		c.JSON(http.StatusConflict, gin.H{"error": "that release is already running"})
+		return
+	}
+	if active, ok := h.activeDeploymentForProject(ctx, project.ID, userID); ok {
+		c.JSON(http.StatusConflict, gin.H{"error": "deployment already running", "deployment": h.toDeploymentResponse(active)})
+		return
+	}
+
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start deployment transaction"})
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := h.queries.WithTx(tx)
+
+	deployment, err := qtx.CreateRollbackDeployment(ctx, source.ID)
+	if err != nil {
+		if isActiveDeploymentConflict(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "deployment already running"})
+			return
+		}
+		// The release stopped being eligible since it was read (its image was
+		// just removed).
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusConflict, gin.H{"error": "only a deployment that went live, and whose image is still kept, can be rolled back to"})
+			return
+		}
+		slog.ErrorContext(ctx, "failed to create a rollback deployment", "source_id", source.ID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create deployment"})
+		return
+	}
+	if err := qtx.CopyDeploymentEnvVars(ctx, dbpkg.CopyDeploymentEnvVarsParams{
+		FromDeploymentID: source.ID,
+		ToDeploymentID:   deployment.ID,
+	}); err != nil {
+		slog.ErrorContext(ctx, "failed to copy a release's environment", "deployment_id", deployment.ID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to copy environment variables"})
+		return
+	}
+
+	subdomain := project.ID.String()[:8]
+	if deployment.Subdomain != nil && *deployment.Subdomain != "" {
+		subdomain = *deployment.Subdomain
+	}
+	// The deploy job joins the transaction: either both exist or neither does.
+	if _, err := h.jobs.InsertTx(ctx, tx, jobs.DeployArgs{
+		DeploymentID: deployment.ID,
+		ImageURI:     *source.ImageUri,
+		Subdomain:    subdomain,
+		Port:         deployment.Port,
+		CPU:          deployment.Cpu,
+		MemoryMB:     deployment.MemoryMb,
+		HealthCheck:  deployment.HealthCheck,
+		RollbackOf:   &source.ID,
+	}, nil); err != nil {
+		slog.ErrorContext(ctx, "failed to queue a rollback", "deployment_id", deployment.ID, "error", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to queue deployment"})
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit deployment"})
 		return
 	}

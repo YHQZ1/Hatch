@@ -176,6 +176,7 @@ func Run(ctx context.Context, cfg *config.Config, local *LocalTarget) error {
 		api.GET("/traffic", trafficHandler.Get)
 		api.POST("/deployments", deploymentHandler.CreateDeployment)
 		api.GET("/deployments/:id", deploymentHandler.GetDeployment)
+		api.POST("/deployments/:id/rollback", deploymentHandler.RollbackDeployment)
 		api.POST("/deployments/:id/cancel", deploymentHandler.CancelDeployment)
 		api.GET("/deployments/:id/logs", deploymentHandler.GetDeploymentLogs)
 		api.GET("/deployments/:id/logs/stream", logStreamHandler.Stream)

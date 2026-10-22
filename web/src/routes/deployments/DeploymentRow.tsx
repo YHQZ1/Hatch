@@ -10,7 +10,7 @@ import type { useProjectActions } from "../overview/useProjectActions";
 import { formatCommit, formatRelativeTime, formatRepoSlug, projectName } from "../services/service";
 import type { FeedItem } from "../services/useDeploymentFeed";
 import StatusLine from "./StatusLine";
-import { ROW_HEIGHT, type StateInfo, durationSeconds } from "./deployments";
+import { ROW_HEIGHT, type StateInfo, canRollBack, durationSeconds } from "./deployments";
 
 /**
  * One deployment as one line, the way a table of builds reads: the project, the
@@ -53,6 +53,9 @@ export default function DeploymentRow({
         { label: "View logs", href: logs },
         { label: "Open project", href: `/projects/${project.id}` },
         { label: "Visit", href: address ?? undefined, disabled: !address },
+        ...(canRollBack(deployment, info)
+          ? [{ label: "Roll back to this deployment", onSelect: () => void actions.rollback(project, deployment), group: 1 }]
+          : []),
         ...(running
           ? [{ label: "Cancel deployment", onSelect: () => void actions.cancel(project, deployment), danger: true, group: 1 }]
           : []),

@@ -49,6 +49,9 @@ func (w *deployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		return nil
 	}
 	w.setDeploymentStatus(runCtx, id, "deploying")
+	if args.RollbackOf != nil {
+		w.logs.Publish(runCtx, idText, w.rollbackLine(runCtx, *args.RollbackOf))
+	}
 
 	env, err := w.envVars(runCtx, id)
 	if err != nil {
@@ -97,13 +100,42 @@ func (w *deployWorker) deployFailed(parent, run context.Context, args DeployArgs
 		timeout := fmt.Errorf("deploy exceeded timeout of %s", deployTimeout)
 		w.logs.Publish(cleanup, idText, "Deployment timed out")
 		w.failDeployment(cleanup, id, "timeout", timeout)
+		w.deleteOwnImage(cleanup, args)
 		return river.JobCancel(timeout)
 	case outcomeShutdown:
 		return err
 	}
 	w.logs.Publish(cleanup, idText, fmt.Sprintf("Deployment failed: %v", err))
 	w.failDeployment(cleanup, id, "deploy", err)
+	w.deleteOwnImage(cleanup, args)
 	return river.JobCancel(err)
+}
+
+// rollbackLine says which release a rollback runs again.
+func (w *deployWorker) rollbackLine(ctx context.Context, from uuid.UUID) string {
+	ctx, cancel := bounded(ctx, 5*time.Second)
+	defer cancel()
+	source, err := w.queries.GetDeploymentByID(ctx, from)
+	if err != nil {
+		return "Rolling back to an earlier release: its image is run again, nothing is built"
+	}
+	commit := "an earlier release"
+	if source.CommitSha != nil && len(*source.CommitSha) >= 7 {
+		commit = "the release at " + (*source.CommitSha)[:7]
+	}
+	return fmt.Sprintf("Rolling back to %s (deployment %s): its image is run again, nothing is built", commit, shortID(from))
+}
+
+// deleteOwnImage removes the image a deployment built, once the deployment has
+// failed for good, so failed deploys do not pile up images on the host. A
+// rollback does not own its image and leaves it alone.
+func (w *deployWorker) deleteOwnImage(ctx context.Context, args DeployArgs) {
+	if !args.OwnsImage() {
+		return
+	}
+	if err := w.deps.Builder.DeleteImages(ctx, []build.Image{{URI: args.ImageURI}}); err != nil {
+		slog.Warn("failed to delete the image of a failed deployment", "deployment_id", args.DeploymentID, "image", args.ImageURI, "error", err)
+	}
 }
 
 // discard removes what a canceled deployment created: its image and, unless
@@ -112,9 +144,12 @@ func (w *deployWorker) discard(ctx context.Context, args DeployArgs) {
 	id := args.DeploymentID
 	idText := id.String()
 
-	if err := w.deps.Builder.DeleteImages(ctx, []build.Image{{URI: args.ImageURI}}); err != nil {
-		slog.Error("failed to delete the image of a canceled deployment", "deployment_id", id, "image", args.ImageURI, "error", err)
-		w.logs.Publish(ctx, idText, fmt.Sprintf("Warning: failed to delete canceled image: %v", err))
+	// A rollback shares its image with the release it runs again: keep it.
+	if args.OwnsImage() {
+		if err := w.deps.Builder.DeleteImages(ctx, []build.Image{{URI: args.ImageURI}}); err != nil {
+			slog.Error("failed to delete the image of a canceled deployment", "deployment_id", id, "image", args.ImageURI, "error", err)
+			w.logs.Publish(ctx, idText, fmt.Sprintf("Warning: failed to delete canceled image: %v", err))
+		}
 	}
 
 	otherLive, err := w.queries.ProjectHasOtherLiveDeployment(ctx, id)
@@ -154,7 +189,54 @@ func (w *deployWorker) finish(ctx context.Context, args DeployArgs, release runt
 	}
 	if rows == 0 {
 		w.logs.Publish(ctx, id.String(), "Deployment finished after cancellation; skipping live status update")
+		return
 	}
+	w.pruneImages(ctx, id)
+}
+
+// KeptReleases is how many releases of a project keep their image, and so can
+// be rolled back to. Older images are removed when a deployment goes live.
+const KeptReleases = 5
+
+// pruneImages removes the images of a project's releases beyond the newest
+// KeptReleases and records that they are gone. A failure to remove one is
+// logged and does not matter to the deployment that just went live.
+func (w *deployWorker) pruneImages(ctx context.Context, deploymentID uuid.UUID) {
+	ctx, cancel := bounded(ctx, 2*time.Minute)
+	defer cancel()
+
+	deployment, err := w.queries.GetDeploymentByID(ctx, deploymentID)
+	if err != nil {
+		slog.Warn("could not find the project of a deployment to prune its images", "deployment_id", deploymentID, "error", err)
+		return
+	}
+	stale, err := w.queries.GetStaleImageURIs(ctx, dbpkg.GetStaleImageURIsParams{ProjectID: deployment.ProjectID, Keep: KeptReleases})
+	if err != nil || len(stale) == 0 {
+		if err != nil {
+			slog.Warn("could not list old images", "project_id", deployment.ProjectID, "error", err)
+		}
+		return
+	}
+	images := make([]build.Image, len(stale))
+	for i, uri := range stale {
+		images[i] = build.Image{URI: uri}
+	}
+	if err := w.deps.Builder.DeleteImages(ctx, images); err != nil {
+		slog.Warn("could not remove old images", "project_id", deployment.ProjectID, "error", err)
+		return
+	}
+	if err := w.queries.ForgetImages(ctx, dbpkg.ForgetImagesParams{ProjectID: deployment.ProjectID, ImageUris: stale}); err != nil {
+		slog.Warn("could not record that old images were removed", "project_id", deployment.ProjectID, "error", err)
+		return
+	}
+	w.logs.Publish(ctx, deploymentID.String(), fmt.Sprintf("Removed the images of %d older release%s (the last %d are kept for rollback)", len(stale), plural(len(stale)), KeptReleases))
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // envVars returns the deployment's environment variables, decrypted.

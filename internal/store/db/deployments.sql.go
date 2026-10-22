@@ -118,6 +118,54 @@ func (q *Queries) CreateDeployment(ctx context.Context, arg CreateDeploymentPara
 	return i, err
 }
 
+const createRollbackDeployment = `-- name: CreateRollbackDeployment :one
+INSERT INTO deployments (
+    project_id, branch, cpu, memory_mb, port, health_check, subdomain,
+    commit_sha, commit_message, image_uri
+)
+SELECT source.project_id, source.branch, source.cpu, source.memory_mb, source.port,
+       source.health_check, source.subdomain, source.commit_sha, source.commit_message,
+       source.image_uri
+FROM deployments source
+WHERE source.id = $1
+  AND source.status = 'live'
+  AND source.image_uri IS NOT NULL AND source.image_uri <> ''
+RETURNING id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at, log_seq
+`
+
+// A deployment that runs an earlier release again: its image, settings and
+// commit are copied, so nothing is built. Only a release that went live and
+// still has its image can be copied; otherwise no row comes back.
+func (q *Queries) CreateRollbackDeployment(ctx context.Context, id uuid.UUID) (Deployment, error) {
+	row := q.db.QueryRow(ctx, createRollbackDeployment, id)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Branch,
+		&i.Status,
+		&i.Cpu,
+		&i.MemoryMb,
+		&i.Port,
+		&i.HealthCheck,
+		&i.ImageUri,
+		&i.EcsTaskArn,
+		&i.Subdomain,
+		&i.Url,
+		&i.CreatedAt,
+		&i.DeployedAt,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.EcsServiceName,
+		&i.TargetGroupArn,
+		&i.ErrorStage,
+		&i.ErrorMessage,
+		&i.FailedAt,
+		&i.LogSeq,
+	)
+	return i, err
+}
+
 const failDeployment = `-- name: FailDeployment :exec
 UPDATE deployments
 SET status = 'failed',
@@ -178,6 +226,25 @@ func (q *Queries) FinishDeployment(ctx context.Context, arg FinishDeploymentPara
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const forgetImages = `-- name: ForgetImages :exec
+UPDATE deployments
+SET image_uri = NULL
+WHERE project_id = $1
+  AND image_uri = ANY($2::text[])
+`
+
+type ForgetImagesParams struct {
+	ProjectID uuid.UUID `json:"project_id"`
+	ImageUris []string  `json:"image_uris"`
+}
+
+// Records that images were removed, so their releases can no longer be rolled
+// back to and nothing tries to remove them again.
+func (q *Queries) ForgetImages(ctx context.Context, arg ForgetImagesParams) error {
+	_, err := q.db.Exec(ctx, forgetImages, arg.ProjectID, arg.ImageUris)
+	return err
 }
 
 const getActiveDeploymentByProjectIDAndUserID = `-- name: GetActiveDeploymentByProjectIDAndUserID :one
@@ -416,6 +483,44 @@ func (q *Queries) GetDeploymentsByProjectIDAndUserID(ctx context.Context, arg Ge
 	return items, nil
 }
 
+const getLatestLiveDeploymentByProject = `-- name: GetLatestLiveDeploymentByProject :one
+SELECT id, project_id, branch, status, cpu, memory_mb, port, health_check, image_uri, ecs_task_arn, subdomain, url, created_at, deployed_at, commit_sha, commit_message, ecs_service_name, target_group_arn, error_stage, error_message, failed_at, log_seq FROM deployments
+WHERE project_id = $1 AND status = 'live'
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+// The release a project is running: its newest deployment that went live.
+func (q *Queries) GetLatestLiveDeploymentByProject(ctx context.Context, projectID uuid.UUID) (Deployment, error) {
+	row := q.db.QueryRow(ctx, getLatestLiveDeploymentByProject, projectID)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Branch,
+		&i.Status,
+		&i.Cpu,
+		&i.MemoryMb,
+		&i.Port,
+		&i.HealthCheck,
+		&i.ImageUri,
+		&i.EcsTaskArn,
+		&i.Subdomain,
+		&i.Url,
+		&i.CreatedAt,
+		&i.DeployedAt,
+		&i.CommitSha,
+		&i.CommitMessage,
+		&i.EcsServiceName,
+		&i.TargetGroupArn,
+		&i.ErrorStage,
+		&i.ErrorMessage,
+		&i.FailedAt,
+		&i.LogSeq,
+	)
+	return i, err
+}
+
 const getProjectImageURIs = `-- name: GetProjectImageURIs :many
 SELECT DISTINCT image_uri::text
 FROM deployments
@@ -424,6 +529,48 @@ WHERE project_id = $1 AND image_uri IS NOT NULL AND image_uri <> ''
 
 func (q *Queries) GetProjectImageURIs(ctx context.Context, projectID uuid.UUID) ([]string, error) {
 	rows, err := q.db.Query(ctx, getProjectImageURIs, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var image_uri string
+		if err := rows.Scan(&image_uri); err != nil {
+			return nil, err
+		}
+		items = append(items, image_uri)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getStaleImageURIs = `-- name: GetStaleImageURIs :many
+SELECT image_uri::text
+FROM (
+    SELECT image_uri, max(deployed_at) AS last_live
+    FROM deployments
+    WHERE project_id = $1
+      AND status = 'live'
+      AND image_uri IS NOT NULL AND image_uri <> ''
+    GROUP BY image_uri
+) images
+ORDER BY last_live DESC
+OFFSET $2::int
+`
+
+type GetStaleImageURIsParams struct {
+	ProjectID uuid.UUID `json:"project_id"`
+	Keep      int32     `json:"keep"`
+}
+
+// The images of a project's releases beyond the newest `keep` distinct ones, by
+// when they last went live. A rollback deploys an old image again, which makes
+// it new again, so an image in use is never among them.
+func (q *Queries) GetStaleImageURIs(ctx context.Context, arg GetStaleImageURIsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, getStaleImageURIs, arg.ProjectID, arg.Keep)
 	if err != nil {
 		return nil, err
 	}

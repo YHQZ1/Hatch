@@ -17,8 +17,9 @@ import { currentIds, stateOf } from "./deployments/deployments";
 import { Address } from "./overview/Address";
 import { ArrowLeftIcon } from "./overview/Glyphs";
 import ProjectIcon from "./overview/ProjectIcon";
+import { useProjectActions } from "./overview/useProjectActions";
 import { RepoLink } from "./overview/RepoLink";
-import { displayName } from "./overview/overview";
+import { abilities, displayName } from "./overview/overview";
 import DeploymentList from "./project/DeploymentList";
 import DeploymentSummary from "./project/DeploymentSummary";
 import LogViewer from "./project/LogViewer";
@@ -65,6 +66,7 @@ export default function ProjectPage() {
     { showFlash: true },
   );
 
+  const actions = useProjectActions(setNotice);
   const row = useMemo(() => (project ? toServiceRow(project, deployments[0]) : null), [project, deployments]);
   // Which deployment is current depends on the project's whole history.
   const current = useMemo(
@@ -243,6 +245,11 @@ export default function ProjectPage() {
               current={current}
               activeId={active?.id ?? null}
               onSelect={(deployment) => setPickedId(deployment.id)}
+              onRollback={async (deployment) => {
+                const created = await actions.rollback(project, deployment);
+                if (created) setPickedId(created.id);
+              }}
+              rollbackDisabled={!abilities(project, deployments[0]).redeploy || actions.busy.has(project.id)}
             />
           )}
         </div>

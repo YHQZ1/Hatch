@@ -128,3 +128,51 @@ SELECT EXISTS (
 SELECT DISTINCT image_uri::text
 FROM deployments
 WHERE project_id = $1 AND image_uri IS NOT NULL AND image_uri <> '';
+
+-- name: CreateRollbackDeployment :one
+-- A deployment that runs an earlier release again: its image, settings and
+-- commit are copied, so nothing is built. Only a release that went live and
+-- still has its image can be copied; otherwise no row comes back.
+INSERT INTO deployments (
+    project_id, branch, cpu, memory_mb, port, health_check, subdomain,
+    commit_sha, commit_message, image_uri
+)
+SELECT source.project_id, source.branch, source.cpu, source.memory_mb, source.port,
+       source.health_check, source.subdomain, source.commit_sha, source.commit_message,
+       source.image_uri
+FROM deployments source
+WHERE source.id = $1
+  AND source.status = 'live'
+  AND source.image_uri IS NOT NULL AND source.image_uri <> ''
+RETURNING *;
+
+-- name: GetLatestLiveDeploymentByProject :one
+-- The release a project is running: its newest deployment that went live.
+SELECT * FROM deployments
+WHERE project_id = $1 AND status = 'live'
+ORDER BY created_at DESC
+LIMIT 1;
+
+-- name: GetStaleImageURIs :many
+-- The images of a project's releases beyond the newest `keep` distinct ones, by
+-- when they last went live. A rollback deploys an old image again, which makes
+-- it new again, so an image in use is never among them.
+SELECT image_uri::text
+FROM (
+    SELECT image_uri, max(deployed_at) AS last_live
+    FROM deployments
+    WHERE project_id = sqlc.arg(project_id)
+      AND status = 'live'
+      AND image_uri IS NOT NULL AND image_uri <> ''
+    GROUP BY image_uri
+) images
+ORDER BY last_live DESC
+OFFSET sqlc.arg(keep)::int;
+
+-- name: ForgetImages :exec
+-- Records that images were removed, so their releases can no longer be rolled
+-- back to and nothing tries to remove them again.
+UPDATE deployments
+SET image_uri = NULL
+WHERE project_id = sqlc.arg(project_id)
+  AND image_uri = ANY(sqlc.arg(image_uris)::text[]);

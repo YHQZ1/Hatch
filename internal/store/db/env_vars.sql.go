@@ -11,6 +11,24 @@ import (
 	"github.com/google/uuid"
 )
 
+const copyDeploymentEnvVars = `-- name: CopyDeploymentEnvVars :exec
+INSERT INTO env_vars (deployment_id, key, value, secret_arn)
+SELECT $1, source.key, source.value, source.secret_arn
+FROM env_vars source
+WHERE source.deployment_id = $2
+`
+
+type CopyDeploymentEnvVarsParams struct {
+	ToDeploymentID   uuid.UUID `json:"to_deployment_id"`
+	FromDeploymentID uuid.UUID `json:"from_deployment_id"`
+}
+
+// Gives a deployment the environment another one ran with, values as stored.
+func (q *Queries) CopyDeploymentEnvVars(ctx context.Context, arg CopyDeploymentEnvVarsParams) error {
+	_, err := q.db.Exec(ctx, copyDeploymentEnvVars, arg.ToDeploymentID, arg.FromDeploymentID)
+	return err
+}
+
 const createEnvVar = `-- name: CreateEnvVar :one
 INSERT INTO env_vars (
     deployment_id,

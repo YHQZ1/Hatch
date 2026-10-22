@@ -6,7 +6,7 @@ import { apiFetch, readApiError, redirectIfUnauthorized } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { activityQuery, projectDeploymentsQuery, projectQuery, projectsQuery } from "@/lib/queries";
 import type { Deployment, Project } from "@/lib/types";
-import type { ServiceRow } from "../services/service";
+import { type ServiceRow, formatCommit, formatRelativeTime } from "../services/service";
 
 /**
  * What the Overview can do to a project without leaving the page: redeploy,
@@ -19,10 +19,10 @@ export function useProjectActions(notify: (notice: NoticePayload) => void) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
 
-  const track = async (projectId: string, work: () => Promise<void>) => {
+  const track = async <T,>(projectId: string, work: () => Promise<T>): Promise<T> => {
     setBusy((current) => new Set(current).add(projectId));
     try {
-      await work();
+      return await work();
     } finally {
       setBusy((current) => {
         const next = new Set(current);
@@ -89,6 +89,49 @@ export function useProjectActions(notify: (notice: NoticePayload) => void) {
           fail("Redeploy failed", err, "The deployment could not be queued.");
         }
       }),
+
+    /**
+     * Runs an earlier release again, as a new deployment (its image and its
+     * environment; nothing is built). Resolves to that deployment, or null when
+     * the user backed out or it was refused.
+     */
+    rollback: (project: Project, deployment: Deployment): Promise<Deployment | null> => {
+      const commit = formatCommit(deployment);
+      const release = commit.message ? `"${commit.message}" (${commit.short})` : `deployment ${deployment.id.slice(0, 8)}`;
+      if (
+        !confirm(
+          `Roll back ${project.repo_name} to ${release} from ${formatRelativeTime(deployment.created_at)}? ` +
+            "It runs that release's image and variables again. Nothing is rebuilt.",
+        )
+      ) {
+        return Promise.resolve(null);
+      }
+      return track(project.id, async () => {
+        try {
+          const res = await send(
+            `/api/deployments/${deployment.id}/rollback`,
+            { method: "POST" },
+            "That release could not be rolled back to.",
+          );
+          if (!res) return null;
+          const created = (await res.json()) as Deployment;
+          queryClient.setQueryData<Deployment[]>(projectDeploymentsQuery(project.id).queryKey, (list) => [
+            created,
+            ...(list ?? []),
+          ]);
+          refresh(project.id);
+          notify({
+            type: "success",
+            title: "Rollback queued",
+            message: `${project.repo_name} is going back to ${commit.short}.`,
+          });
+          return created;
+        } catch (err) {
+          fail("Rollback failed", err, "That release could not be rolled back to.");
+          return null;
+        }
+      });
+    },
 
     suspend: (row: ServiceRow) => {
       if (!confirm(`Suspend ${row.project.repo_name}? It stops answering requests until you resume it.`)) {

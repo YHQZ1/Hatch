@@ -17,11 +17,17 @@ type Querier interface {
 	AppendDeploymentLog(ctx context.Context, arg AppendDeploymentLogParams) (int64, error)
 	CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelDeploymentByIDAndUserIDParams) (Deployment, error)
 	ClearProjectWebhook(ctx context.Context, id uuid.UUID) error
+	// Gives a deployment the environment another one ran with, values as stored.
+	CopyDeploymentEnvVars(ctx context.Context, arg CopyDeploymentEnvVarsParams) error
 	CreateActivityLog(ctx context.Context, arg CreateActivityLogParams) (ActivityLog, error)
 	CreateDeployment(ctx context.Context, arg CreateDeploymentParams) (Deployment, error)
 	CreateEnvVar(ctx context.Context, arg CreateEnvVarParams) (EnvVar, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateProjectEnvVar(ctx context.Context, arg CreateProjectEnvVarParams) (ProjectEnvVar, error)
+	// A deployment that runs an earlier release again: its image, settings and
+	// commit are copied, so nothing is built. Only a release that went live and
+	// still has its image can be copied; otherwise no row comes back.
+	CreateRollbackDeployment(ctx context.Context, id uuid.UUID) (Deployment, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) (int64, error)
@@ -34,6 +40,9 @@ type Querier interface {
 	// Marks a deployment live. It reports 0 rows when the deployment was canceled
 	// in the meantime.
 	FinishDeployment(ctx context.Context, arg FinishDeploymentParams) (int64, error)
+	// Records that images were removed, so their releases can no longer be rolled
+	// back to and nothing tries to remove them again.
+	ForgetImages(ctx context.Context, arg ForgetImagesParams) error
 	GetActiveDeploymentByProjectIDAndUserID(ctx context.Context, arg GetActiveDeploymentByProjectIDAndUserIDParams) (Deployment, error)
 	GetActivityLogsByUserID(ctx context.Context, userID uuid.UUID) ([]ActivityLog, error)
 	GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployment, error)
@@ -44,6 +53,8 @@ type Querier interface {
 	GetDeploymentsByProjectID(ctx context.Context, projectID uuid.UUID) ([]Deployment, error)
 	GetDeploymentsByProjectIDAndUserID(ctx context.Context, arg GetDeploymentsByProjectIDAndUserIDParams) ([]Deployment, error)
 	GetEnvVarsByDeployment(ctx context.Context, deploymentID uuid.UUID) ([]EnvVar, error)
+	// The release a project is running: its newest deployment that went live.
+	GetLatestLiveDeploymentByProject(ctx context.Context, projectID uuid.UUID) (Deployment, error)
 	GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error)
 	GetProjectByIDAndUserID(ctx context.Context, arg GetProjectByIDAndUserIDParams) (Project, error)
 	GetProjectByRepoURL(ctx context.Context, repoUrl string) (Project, error)
@@ -53,6 +64,10 @@ type Querier interface {
 	GetProjectsByRepoURL(ctx context.Context, repoUrl string) ([]Project, error)
 	GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]Project, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (Session, error)
+	// The images of a project's releases beyond the newest `keep` distinct ones, by
+	// when they last went live. A rollback deploys an old image again, which makes
+	// it new again, so an image in use is never among them.
+	GetStaleImageURIs(ctx context.Context, arg GetStaleImageURIsParams) ([]string, error)
 	GetUserByGithubID(ctx context.Context, githubID int64) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	// Locks the row so that two requests do not spend the same single-use refresh
