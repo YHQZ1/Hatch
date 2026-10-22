@@ -61,7 +61,7 @@ func TestAppsRunThroughDockerAndTheProxy(t *testing.T) {
 	t.Cleanup(func() { _ = rt.Destroy(context.Background(), ref) })
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
-	front := proxy.New(rt, "localhost")
+	front := proxy.New(rt, "localhost", nil)
 	host := app + ".localhost"
 
 	deploy := func(id, image string) {

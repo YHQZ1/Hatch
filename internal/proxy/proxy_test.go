@@ -61,7 +61,7 @@ func get(t *testing.T, h http.Handler, host, path string) *httptest.ResponseReco
 func TestARequestReachesTheAppItNames(t *testing.T) {
 	app := backend(t)
 	resolver := &fakeResolver{apps: map[string]string{"shop": strings.TrimPrefix(app.URL, "http://")}}
-	p := New(resolver, "localhost")
+	p := New(resolver, "localhost", nil)
 
 	rec := get(t, p, "shop.localhost:8081", "/cart")
 
@@ -74,7 +74,7 @@ func TestARequestReachesTheAppItNames(t *testing.T) {
 }
 
 func TestUnknownAppsGetANotFoundPage(t *testing.T) {
-	p := New(&fakeResolver{}, "localhost")
+	p := New(&fakeResolver{}, "localhost", nil)
 
 	rec := get(t, p, "nothing.localhost:8081", "/")
 
@@ -83,19 +83,19 @@ func TestUnknownAppsGetANotFoundPage(t *testing.T) {
 	}
 }
 
-func TestAPausedAppGetsAPausedPage(t *testing.T) {
-	p := New(&fakeResolver{err: map[string]error{"shop": ErrStopped}}, "localhost")
+func TestASuspendedAppGetsASuspendedPage(t *testing.T) {
+	p := New(&fakeResolver{err: map[string]error{"shop": ErrStopped}}, "localhost", nil)
 
 	rec := get(t, p, "shop.localhost", "/")
 
-	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "paused") {
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "suspended") {
 		t.Fatalf("status %d, body %q", rec.Code, rec.Body)
 	}
 }
 
 func TestAddressesThatNameNoAppAreNotLookedUp(t *testing.T) {
 	resolver := &fakeResolver{}
-	p := New(resolver, "localhost")
+	p := New(resolver, "localhost", nil)
 
 	for _, host := range []string{"localhost", "localhost:8081", "127.0.0.1:8081", "a.b.localhost", "-bad.localhost", "shop.example.com", ""} {
 		if rec := get(t, p, host, "/"); rec.Code != http.StatusNotFound {
@@ -109,7 +109,7 @@ func TestAddressesThatNameNoAppAreNotLookedUp(t *testing.T) {
 
 func TestHostMatchingIsCaseInsensitive(t *testing.T) {
 	app := backend(t)
-	p := New(&fakeResolver{apps: map[string]string{"shop": strings.TrimPrefix(app.URL, "http://")}}, "localhost")
+	p := New(&fakeResolver{apps: map[string]string{"shop": strings.TrimPrefix(app.URL, "http://")}}, "localhost", nil)
 
 	if rec := get(t, p, "SHOP.Localhost:8081", "/"); rec.Code != http.StatusOK {
 		t.Fatalf("status %d", rec.Code)
@@ -119,7 +119,7 @@ func TestHostMatchingIsCaseInsensitive(t *testing.T) {
 func TestLookupsAreRememberedBriefly(t *testing.T) {
 	app := backend(t)
 	resolver := &fakeResolver{apps: map[string]string{"shop": strings.TrimPrefix(app.URL, "http://")}}
-	p := New(resolver, "localhost")
+	p := New(resolver, "localhost", nil)
 	now := time.Now()
 	p.now = func() time.Time { return now }
 
@@ -138,7 +138,7 @@ func TestLookupsAreRememberedBriefly(t *testing.T) {
 
 func TestADockerFailureIsNotRemembered(t *testing.T) {
 	resolver := &fakeResolver{err: map[string]error{"shop": errors.New("docker is not running")}}
-	p := New(resolver, "localhost")
+	p := New(resolver, "localhost", nil)
 
 	rec := get(t, p, "shop.localhost", "/")
 	get(t, p, "shop.localhost", "/")
@@ -155,7 +155,7 @@ func TestAnAppThatMovedIsFoundAgain(t *testing.T) {
 	old := backend(t)
 	oldAddr := strings.TrimPrefix(old.URL, "http://")
 	resolver := &fakeResolver{apps: map[string]string{"shop": oldAddr}}
-	p := New(resolver, "localhost")
+	p := New(resolver, "localhost", nil)
 
 	if rec := get(t, p, "shop.localhost", "/"); rec.Code != http.StatusOK {
 		t.Fatalf("first request: status %d", rec.Code)

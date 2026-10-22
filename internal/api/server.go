@@ -15,6 +15,7 @@ import (
 	wsHub "github.com/YHQZ1/hatch/internal/api/ws"
 	"github.com/YHQZ1/hatch/internal/config"
 	"github.com/YHQZ1/hatch/internal/jobs"
+	"github.com/YHQZ1/hatch/internal/proxy"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	"github.com/YHQZ1/hatch/internal/store"
 	"github.com/YHQZ1/hatch/web"
@@ -23,9 +24,19 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// LocalTarget is what the API needs from the local target: the traffic the proxy
+// counted, and a way to find where each app listens.
+type LocalTarget struct {
+	Stats    *proxy.Stats
+	Resolver proxy.Resolver
+}
+
 // Run serves the web UI and the API until ctx is canceled, then shuts down
 // gracefully. It returns an error if it cannot start or the server fails.
-func Run(ctx context.Context, cfg *config.Config) error {
+//
+// local is what the API shares with the local target's proxy; it is nil when
+// Hatch serves no apps itself (the AWS target).
+func Run(ctx context.Context, cfg *config.Config, local *LocalTarget) error {
 	// Hatch logs requests itself (middleware.AccessLog), so Gin's own debug
 	// output, such as the route table, would only be noise.
 	gin.SetMode(gin.ReleaseMode)
@@ -88,6 +99,13 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	deploymentHandler := handlers.NewDeploymentHandler(db, inserter, rdb, secretCodec)
 	metricsHandler := handlers.NewMetricsHandler(db, cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN, cfg.ALBArn)
 	githubHandler := handlers.NewGitHubHandler(rdb)
+	var stats *proxy.Stats
+	var resolver proxy.Resolver
+	if local != nil {
+		stats, resolver = local.Stats, local.Resolver
+	}
+	trafficHandler := handlers.NewTrafficHandler(db, stats)
+	iconHandler := handlers.NewIconHandler(db, resolver)
 	publicConfigHandler := handlers.NewPublicConfigHandler(cfg.BaseDomain, cfg.DeploymentURLScheme)
 	webhookHandler := handlers.NewWebhookHandler(db, inserter, secretCodec)
 	authMiddleware := auth.Middleware(sessions, tokens)
@@ -158,7 +176,9 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		api.DELETE("/projects/:id", projectHandler.DeleteProject)
 		api.GET("/projects/:id/deployments", deploymentHandler.ListDeployments)
 		api.GET("/projects/:id/metrics", metricsHandler.GetProjectMetrics)
+		api.GET("/projects/:id/icon", iconHandler.Get)
 		api.GET("/activity", projectHandler.GetActivity)
+		api.GET("/traffic", trafficHandler.Get)
 		api.POST("/deployments", deploymentHandler.CreateDeployment)
 		api.GET("/deployments/:id", deploymentHandler.GetDeployment)
 		api.POST("/deployments/:id/cancel", deploymentHandler.CancelDeployment)

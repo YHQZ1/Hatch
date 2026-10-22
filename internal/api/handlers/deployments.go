@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -392,14 +393,35 @@ func (h *DeploymentHandler) GetDeploymentLogs(c *gin.Context) {
 		return
 	}
 
+	// ?tail=N returns only the last N lines, for callers that want just the
+	// latest progress and not the whole log.
+	lines, err := parseLogTail(c.Query("tail"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	key := fmt.Sprintf("logs:%s", id.String())
-	logs, err := h.rdb.LRange(c.Request.Context(), key, -maxDeploymentLogLines, -1).Result()
+	logs, err := h.rdb.LRange(c.Request.Context(), key, -lines, -1).Result()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch logs"})
 		return
 	}
 
 	c.JSON(http.StatusOK, logs)
+}
+
+// parseLogTail is how many log lines a request asks for: all of them when raw
+// is empty, otherwise between 1 and the most Hatch keeps.
+func parseLogTail(raw string) (int64, error) {
+	if raw == "" {
+		return maxDeploymentLogLines, nil
+	}
+	tail, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || tail < 1 || tail > maxDeploymentLogLines {
+		return 0, fmt.Errorf("tail must be between 1 and %d", maxDeploymentLogLines)
+	}
+	return tail, nil
 }
 
 type githubBranchResponse struct {

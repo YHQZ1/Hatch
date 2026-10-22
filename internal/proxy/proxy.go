@@ -51,18 +51,21 @@ type Proxy struct {
 	resolver Resolver
 	domain   string
 	now      func() time.Time
+	stats    *Stats
 
 	mu    sync.Mutex
 	cache map[string]lookup
 }
 
 // New returns a proxy for apps at <subdomain>.<domain>, for example
-// "localhost".
-func New(resolver Resolver, domain string) *Proxy {
+// "localhost". When stats is not nil it counts every request that reaches an
+// app.
+func New(resolver Resolver, domain string, stats *Stats) *Proxy {
 	return &Proxy{
 		resolver: resolver,
 		domain:   strings.ToLower(strings.Trim(domain, ".")),
 		now:      time.Now,
+		stats:    stats,
 		cache:    map[string]lookup{},
 	}
 }
@@ -95,13 +98,24 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("Nothing is deployed at <code>%s</code>.", html.EscapeString(sub+"."+p.domain)))
 		return
 	case errors.Is(err, ErrStopped):
-		page(w, http.StatusServiceUnavailable, "App paused",
-			fmt.Sprintf("<code>%s</code> is paused. Resume it in Hatch to bring it back.", html.EscapeString(sub+"."+p.domain)))
+		page(w, http.StatusServiceUnavailable, "App suspended",
+			fmt.Sprintf("<code>%s</code> is suspended. Resume it in Hatch to bring it back.", html.EscapeString(sub+"."+p.domain)))
 		return
 	case err != nil:
 		slog.WarnContext(r.Context(), "app lookup failed", "subdomain", sub, "error", err)
 		page(w, http.StatusBadGateway, "Hatch could not find the app", "Looking up the app in Docker failed. Is Docker running?")
 		return
+	}
+
+	if p.stats != nil {
+		rec := &recorder{ResponseWriter: w, start: time.Now(), status: http.StatusOK}
+		w = rec
+		defer func() {
+			if !rec.wrote { // hijacked (a WebSocket) or answered with nothing
+				rec.ttfb = time.Since(rec.start)
+			}
+			p.stats.Record(sub, rec.status, rec.ttfb)
+		}()
 	}
 
 	target := &url.URL{Scheme: "http", Host: addr}

@@ -38,12 +38,21 @@ func runServe() error {
 	if err != nil {
 		return err
 	}
+	// The proxy and the API share the traffic counts, so they must run in one
+	// process; on the AWS target there is no proxy and nothing to count.
+	var local *api.LocalTarget
+	if cfg.Target == config.TargetLocal {
+		local = &api.LocalTarget{
+			Stats:    proxy.NewStats(),
+			Resolver: localruntime.New(stream.Discard{}, appURL(cfg)),
+		}
+	}
 	components := []component{
-		{"api", func(ctx context.Context) error { return api.Run(ctx, cfg) }},
+		{"api", func(ctx context.Context) error { return api.Run(ctx, cfg, local) }},
 		jobsComponent(cfg),
 	}
-	if cfg.Target == config.TargetLocal {
-		components = append(components, proxyComponent(cfg))
+	if local != nil {
+		components = append(components, proxyComponent(cfg, local))
 	}
 	return runTogether(components...)
 }
@@ -162,9 +171,8 @@ func jobsComponent(cfg *config.Config) component {
 }
 
 // proxyComponent serves the apps of the local target at <name>.localhost.
-func proxyComponent(cfg *config.Config) component {
+func proxyComponent(cfg *config.Config, local *api.LocalTarget) component {
 	return component{"proxy", func(ctx context.Context) error {
-		resolver := localruntime.New(stream.Discard{}, appURL(cfg))
-		return proxy.Serve(ctx, cfg.LocalProxyAddr, proxy.New(resolver, "localhost"))
+		return proxy.Serve(ctx, cfg.LocalProxyAddr, proxy.New(local.Resolver, "localhost", local.Stats))
 	}}
 }
