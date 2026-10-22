@@ -62,6 +62,18 @@ type Builder struct {
 	repo     string
 	region   string
 	streamer stream.Sink
+	// local builds for this host's Docker only: no registry, no push, and the
+	// host's own platform.
+	local bool
+}
+
+// localRepository names the images the local builder leaves in Docker.
+const localRepository = "hatch-local"
+
+// NewLocalBuilder returns a Builder for the local target. It builds with the
+// host's Docker and leaves the image there as hatch-local:<deployment id>.
+func NewLocalBuilder(sink stream.Sink) *Builder {
+	return &Builder{repo: localRepository, streamer: sink, local: true}
 }
 
 func NewBuilder(registry, repo, region string, sink stream.Sink) *Builder {
@@ -76,6 +88,9 @@ func NewBuilder(registry, repo, region string, sink stream.Sink) *Builder {
 func (b *Builder) buildAndPush(ctx context.Context, id, repoDir, dockerfilePath string) (string, error) {
 	imageTag := imageTag(id)
 	tag := fmt.Sprintf("%s/%s:%s", b.registry, b.repo, imageTag)
+	if b.local {
+		tag = fmt.Sprintf("%s:%s", b.repo, imageTag)
+	}
 
 	if err := ensureActive(ctx, CancelStageBeforeDockerBuild); err != nil {
 		return "", err
@@ -87,6 +102,14 @@ func (b *Builder) buildAndPush(ctx context.Context, id, repoDir, dockerfilePath 
 			return "", canceled(CancelStageDuringDockerBuild)
 		}
 		return "", fmt.Errorf("docker build failed: %w", err)
+	}
+
+	if b.local {
+		if err := ensureActive(ctx, CancelStageAfterDockerPush); err != nil {
+			return "", err
+		}
+		b.streamer.Publish(ctx, id, fmt.Sprintf("Image built: %s", tag))
+		return tag, nil
 	}
 
 	if err := ensureActive(ctx, CancelStageBeforeECRAuth); err != nil {
@@ -128,12 +151,13 @@ func (b *Builder) runBuild(ctx context.Context, id, repoDir, dockerfilePath, tag
 		return err
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", "build",
-		"--platform", "linux/amd64",
-		"-t", tag,
-		"-f", dockerfileBase,
-		".",
-	)
+	args := []string{"build"}
+	if !b.local {
+		// ECS Fargate runs amd64; the local target runs on the host's platform.
+		args = append(args, "--platform", "linux/amd64")
+	}
+	args = append(args, "-t", tag, "-f", dockerfileBase, ".")
+	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Dir = contextDir
 	cmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
 

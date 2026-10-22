@@ -142,10 +142,10 @@ func (w *deployWorker) finish(ctx context.Context, args DeployArgs, release runt
 	rows, err := w.queries.FinishDeployment(ctx, dbpkg.FinishDeploymentParams{
 		ID:             id,
 		ImageUri:       &args.ImageURI,
-		Url:            &release.PublicURL,
-		EcsTaskArn:     &release.TaskDefinition,
-		EcsServiceName: &release.ServiceName,
-		TargetGroupArn: &release.TargetGroup,
+		Url:            nullable(release.PublicURL),
+		EcsTaskArn:     nullable(release.TaskDefinition),
+		EcsServiceName: nullable(release.ServiceName),
+		TargetGroupArn: nullable(release.TargetGroup),
 	})
 	if err != nil {
 		slog.Error("failed to finalize deployment", "deployment_id", id, "error", err)
@@ -175,4 +175,12 @@ func (w *deployWorker) envVars(ctx context.Context, id uuid.UUID) (map[string]st
 		env[row.Key] = value
 	}
 	return env, nil
+}
+
+// nullable is s, or nil when the provider has nothing to report for it.
+func nullable(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

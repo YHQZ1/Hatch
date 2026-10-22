@@ -152,6 +152,7 @@ func writeKeyFile(t *testing.T) string {
 
 // allVars is every variable the serve role needs, with development values.
 var allVars = map[string]string{
+	"HATCH_TARGET":            "aws",
 	"DATABASE_URL":            "postgres://hatch:hatch@localhost:5433/hatch?sslmode=disable",
 	"REDIS_URL":               "redis://localhost:6379",
 	"ECR_REGISTRY":            "123456789012.dkr.ecr.ap-south-1.amazonaws.com",
@@ -182,7 +183,7 @@ func setEnv(t *testing.T, vars map[string]string) {
 	for _, key := range []string{
 		"ENVIRONMENT", "DATA_ENCRYPTION_KEY", "AWS_REGION", "ALB_HTTPS_LISTENER_ARN",
 		"DEPLOYMENT_URL_SCHEME", "BUILD_TIMEOUT", "PORT", "FRONTEND_URL",
-		"CORS_ALLOWED_ORIGINS", "ALB_ARN",
+		"CORS_ALLOWED_ORIGINS", "ALB_ARN", "LOCAL_PROXY_ADDR",
 	} {
 		t.Setenv(key, "")
 	}
@@ -360,5 +361,74 @@ func TestLoadRejectsAnUnusableAppKey(t *testing.T) {
 		if err != nil && strings.Contains(err.Error(), "this is not a key") {
 			t.Errorf("%s: the file's contents leaked into the error: %v", name, err)
 		}
+	}
+}
+
+// localVars is what the local target needs: no AWS settings at all.
+func localVars() map[string]string {
+	return without(allVars, "HATCH_TARGET", "ECR_REGISTRY", "ECR_REPOSITORY", "ECS_CLUSTER_NAME",
+		"ALB_LISTENER_ARN", "VPC_ID", "SUBNET_A", "SUBNET_B", "ECS_SG_ID", "TASK_EXECUTION_ROLE_ARN", "BASE_DOMAIN")
+}
+
+func TestLocalTargetIsTheDefaultAndNeedsNoAWSSettings(t *testing.T) {
+	setEnv(t, localVars())
+
+	cfg, err := Load(RoleServe)
+
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Target != TargetLocal {
+		t.Errorf("Target = %q, want %q", cfg.Target, TargetLocal)
+	}
+	if cfg.LocalProxyAddr != "127.0.0.1:8081" || cfg.BaseDomain != "localhost:8081" || cfg.DeploymentURLScheme != "http" {
+		t.Errorf("proxy %q, base domain %q, scheme %q", cfg.LocalProxyAddr, cfg.BaseDomain, cfg.DeploymentURLScheme)
+	}
+}
+
+func TestLocalProxyAddressSetsWhereAppsAreReached(t *testing.T) {
+	vars := localVars()
+	vars["LOCAL_PROXY_ADDR"] = "127.0.0.1:9000"
+	setEnv(t, vars)
+
+	cfg, err := Load(RoleServe)
+
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.BaseDomain != "localhost:9000" {
+		t.Errorf("BaseDomain = %q, want localhost:9000", cfg.BaseDomain)
+	}
+}
+
+func TestLocalProxyAddressMustBeHostAndPort(t *testing.T) {
+	vars := localVars()
+	vars["LOCAL_PROXY_ADDR"] = "8081"
+	setEnv(t, vars)
+
+	if _, err := Load(RoleServe); err == nil || !strings.Contains(err.Error(), "LOCAL_PROXY_ADDR") {
+		t.Fatalf("err = %v, want one about LOCAL_PROXY_ADDR", err)
+	}
+}
+
+func TestUnknownTargetIsRejected(t *testing.T) {
+	vars := localVars()
+	vars["HATCH_TARGET"] = "gcp"
+	setEnv(t, vars)
+
+	if _, err := Load(RoleServe); err == nil || !strings.Contains(err.Error(), "HATCH_TARGET") {
+		t.Fatalf("err = %v, want one about HATCH_TARGET", err)
+	}
+}
+
+func TestAWSTargetStillNeedsItsSettings(t *testing.T) {
+	vars := localVars()
+	vars["HATCH_TARGET"] = "aws"
+	setEnv(t, vars)
+
+	_, err := Load(RoleServe)
+
+	if err == nil || !strings.Contains(err.Error(), "ECS_CLUSTER_NAME") || !strings.Contains(err.Error(), "BASE_DOMAIN") {
+		t.Fatalf("err = %v, want the missing AWS settings listed", err)
 	}
 }

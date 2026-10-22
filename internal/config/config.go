@@ -4,6 +4,7 @@ package config
 import (
 	"crypto/rsa"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"regexp"
@@ -30,8 +31,20 @@ const (
 // github.com/apps/<slug>.
 var appSlugPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
 
+// Where Hatch builds and runs apps.
+const (
+	// TargetLocal builds and runs apps with this host's Docker.
+	TargetLocal = "local"
+	// TargetAWS builds and runs apps on AWS. It is the old hosted prototype's
+	// path and still reads Hatch's own AWS settings.
+	TargetAWS = "aws"
+)
+
 type Config struct {
 	Role Role
+
+	// Target is TargetLocal (the default) or TargetAWS.
+	Target string
 
 	DatabaseURL       string
 	RedisURL          string
@@ -54,6 +67,9 @@ type Config struct {
 	GitHubAppSlug      string
 	WebhookBaseURL     string
 	ALBArn             string
+
+	// LocalProxyAddr is where the built-in proxy serves apps (TargetLocal).
+	LocalProxyAddr string
 
 	// Builder worker.
 	ECRRegistry   string
@@ -122,8 +138,12 @@ func Load(role Role) (*Config, error) {
 	r := &reader{}
 	cfg := &Config{
 		Role:        role,
+		Target:      getEnv("HATCH_TARGET", TargetLocal),
 		DatabaseURL: r.require("DATABASE_URL"),
 		Environment: getEnv("ENVIRONMENT", "development"),
+	}
+	if cfg.Target != TargetLocal && cfg.Target != TargetAWS {
+		r.problems = append(r.problems, fmt.Sprintf("HATCH_TARGET must be %q or %q, not %q", TargetLocal, TargetAWS, cfg.Target))
 	}
 
 	if role != RoleMigrate {
@@ -141,19 +161,32 @@ func Load(role Role) (*Config, error) {
 			cfg.GitHubAppKey = key
 		}
 
-		cfg.ECRRegistry = r.require("ECR_REGISTRY")
-		cfg.ECRRepository = r.require("ECR_REPOSITORY")
 		cfg.BuildTimeout = r.duration("BUILD_TIMEOUT", 30*time.Minute)
 
-		cfg.ECSClusterName = r.require("ECS_CLUSTER_NAME")
-		cfg.ALBListenerARN = firstNonEmpty(getEnv("ALB_HTTPS_LISTENER_ARN", ""), r.require("ALB_LISTENER_ARN"))
-		cfg.VPCID = r.require("VPC_ID")
-		cfg.SubnetA = r.require("SUBNET_A")
-		cfg.SubnetB = r.require("SUBNET_B")
-		cfg.ECSSecurityGroupID = r.require("ECS_SG_ID")
-		cfg.TaskExecutionRoleARN = r.require("TASK_EXECUTION_ROLE_ARN")
-		cfg.BaseDomain = r.require("BASE_DOMAIN")
-		cfg.DeploymentURLScheme = DeploymentURLScheme()
+		switch cfg.Target {
+		case TargetAWS:
+			cfg.ECRRegistry = r.require("ECR_REGISTRY")
+			cfg.ECRRepository = r.require("ECR_REPOSITORY")
+
+			cfg.ECSClusterName = r.require("ECS_CLUSTER_NAME")
+			cfg.ALBListenerARN = firstNonEmpty(getEnv("ALB_HTTPS_LISTENER_ARN", ""), r.require("ALB_LISTENER_ARN"))
+			cfg.VPCID = r.require("VPC_ID")
+			cfg.SubnetA = r.require("SUBNET_A")
+			cfg.SubnetB = r.require("SUBNET_B")
+			cfg.ECSSecurityGroupID = r.require("ECS_SG_ID")
+			cfg.TaskExecutionRoleARN = r.require("TASK_EXECUTION_ROLE_ARN")
+			cfg.BaseDomain = r.require("BASE_DOMAIN")
+			cfg.DeploymentURLScheme = DeploymentURLScheme()
+		case TargetLocal:
+			// Apps are served by the built-in proxy at <name>.localhost:<port>.
+			cfg.LocalProxyAddr = getEnv("LOCAL_PROXY_ADDR", "127.0.0.1:8081")
+			_, port, err := net.SplitHostPort(cfg.LocalProxyAddr)
+			if err != nil || port == "" {
+				r.problems = append(r.problems, "LOCAL_PROXY_ADDR must be host:port, for example 127.0.0.1:8081")
+			}
+			cfg.BaseDomain = "localhost:" + port
+			cfg.DeploymentURLScheme = "http"
+		}
 	}
 
 	if role == RoleServe {

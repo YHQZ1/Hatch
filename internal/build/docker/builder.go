@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -55,6 +56,9 @@ func (b *Builder) Build(ctx context.Context, spec build.Spec) (build.Image, erro
 // DeleteImages removes the images from ECR. Images that are already gone are
 // not an error.
 func (b *Builder) DeleteImages(ctx context.Context, images []build.Image) error {
+	if b.local {
+		return b.deleteLocalImages(ctx, images)
+	}
 	byRepository := map[string][]ecrtypes.ImageIdentifier{}
 	for _, image := range images {
 		ref, ok := parseECRImageURI(image.URI)
@@ -86,6 +90,28 @@ func (b *Builder) DeleteImages(ctx context.Context, images []build.Image) error 
 		}
 		if err := checkECRDeleteFailures(repository, out.Failures); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// deleteLocalImages removes the images from this host's Docker. An image that
+// is gone, or still used by a container, is not an error: the latter goes with
+// the container that uses it.
+func (b *Builder) deleteLocalImages(ctx context.Context, images []build.Image) error {
+	for _, image := range images {
+		if !strings.HasPrefix(image.URI, localRepository+":") {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		out, err := exec.CommandContext(ctx, "docker", "rmi", image.URI).CombinedOutput()
+		cancel()
+		if err != nil {
+			text := strings.ToLower(string(out))
+			if strings.Contains(text, "no such image") || strings.Contains(text, "conflict") {
+				continue
+			}
+			return fmt.Errorf("failed to remove image %s: %s", image.URI, strings.TrimSpace(string(out)))
 		}
 	}
 	return nil

@@ -11,10 +11,14 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/YHQZ1/hatch/internal/api"
+	"github.com/YHQZ1/hatch/internal/build"
 	"github.com/YHQZ1/hatch/internal/build/docker"
 	"github.com/YHQZ1/hatch/internal/config"
 	"github.com/YHQZ1/hatch/internal/githubapp"
 	"github.com/YHQZ1/hatch/internal/jobs"
+	"github.com/YHQZ1/hatch/internal/proxy"
+	"github.com/YHQZ1/hatch/internal/runtime"
+	localruntime "github.com/YHQZ1/hatch/internal/runtime/docker"
 	ecsdeploy "github.com/YHQZ1/hatch/internal/runtime/ecs"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	"github.com/YHQZ1/hatch/internal/store"
@@ -34,10 +38,14 @@ func runServe() error {
 	if err != nil {
 		return err
 	}
-	return runTogether(
-		component{"api", func(ctx context.Context) error { return api.Run(ctx, cfg) }},
+	components := []component{
+		{"api", func(ctx context.Context) error { return api.Run(ctx, cfg) }},
 		jobsComponent(cfg),
-	)
+	}
+	if cfg.Target == config.TargetLocal {
+		components = append(components, proxyComponent(cfg))
+	}
+	return runTogether(components...)
 }
 
 // runWorkers runs only the job runner.
@@ -80,6 +88,44 @@ func runTogether(components ...component) error {
 	return group.Wait()
 }
 
+// providers are what the jobs build and run apps with.
+type providers struct {
+	builder build.Builder
+	runtime runtime.Runtime
+}
+
+// providersFor returns the build and runtime providers for the configured
+// target. Log lines from both go to logs.
+func providersFor(ctx context.Context, cfg *config.Config, logs stream.Sink) providers {
+	if cfg.Target == config.TargetLocal {
+		if err := localruntime.Available(ctx, localruntime.Exec); err != nil {
+			// Not fatal: the console is still useful, and a deploy says why it failed.
+			slog.Warn("Docker is not available; deployments will fail until it is running", "error", err)
+		}
+		return providers{
+			builder: docker.NewLocalBuilder(logs),
+			runtime: localruntime.New(logs, appURL(cfg)),
+		}
+	}
+
+	deployer := ecsdeploy.NewDeployer(
+		cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN,
+		cfg.VPCID, cfg.SubnetA, cfg.SubnetB, cfg.ECSSecurityGroupID,
+		cfg.TaskExecutionRoleARN, cfg.BaseDomain, cfg.DeploymentURLScheme, logs,
+	)
+	return providers{
+		builder: docker.NewBuilder(cfg.ECRRegistry, cfg.ECRRepository, cfg.AWSRegion, logs),
+		runtime: ecsdeploy.NewRuntime(deployer),
+	}
+}
+
+// appURL is where an app is reached on the local target.
+func appURL(cfg *config.Config) func(subdomain string) string {
+	return func(subdomain string) string {
+		return fmt.Sprintf("%s://%s.%s", cfg.DeploymentURLScheme, subdomain, cfg.BaseDomain)
+	}
+}
+
 // jobShutdownGrace is how long running jobs get to finish when Hatch stops.
 // Jobs still running after that are canceled and run again on the next start.
 const jobShutdownGrace = 30 * time.Second
@@ -101,20 +147,24 @@ func jobsComponent(cfg *config.Config) component {
 		logs := stream.NewRedis(cfg.RedisURL)
 		defer logs.Close()
 
-		deployer := ecsdeploy.NewDeployer(
-			cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN,
-			cfg.VPCID, cfg.SubnetA, cfg.SubnetB, cfg.ECSSecurityGroupID,
-			cfg.TaskExecutionRoleARN, cfg.BaseDomain, cfg.DeploymentURLScheme, logs,
-		)
-		slog.Info("component started", "component", "jobs", "region", cfg.AWSRegion, "cluster", cfg.ECSClusterName)
+		p := providersFor(ctx, cfg, logs)
+		slog.Info("component started", "component", "jobs", "target", cfg.Target)
 		return jobs.Run(ctx, jobs.Deps{
 			Pool:         pool,
-			Builder:      docker.NewBuilder(cfg.ECRRegistry, cfg.ECRRepository, cfg.AWSRegion, logs),
-			Runtime:      ecsdeploy.NewRuntime(deployer),
+			Builder:      p.builder,
+			Runtime:      p.runtime,
 			Logs:         logs,
 			Secrets:      codec,
 			CloneTokens:  githubapp.New(cfg.GitHubClientID, cfg.GitHubAppKey),
 			BuildTimeout: cfg.BuildTimeout,
 		}, jobShutdownGrace)
+	}}
+}
+
+// proxyComponent serves the apps of the local target at <name>.localhost.
+func proxyComponent(cfg *config.Config) component {
+	return component{"proxy", func(ctx context.Context) error {
+		resolver := localruntime.New(stream.Discard{}, appURL(cfg))
+		return proxy.Serve(ctx, cfg.LocalProxyAddr, proxy.New(resolver, "localhost"))
 	}}
 }
