@@ -35,7 +35,6 @@ type Config struct {
 
 	DatabaseURL       string
 	RedisURL          string
-	RabbitMQURL       string
 	Environment       string
 	DataEncryptionKey string
 	AWSRegion         string
@@ -129,7 +128,6 @@ func Load(role Role) (*Config, error) {
 
 	if role != RoleMigrate {
 		cfg.RedisURL = r.require("REDIS_URL")
-		cfg.RabbitMQURL = r.require("RABBITMQ_URL")
 		cfg.DataEncryptionKey = getEnv("DATA_ENCRYPTION_KEY", "")
 		cfg.AWSRegion = getEnv("AWS_REGION", "ap-south-1")
 

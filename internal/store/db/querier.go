@@ -6,7 +6,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/google/uuid"
 )
@@ -26,18 +25,25 @@ type Querier interface {
 	DeleteProjectByIDAndUserID(ctx context.Context, arg DeleteProjectByIDAndUserIDParams) error
 	DeleteProjectEnvVarsByProject(ctx context.Context, projectID uuid.UUID) error
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash []byte) error
+	// Records why a deployment failed. A canceled deployment stays canceled.
+	FailDeployment(ctx context.Context, arg FailDeploymentParams) error
+	// Marks a deployment live. It reports 0 rows when the deployment was canceled
+	// in the meantime.
+	FinishDeployment(ctx context.Context, arg FinishDeploymentParams) (int64, error)
 	GetActiveDeploymentByProjectIDAndUserID(ctx context.Context, arg GetActiveDeploymentByProjectIDAndUserIDParams) (Deployment, error)
 	GetActivityLogsByUserID(ctx context.Context, userID uuid.UUID) ([]ActivityLog, error)
 	GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployment, error)
 	GetDeploymentByIDAndUserID(ctx context.Context, arg GetDeploymentByIDAndUserIDParams) (Deployment, error)
+	GetDeploymentStatus(ctx context.Context, id uuid.UUID) (string, error)
 	GetDeploymentsByProjectID(ctx context.Context, projectID uuid.UUID) ([]Deployment, error)
 	GetDeploymentsByProjectIDAndUserID(ctx context.Context, arg GetDeploymentsByProjectIDAndUserIDParams) ([]Deployment, error)
 	GetEnvVarsByDeployment(ctx context.Context, deploymentID uuid.UUID) ([]EnvVar, error)
 	GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error)
 	GetProjectByIDAndUserID(ctx context.Context, arg GetProjectByIDAndUserIDParams) (Project, error)
 	GetProjectByRepoURL(ctx context.Context, repoUrl string) (Project, error)
-	GetProjectBySubdomain(ctx context.Context, subdomain sql.NullString) (Project, error)
+	GetProjectBySubdomain(ctx context.Context, subdomain *string) (Project, error)
 	GetProjectEnvVarsByProject(ctx context.Context, projectID uuid.UUID) ([]ProjectEnvVar, error)
+	GetProjectImageURIs(ctx context.Context, projectID uuid.UUID) ([]string, error)
 	GetProjectsByRepoURL(ctx context.Context, repoUrl string) ([]Project, error)
 	GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]Project, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (Session, error)
@@ -50,6 +56,12 @@ type Querier interface {
 	MarkProjectDeleteFailed(ctx context.Context, arg MarkProjectDeleteFailedParams) error
 	MarkProjectDeleting(ctx context.Context, arg MarkProjectDeletingParams) (Project, error)
 	MarkProjectOperationFailed(ctx context.Context, arg MarkProjectOperationFailedParams) error
+	// Reports whether the deployment's project has a different live deployment.
+	ProjectHasOtherLiveDeployment(ctx context.Context, id uuid.UUID) (bool, error)
+	// Moves a deployment to a new status and clears its failure. A canceled
+	// deployment stays canceled unless the new status is 'canceled'.
+	SetDeploymentStatus(ctx context.Context, arg SetDeploymentStatusParams) error
+	SetProjectStatus(ctx context.Context, arg SetProjectStatusParams) error
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	UpdateDeploymentLive(ctx context.Context, arg UpdateDeploymentLiveParams) (Deployment, error)
 	UpdateDeploymentStatus(ctx context.Context, arg UpdateDeploymentStatusParams) (Deployment, error)

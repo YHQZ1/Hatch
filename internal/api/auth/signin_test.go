@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/YHQZ1/hatch/internal/secrets"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -130,7 +130,7 @@ type harness struct {
 	github   *fakeGitHub
 	tokens   *Tokens
 	sessions *Sessions
-	db       *sql.DB
+	db       *pgxpool.Pool
 	codec    *secrets.Codec
 }
 
@@ -214,7 +214,7 @@ func (h *harness) callback(query url.Values, cookies ...*http.Cookie) *httptest.
 func (h *harness) countRows(t *testing.T, table string) int {
 	t.Helper()
 	var n int
-	if err := h.db.QueryRow(`SELECT count(*) FROM ` + table).Scan(&n); err != nil {
+	if err := h.db.QueryRow(context.Background(), `SELECT count(*) FROM `+table).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -322,15 +322,15 @@ func TestCallbackSignsTheUserIn(t *testing.T) {
 	if got, err := h.codec.Decrypt(user.AccessToken); err != nil || got != testToken {
 		t.Errorf("stored token decrypts to %q, %v", got, err)
 	}
-	if !user.RefreshToken.Valid || user.RefreshToken.String == testRefreshToken {
+	if user.RefreshToken == nil || *user.RefreshToken == testRefreshToken {
 		t.Error("the refresh token was not stored, or was stored unencrypted")
-	} else if got, err := h.codec.Decrypt(user.RefreshToken.String); err != nil || got != testRefreshToken {
+	} else if got, err := h.codec.Decrypt(*user.RefreshToken); err != nil || got != testRefreshToken {
 		t.Errorf("stored refresh token decrypts to %q, %v", got, err)
 	}
-	if !user.AccessTokenExpiresAt.Valid || time.Until(user.AccessTokenExpiresAt.Time) < 7*time.Hour {
+	if user.AccessTokenExpiresAt == nil || time.Until(*user.AccessTokenExpiresAt) < 7*time.Hour {
 		t.Errorf("access token expiry = %+v, want about 8 hours away", user.AccessTokenExpiresAt)
 	}
-	if !user.RefreshTokenExpiresAt.Valid || time.Until(user.RefreshTokenExpiresAt.Time) < 24*time.Hour*170 {
+	if user.RefreshTokenExpiresAt == nil || time.Until(*user.RefreshTokenExpiresAt) < 24*time.Hour*170 {
 		t.Errorf("refresh token expiry = %+v, want about six months away", user.RefreshTokenExpiresAt)
 	}
 }

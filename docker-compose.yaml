@@ -36,27 +36,9 @@ services:
       timeout: 5s
       retries: 5
 
-  rabbitmq:
-    image: rabbitmq:3-management
-    container_name: hatch-rabbitmq
-    restart: unless-stopped
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - hatch
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-
 volumes:
   postgres18_data:
   redis_data:
-  rabbitmq_data:
 
 networks:
   hatch:

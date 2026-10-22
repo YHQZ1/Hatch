@@ -10,7 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YHQZ1/hatch/internal/runtime/logs"
+	"github.com/YHQZ1/hatch/internal/runtime"
+	"github.com/YHQZ1/hatch/internal/stream"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -23,7 +24,7 @@ import (
 type Deployer struct {
 	ecsClient       *ecs.Client
 	elbClient       *elbv2.Client
-	streamer        *logs.Streamer
+	streamer        stream.Sink
 	clusterName     string
 	albListenerARN  string
 	vpcID           string
@@ -33,12 +34,12 @@ type Deployer struct {
 	awsRegion       string
 	baseDomain      string
 	publicURLScheme string
-	cancelChecker   func(context.Context, string) (bool, error)
 }
 
-var ErrCanceled = errors.New("deployment canceled")
+// ErrCanceled is runtime.ErrCanceled: errors from this package match either.
+var ErrCanceled = runtime.ErrCanceled
 
-func NewDeployer(awsRegion, cluster, listener, vpc, subA, subB, sg, role, domain, publicURLScheme string, streamer *logs.Streamer) *Deployer {
+func NewDeployer(awsRegion, cluster, listener, vpc, subA, subB, sg, role, domain, publicURLScheme string, streamer stream.Sink) *Deployer {
 	cfg, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(awsRegion))
 	if err != nil {
 		cfg = aws.Config{Region: awsRegion}
@@ -64,10 +65,6 @@ func NewDeployer(awsRegion, cluster, listener, vpc, subA, subB, sg, role, domain
 	}
 }
 
-func (d *Deployer) SetCancelChecker(fn func(context.Context, string) (bool, error)) {
-	d.cancelChecker = fn
-}
-
 type DeployInput struct {
 	DeploymentID string
 	ImageURI     string
@@ -77,6 +74,9 @@ type DeployInput struct {
 	HealthCheck  string
 	Subdomain    string
 	EnvVars      map[string]string
+	// Canceled reports whether the deployment was canceled. It is checked
+	// between steps; nil means the deployment cannot be canceled.
+	Canceled func(ctx context.Context) (bool, error)
 }
 
 type DeployResult struct {
@@ -97,7 +97,7 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (DeployResult,
 	id := input.DeploymentID
 	slug := input.Subdomain
 
-	if err := d.ensureNotCanceled(ctx, id); err != nil {
+	if err := ensureNotCanceled(ctx, input.Canceled); err != nil {
 		return DeployResult{}, err
 	}
 
@@ -107,7 +107,7 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (DeployResult,
 		return DeployResult{}, fmt.Errorf("failed to register task definition: %w", err)
 	}
 
-	if err := d.ensureNotCanceled(ctx, id); err != nil {
+	if err := ensureNotCanceled(ctx, input.Canceled); err != nil {
 		return DeployResult{}, err
 	}
 
@@ -117,7 +117,7 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (DeployResult,
 		return DeployResult{}, fmt.Errorf("failed to configure target group: %w", err)
 	}
 
-	if err := d.ensureNotCanceled(ctx, id); err != nil {
+	if err := ensureNotCanceled(ctx, input.Canceled); err != nil {
 		return DeployResult{}, err
 	}
 
@@ -127,7 +127,7 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (DeployResult,
 		return DeployResult{}, fmt.Errorf("failed to update routing rules: %w", err)
 	}
 
-	if err := d.ensureNotCanceled(ctx, id); err != nil {
+	if err := ensureNotCanceled(ctx, input.Canceled); err != nil {
 		return DeployResult{}, err
 	}
 
@@ -138,7 +138,7 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (DeployResult,
 	}
 
 	d.streamer.Publish(ctx, id, "Monitoring service stability...")
-	if err := d.waitForStability(ctx, id, slug, tgArn); err != nil {
+	if err := d.waitForStability(ctx, id, slug, tgArn, input.Canceled); err != nil {
 		return DeployResult{}, fmt.Errorf("service stability check failed: %w", err)
 	}
 
@@ -153,11 +153,11 @@ func (d *Deployer) Deploy(ctx context.Context, input DeployInput) (DeployResult,
 	}, nil
 }
 
-func (d *Deployer) ensureNotCanceled(ctx context.Context, deploymentID string) error {
-	if d.cancelChecker == nil {
+func ensureNotCanceled(ctx context.Context, check func(context.Context) (bool, error)) error {
+	if check == nil {
 		return nil
 	}
-	canceled, err := d.cancelChecker(ctx, deploymentID)
+	canceled, err := check(ctx)
 	if err != nil {
 		return err
 	}
@@ -397,7 +397,7 @@ func serviceWiringMatches(svc types.Service, expectedPort int32, expectedTargetG
 	return false
 }
 
-func (d *Deployer) waitForStability(ctx context.Context, deployID, slug, tgArn string) error {
+func (d *Deployer) waitForStability(ctx context.Context, deployID, slug, tgArn string, canceled func(context.Context) (bool, error)) error {
 	name := serviceName(slug)
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
@@ -406,7 +406,7 @@ func (d *Deployer) waitForStability(ctx context.Context, deployID, slug, tgArn s
 	defer timeout.Stop()
 
 	check := func() (bool, error) {
-		if err := d.ensureNotCanceled(ctx, deployID); err != nil {
+		if err := ensureNotCanceled(ctx, canceled); err != nil {
 			return false, err
 		}
 

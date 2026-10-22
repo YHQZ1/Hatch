@@ -26,7 +26,7 @@ type CreateSessionParams struct {
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error) {
-	row := q.db.QueryRowContext(ctx, createSession,
+	row := q.db.QueryRow(ctx, createSession,
 		arg.UserID,
 		arg.TokenHash,
 		arg.LastSeenAt,
@@ -54,11 +54,11 @@ type DeleteExpiredSessionsParams struct {
 }
 
 func (q *Queries) DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteExpiredSessions, arg.ExpiresAt, arg.LastSeenAt)
+	result, err := q.db.Exec(ctx, deleteExpiredSessions, arg.ExpiresAt, arg.LastSeenAt)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const deleteSessionByTokenHash = `-- name: DeleteSessionByTokenHash :exec
@@ -66,7 +66,7 @@ DELETE FROM sessions WHERE token_hash = $1
 `
 
 func (q *Queries) DeleteSessionByTokenHash(ctx context.Context, tokenHash []byte) error {
-	_, err := q.db.ExecContext(ctx, deleteSessionByTokenHash, tokenHash)
+	_, err := q.db.Exec(ctx, deleteSessionByTokenHash, tokenHash)
 	return err
 }
 
@@ -75,7 +75,7 @@ SELECT id, user_id, token_hash, created_at, last_seen_at, expires_at FROM sessio
 `
 
 func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (Session, error) {
-	row := q.db.QueryRowContext(ctx, getSessionByTokenHash, tokenHash)
+	row := q.db.QueryRow(ctx, getSessionByTokenHash, tokenHash)
 	var i Session
 	err := row.Scan(
 		&i.ID,
@@ -98,6 +98,6 @@ type TouchSessionParams struct {
 }
 
 func (q *Queries) TouchSession(ctx context.Context, arg TouchSessionParams) error {
-	_, err := q.db.ExecContext(ctx, touchSession, arg.ID, arg.LastSeenAt)
+	_, err := q.db.Exec(ctx, touchSession, arg.ID, arg.LastSeenAt)
 	return err
 }

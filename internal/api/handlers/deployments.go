@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -11,11 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YHQZ1/hatch/internal/api/queue"
+	"github.com/YHQZ1/hatch/internal/jobs"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -55,53 +55,33 @@ func (h *DeploymentHandler) toDeploymentResponse(d dbpkg.Deployment) DeploymentR
 		HealthCheck: d.HealthCheck,
 		CreatedAt:   d.CreatedAt.Format(time.RFC3339),
 	}
-	if d.ImageUri.Valid {
-		r.ImageURI = &d.ImageUri.String
-	}
-	if d.EcsTaskArn.Valid {
-		r.EcsTaskArn = &d.EcsTaskArn.String
-	}
-	if d.EcsServiceName.Valid {
-		r.EcsService = &d.EcsServiceName.String
-	}
-	if d.TargetGroupArn.Valid {
-		r.TargetGroup = &d.TargetGroupArn.String
-	}
-	if d.Subdomain.Valid {
-		r.Subdomain = &d.Subdomain.String
-	}
-	if d.Url.Valid {
-		r.URL = &d.Url.String
-	}
-	if d.CommitSha.Valid {
-		r.CommitSHA = &d.CommitSha.String
-	}
-	if d.CommitMessage.Valid {
-		r.CommitMsg = &d.CommitMessage.String
-	}
-	if d.ErrorStage.Valid {
-		r.ErrorStage = &d.ErrorStage.String
-	}
-	if d.ErrorMessage.Valid {
-		r.ErrorMsg = &d.ErrorMessage.String
-	}
-	if d.DeployedAt.Valid {
-		s := d.DeployedAt.Time.Format(time.RFC3339)
+	r.ImageURI = d.ImageUri
+	r.EcsTaskArn = d.EcsTaskArn
+	r.EcsService = d.EcsServiceName
+	r.TargetGroup = d.TargetGroupArn
+	r.Subdomain = d.Subdomain
+	r.URL = d.Url
+	r.CommitSHA = d.CommitSha
+	r.CommitMsg = d.CommitMessage
+	r.ErrorStage = d.ErrorStage
+	r.ErrorMsg = d.ErrorMessage
+	if d.DeployedAt != nil {
+		s := d.DeployedAt.Format(time.RFC3339)
 		r.DeployedAt = &s
 	}
-	if d.FailedAt.Valid {
-		s := d.FailedAt.Time.Format(time.RFC3339)
+	if d.FailedAt != nil {
+		s := d.FailedAt.Format(time.RFC3339)
 		r.FailedAt = &s
 	}
 	return r
 }
 
 type DeploymentHandler struct {
-	queries   *dbpkg.Queries
-	publisher *queue.Publisher
-	db        *sql.DB
-	rdb       *redis.Client
-	secrets   *secrets.Codec
+	queries *dbpkg.Queries
+	jobs    jobs.Inserter
+	pool    *pgxpool.Pool
+	rdb     *redis.Client
+	secrets *secrets.Codec
 }
 
 const (
@@ -110,13 +90,13 @@ const (
 	maxDeploymentLogLines           = 5000
 )
 
-func NewDeploymentHandler(db *sql.DB, publisher *queue.Publisher, rdb *redis.Client, secretCodec *secrets.Codec) *DeploymentHandler {
+func NewDeploymentHandler(pool *pgxpool.Pool, inserter jobs.Inserter, rdb *redis.Client, secretCodec *secrets.Codec) *DeploymentHandler {
 	return &DeploymentHandler{
-		queries:   dbpkg.New(db),
-		publisher: publisher,
-		db:        db,
-		rdb:       rdb,
-		secrets:   secretCodec,
+		queries: dbpkg.New(pool),
+		jobs:    inserter,
+		pool:    pool,
+		rdb:     rdb,
+		secrets: secretCodec,
 	}
 }
 
@@ -195,8 +175,8 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 	memoryMB := defaultDeploymentMemoryMB
 
 	effectiveSubdomain := projectID.String()[:8]
-	if project.Subdomain.Valid && project.Subdomain.String != "" {
-		effectiveSubdomain = project.Subdomain.String
+	if project.Subdomain != nil && *project.Subdomain != "" {
+		effectiveSubdomain = *project.Subdomain
 	}
 
 	commitSHA, commitMessage := fetchGitHubBranchHead(
@@ -206,12 +186,12 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		userToken,
 	)
 
-	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	tx, err := h.pool.Begin(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start deployment transaction"})
 		return
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback(c.Request.Context()) }()
 
 	qtx := h.queries.WithTx(tx)
 	deployment, err := qtx.CreateDeployment(c.Request.Context(), dbpkg.CreateDeploymentParams{
@@ -221,7 +201,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		MemoryMb:      memoryMB,
 		Port:          port,
 		HealthCheck:   healthCheck,
-		Subdomain:     sql.NullString{String: effectiveSubdomain, Valid: true},
+		Subdomain:     &effectiveSubdomain,
 		CommitSha:     nullString(commitSHA),
 		CommitMessage: nullString(commitMessage),
 	})
@@ -263,7 +243,7 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 				DeploymentID: deployment.ID,
 				Key:          key,
 				Value:        storedValue,
-				SecretArn:    sql.NullString{},
+				SecretArn:    nil,
 			})
 			if err != nil {
 				slog.ErrorContext(c.Request.Context(), "failed to snapshot an environment variable", "deployment_id", deployment.ID, "error", err)
@@ -273,29 +253,26 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit deployment"})
-		return
-	}
-
-	if err := h.publisher.PublishBuildJob(c.Request.Context(), queue.BuildJobEvent{
-		DeploymentID:   deployment.ID.String(),
+	// The build job joins the deployment's transaction: either both exist or
+	// neither does.
+	if _, err := h.jobs.InsertTx(c.Request.Context(), tx, jobs.BuildArgs{
+		DeploymentID:   deployment.ID,
 		RepoURL:        project.RepoUrl,
 		Branch:         branch,
 		DockerfilePath: project.DockerfilePath,
-		UserID:         userID.String(),
-		Port:           int(port),
+		Port:           port,
 		Subdomain:      effectiveSubdomain,
 		CPU:            cpu,
 		MemoryMB:       memoryMB,
 		HealthCheck:    healthCheck,
-	}); err != nil {
-		_, _ = h.queries.MarkDeploymentFailed(c.Request.Context(), dbpkg.MarkDeploymentFailedParams{
-			ID:           deployment.ID,
-			ErrorStage:   sql.NullString{String: "queue", Valid: true},
-			ErrorMessage: sql.NullString{String: "failed to queue deployment", Valid: true},
-		})
+	}, nil); err != nil {
+		slog.ErrorContext(c.Request.Context(), "failed to queue deployment", "deployment_id", deployment.ID, "error", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to queue deployment"})
+		return
+	}
+
+	if err := tx.Commit(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit deployment"})
 		return
 	}
 
@@ -465,8 +442,12 @@ func fetchGitHubBranchHead(ctx context.Context, repoURL, branch, token string) (
 	return payload.Commit.SHA, firstCommitLine(payload.Commit.Commit.Message)
 }
 
-func nullString(value string) sql.NullString {
-	return sql.NullString{String: value, Valid: value != ""}
+// nullString is value, or nil when it is empty, for nullable text columns.
+func nullString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func firstCommitLine(message string) string {

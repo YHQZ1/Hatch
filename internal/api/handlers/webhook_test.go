@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"testing"
 
@@ -29,7 +28,7 @@ func TestMatchWebhookProjectVerifiesEncryptedSecret(t *testing.T) {
 	body := []byte(`{"ref":"refs/heads/main"}`)
 	project := dbpkg.Project{
 		ID:            uuid.New(),
-		WebhookSecret: sql.NullString{String: storedSecret, Valid: true},
+		WebhookSecret: &storedSecret,
 	}
 
 	matched, ok := handler.matchWebhookProject(context.Background(), []dbpkg.Project{project}, body, signatureFor(body, plainSecret))
@@ -50,7 +49,7 @@ func TestMatchWebhookProjectRejectsUnsignedWebhook(t *testing.T) {
 	handler := &WebhookHandler{secrets: codec}
 	project := dbpkg.Project{
 		ID:            uuid.New(),
-		WebhookSecret: sql.NullString{String: "webhook-secret", Valid: true},
+		WebhookSecret: ptr("webhook-secret"),
 	}
 
 	if _, ok := handler.matchWebhookProject(context.Background(), []dbpkg.Project{project}, []byte("{}"), ""); ok {

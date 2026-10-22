@@ -1,4 +1,4 @@
-package logs
+package stream
 
 import (
 	"context"
@@ -10,19 +10,22 @@ import (
 
 const maxStoredLogLines int64 = 5000
 
-type Streamer struct {
+// Redis is a Sink that keeps recent lines in Redis and publishes each one to
+// the channel the WebSocket hub reads. It goes away when log streaming moves to
+// Postgres.
+type Redis struct {
 	client *redis.Client
 }
 
-func NewStreamer(url string) *Streamer {
+func NewRedis(url string) *Redis {
 	opt, err := redis.ParseURL(url)
 	if err != nil {
 		opt = &redis.Options{Addr: url}
 	}
-	return &Streamer{client: redis.NewClient(opt)}
+	return &Redis{client: redis.NewClient(opt)}
 }
 
-func (s *Streamer) Publish(ctx context.Context, id, message string) {
+func (s *Redis) Publish(ctx context.Context, id, message string) {
 	channel := fmt.Sprintf("deployment:%s", id)
 	listKey := fmt.Sprintf("logs:%s", id)
 
@@ -33,3 +36,6 @@ func (s *Streamer) Publish(ctx context.Context, id, message string) {
 	pipe.Publish(ctx, channel, message)
 	_, _ = pipe.Exec(ctx)
 }
+
+// Close releases the Redis connection.
+func (s *Redis) Close() error { return s.client.Close() }

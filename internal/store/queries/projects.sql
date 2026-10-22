@@ -81,3 +81,10 @@ DELETE FROM projects WHERE id = $1 AND user_id = $2;
 
 -- name: GetProjectBySubdomain :one
 SELECT * FROM projects WHERE subdomain = $1 LIMIT 1;
+
+
+-- name: SetProjectStatus :exec
+UPDATE projects
+SET status = $2,
+    delete_error = NULL
+WHERE id = $1;

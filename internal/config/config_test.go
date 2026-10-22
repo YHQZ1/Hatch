@@ -154,7 +154,6 @@ func writeKeyFile(t *testing.T) string {
 var allVars = map[string]string{
 	"DATABASE_URL":            "postgres://hatch:hatch@localhost:5433/hatch?sslmode=disable",
 	"REDIS_URL":               "redis://localhost:6379",
-	"RABBITMQ_URL":            "amqp://guest:guest@localhost:5672/",
 	"ECR_REGISTRY":            "123456789012.dkr.ecr.ap-south-1.amazonaws.com",
 	"ECR_REPOSITORY":          "hatch-builds",
 	"ECS_CLUSTER_NAME":        "hatch",

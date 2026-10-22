@@ -7,7 +7,7 @@ package db
 
 import (
 	"context"
-	"database/sql"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -28,16 +28,16 @@ RETURNING id, github_id, github_username, access_token, created_at, refresh_toke
 `
 
 type CreateUserParams struct {
-	GithubID              int64          `json:"github_id"`
-	GithubUsername        string         `json:"github_username"`
-	AccessToken           string         `json:"access_token"`
-	RefreshToken          sql.NullString `json:"refresh_token"`
-	AccessTokenExpiresAt  sql.NullTime   `json:"access_token_expires_at"`
-	RefreshTokenExpiresAt sql.NullTime   `json:"refresh_token_expires_at"`
+	GithubID              int64      `json:"github_id"`
+	GithubUsername        string     `json:"github_username"`
+	AccessToken           string     `json:"access_token"`
+	RefreshToken          *string    `json:"refresh_token"`
+	AccessTokenExpiresAt  *time.Time `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt *time.Time `json:"refresh_token_expires_at"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
-	row := q.db.QueryRowContext(ctx, createUser,
+	row := q.db.QueryRow(ctx, createUser,
 		arg.GithubID,
 		arg.GithubUsername,
 		arg.AccessToken,
@@ -64,7 +64,7 @@ SELECT id, github_id, github_username, access_token, created_at, refresh_token, 
 `
 
 func (q *Queries) GetUserByGithubID(ctx context.Context, githubID int64) (User, error) {
-	row := q.db.QueryRowContext(ctx, getUserByGithubID, githubID)
+	row := q.db.QueryRow(ctx, getUserByGithubID, githubID)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -84,7 +84,7 @@ SELECT id, github_id, github_username, access_token, created_at, refresh_token, 
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
-	row := q.db.QueryRowContext(ctx, getUserByID, id)
+	row := q.db.QueryRow(ctx, getUserByID, id)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -106,7 +106,7 @@ SELECT id, github_id, github_username, access_token, created_at, refresh_token, 
 // Locks the row so that two requests do not spend the same single-use refresh
 // token. Call it inside a transaction.
 func (q *Queries) GetUserByIDForUpdate(ctx context.Context, id uuid.UUID) (User, error) {
-	row := q.db.QueryRowContext(ctx, getUserByIDForUpdate, id)
+	row := q.db.QueryRow(ctx, getUserByIDForUpdate, id)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -131,15 +131,15 @@ WHERE id = $1
 `
 
 type UpdateUserTokensParams struct {
-	ID                    uuid.UUID      `json:"id"`
-	AccessToken           string         `json:"access_token"`
-	RefreshToken          sql.NullString `json:"refresh_token"`
-	AccessTokenExpiresAt  sql.NullTime   `json:"access_token_expires_at"`
-	RefreshTokenExpiresAt sql.NullTime   `json:"refresh_token_expires_at"`
+	ID                    uuid.UUID  `json:"id"`
+	AccessToken           string     `json:"access_token"`
+	RefreshToken          *string    `json:"refresh_token"`
+	AccessTokenExpiresAt  *time.Time `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt *time.Time `json:"refresh_token_expires_at"`
 }
 
 func (q *Queries) UpdateUserTokens(ctx context.Context, arg UpdateUserTokensParams) error {
-	_, err := q.db.ExecContext(ctx, updateUserTokens,
+	_, err := q.db.Exec(ctx, updateUserTokens,
 		arg.ID,
 		arg.AccessToken,
 		arg.RefreshToken,

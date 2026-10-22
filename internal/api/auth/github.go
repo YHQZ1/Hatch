@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 	"github.com/YHQZ1/hatch/internal/secrets"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type GitHubUser struct {
@@ -53,11 +53,11 @@ const OAuthStateCookieName = "hatch_oauth_state"
 
 var githubHTTPClient = &http.Client{Timeout: 12 * time.Second}
 
-func NewHandler(cfg Config, db *sql.DB, sessions *Sessions, secretCodec *secrets.Codec) *Handler {
+func NewHandler(cfg Config, pool *pgxpool.Pool, sessions *Sessions, secretCodec *secrets.Codec) *Handler {
 	cfg.FrontendURL = strings.TrimRight(cfg.FrontendURL, "/")
 	return &Handler{
 		cfg:       cfg,
-		queries:   dbpkg.New(db),
+		queries:   dbpkg.New(pool),
 		sessions:  sessions,
 		secrets:   secretCodec,
 		githubURL: "https://github.com",

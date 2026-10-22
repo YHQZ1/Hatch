@@ -7,7 +7,7 @@ DEV_PORTS := 3000 8080
 
 
 infra:
-	docker compose up -d postgres redis rabbitmq
+	docker compose up -d postgres redis
 
 stop-dev:
 	@set -e; \

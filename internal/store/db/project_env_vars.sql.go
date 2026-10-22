@@ -7,7 +7,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/google/uuid"
 )
@@ -24,14 +23,14 @@ INSERT INTO project_env_vars (
 `
 
 type CreateProjectEnvVarParams struct {
-	ProjectID uuid.UUID      `json:"project_id"`
-	Key       string         `json:"key"`
-	Value     string         `json:"value"`
-	SecretArn sql.NullString `json:"secret_arn"`
+	ProjectID uuid.UUID `json:"project_id"`
+	Key       string    `json:"key"`
+	Value     string    `json:"value"`
+	SecretArn *string   `json:"secret_arn"`
 }
 
 func (q *Queries) CreateProjectEnvVar(ctx context.Context, arg CreateProjectEnvVarParams) (ProjectEnvVar, error) {
-	row := q.db.QueryRowContext(ctx, createProjectEnvVar,
+	row := q.db.QueryRow(ctx, createProjectEnvVar,
 		arg.ProjectID,
 		arg.Key,
 		arg.Value,
@@ -55,7 +54,7 @@ DELETE FROM project_env_vars WHERE project_id = $1
 `
 
 func (q *Queries) DeleteProjectEnvVarsByProject(ctx context.Context, projectID uuid.UUID) error {
-	_, err := q.db.ExecContext(ctx, deleteProjectEnvVarsByProject, projectID)
+	_, err := q.db.Exec(ctx, deleteProjectEnvVarsByProject, projectID)
 	return err
 }
 
@@ -64,7 +63,7 @@ SELECT id, project_id, key, value, secret_arn, created_at, updated_at FROM proje
 `
 
 func (q *Queries) GetProjectEnvVarsByProject(ctx context.Context, projectID uuid.UUID) ([]ProjectEnvVar, error) {
-	rows, err := q.db.QueryContext(ctx, getProjectEnvVarsByProject, projectID)
+	rows, err := q.db.Query(ctx, getProjectEnvVarsByProject, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -84,9 +83,6 @@ func (q *Queries) GetProjectEnvVarsByProject(ctx context.Context, projectID uuid
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

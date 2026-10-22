@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -19,18 +18,19 @@ import (
 	"time"
 
 	"github.com/YHQZ1/hatch/internal/api/auth"
-	"github.com/YHQZ1/hatch/internal/api/queue"
+	"github.com/YHQZ1/hatch/internal/jobs"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	"github.com/YHQZ1/hatch/internal/store"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ProjectHandler struct {
 	queries        *dbpkg.Queries
-	db             *sql.DB
-	publisher      *queue.Publisher
+	pool           *pgxpool.Pool
+	jobs           jobs.Inserter
 	webhookBaseURL string
 	secrets        *secrets.Codec
 }
@@ -51,11 +51,11 @@ type ProjectResponse struct {
 	CreatedAt         string  `json:"created_at"`
 }
 
-func NewProjectHandler(db *sql.DB, publisher *queue.Publisher, webhookBaseURL string, secretCodec *secrets.Codec) *ProjectHandler {
+func NewProjectHandler(pool *pgxpool.Pool, inserter jobs.Inserter, webhookBaseURL string, secretCodec *secrets.Codec) *ProjectHandler {
 	return &ProjectHandler{
-		queries:        dbpkg.New(db),
-		db:             db,
-		publisher:      publisher,
+		queries:        dbpkg.New(pool),
+		pool:           pool,
+		jobs:           inserter,
 		webhookBaseURL: webhookBaseURL,
 		secrets:        secretCodec,
 	}
@@ -151,12 +151,12 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		return
 	}
 
-	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	tx, err := h.pool.Begin(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start project transaction"})
 		return
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback(c.Request.Context()) }()
 
 	qtx := h.queries.WithTx(tx)
 	project, err := qtx.CreateProject(c.Request.Context(), dbpkg.CreateProjectParams{
@@ -166,8 +166,8 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		Branch:         branch,
 		DockerfilePath: dockerfilePath,
 		Port:           body.Port,
-		Subdomain:      sql.NullString{String: subdomain, Valid: true},
-		WebhookSecret:  sql.NullString{String: storedSecret, Valid: true},
+		Subdomain:      ptr(subdomain),
+		WebhookSecret:  ptr(storedSecret),
 	})
 
 	if err != nil {
@@ -188,7 +188,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		return
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(c.Request.Context()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit project"})
 		return
 	}
@@ -201,8 +201,8 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 			slog.ErrorContext(c.Request.Context(), "failed to register the GitHub webhook", "project_id", project.ID, "error", err)
 			if updateErr := h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
 				ID:              project.ID,
-				WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
-				GithubWebhookID: sql.NullInt64{},
+				WebhookSecret:   ptr(storedSecret),
+				GithubWebhookID: nil,
 				AutoDeploy:      false,
 			}); updateErr != nil {
 				slog.ErrorContext(c.Request.Context(), "failed to disable auto-deploy after a webhook registration error", "project_id", project.ID, "error", updateErr)
@@ -211,8 +211,8 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		} else {
 			if updateErr := h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
 				ID:              project.ID,
-				WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
-				GithubWebhookID: sql.NullInt64{Int64: hookID, Valid: true},
+				WebhookSecret:   ptr(storedSecret),
+				GithubWebhookID: ptr(hookID),
 				AutoDeploy:      true,
 			}); updateErr != nil {
 				slog.ErrorContext(c.Request.Context(), "failed to save the GitHub webhook state", "project_id", project.ID, "error", updateErr)
@@ -224,7 +224,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 				}
 				project.AutoDeploy = false
 			} else {
-				project.GithubWebhookID = sql.NullInt64{Int64: hookID, Valid: true}
+				project.GithubWebhookID = ptr(hookID)
 			}
 		}
 	}
@@ -336,8 +336,8 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 	}
 
 	if current.AutoDeploy && !autoDeploy {
-		if current.GithubWebhookID.Valid {
-			if err := h.deleteGitHubWebhook(c.Request.Context(), current.RepoUrl, userToken, current.GithubWebhookID.Int64); err != nil {
+		if current.GithubWebhookID != nil {
+			if err := h.deleteGitHubWebhook(c.Request.Context(), current.RepoUrl, userToken, *current.GithubWebhookID); err != nil {
 				c.JSON(http.StatusBadGateway, gin.H{
 					"error": "auto-deploy could not be disabled because Hatch could not remove the GitHub webhook",
 				})
@@ -352,8 +352,8 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 
 	if autoDeploy && !current.AutoDeploy {
 		secret := ""
-		if current.WebhookSecret.Valid {
-			secret, err = h.secrets.Decrypt(current.WebhookSecret.String)
+		if current.WebhookSecret != nil {
+			secret, err = h.secrets.Decrypt(*current.WebhookSecret)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load webhook secret"})
 				return
@@ -373,7 +373,7 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 			}
 			if err := h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
 				ID:              projectID,
-				WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
+				WebhookSecret:   ptr(storedSecret),
 				GithubWebhookID: current.GithubWebhookID,
 				AutoDeploy:      current.AutoDeploy,
 			}); err != nil {
@@ -396,8 +396,8 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 		}
 		if err := h.queries.UpdateProjectWebhook(c.Request.Context(), dbpkg.UpdateProjectWebhookParams{
 			ID:              projectID,
-			WebhookSecret:   sql.NullString{String: storedSecret, Valid: true},
-			GithubWebhookID: sql.NullInt64{Int64: hookID, Valid: true},
+			WebhookSecret:   ptr(storedSecret),
+			GithubWebhookID: ptr(hookID),
 			AutoDeploy:      true,
 		}); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save webhook state"})
@@ -487,12 +487,12 @@ func (h *ProjectHandler) UpdateProjectEnvVars(c *gin.Context) {
 		return
 	}
 
-	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	tx, err := h.pool.Begin(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start environment transaction"})
 		return
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback(c.Request.Context()) }()
 
 	qtx := h.queries.WithTx(tx)
 	if err := h.replaceProjectEnvVars(c.Request.Context(), qtx, projectID, body.EnvVars); err != nil {
@@ -503,7 +503,7 @@ func (h *ProjectHandler) UpdateProjectEnvVars(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save environment variables"})
 		return
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(c.Request.Context()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit environment variables"})
 		return
 	}
@@ -553,15 +553,23 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 	}
 
 	resourceName := projectResourceName(project)
-	if project.GithubWebhookID.Valid {
+	if project.GithubWebhookID != nil {
 		if token, ok := accessTokenFromContext(c); ok {
-			if err := h.deleteGitHubWebhook(c.Request.Context(), project.RepoUrl, token, project.GithubWebhookID.Int64); err != nil {
+			if err := h.deleteGitHubWebhook(c.Request.Context(), project.RepoUrl, token, *project.GithubWebhookID); err != nil {
 				slog.WarnContext(c.Request.Context(), "failed to delete the GitHub webhook", "project_id", project.ID, "error", err)
 			}
 		}
 	}
 
-	project, err = h.queries.MarkProjectDeleting(c.Request.Context(), dbpkg.MarkProjectDeletingParams{
+	// Marking the project deleting and queuing the cleanup commit together.
+	tx, err := h.pool.Begin(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start project deletion"})
+		return
+	}
+	defer func() { _ = tx.Rollback(c.Request.Context()) }()
+
+	project, err = h.queries.WithTx(tx).MarkProjectDeleting(c.Request.Context(), dbpkg.MarkProjectDeletingParams{
 		ID:     id,
 		UserID: userID,
 	})
@@ -569,16 +577,16 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to mark project for deletion"})
 		return
 	}
-
-	if err := h.publisher.PublishCleanupJob(c.Request.Context(), queue.CleanupJobEvent{
-		ProjectID: project.ID.String(),
-		Slug:      resourceName,
-	}); err != nil {
-		_ = h.queries.MarkProjectDeleteFailed(c.Request.Context(), dbpkg.MarkProjectDeleteFailedParams{
-			ID:          id,
-			DeleteError: sql.NullString{String: "failed to queue cleanup", Valid: true},
-		})
+	if _, err := h.jobs.InsertTx(c.Request.Context(), tx, jobs.DestroyAppArgs{
+		ProjectID: project.ID,
+		Subdomain: resourceName,
+	}, nil); err != nil {
+		slog.ErrorContext(c.Request.Context(), "failed to queue project cleanup", "project_id", id, "error", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to queue cleanup"})
+		return
+	}
+	if err := tx.Commit(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to mark project for deletion"})
 		return
 	}
 
@@ -650,7 +658,20 @@ func (h *ProjectHandler) handleServiceControl(c *gin.Context, action, nextStatus
 	}
 
 	resourceName := projectResourceName(project)
-	project, err = h.queries.UpdateProjectLifecycleStatus(c.Request.Context(), dbpkg.UpdateProjectLifecycleStatusParams{
+	replicas := int32(0)
+	if action == "resume" {
+		replicas = 1
+	}
+
+	// Changing the project's status and queuing the scale job commit together.
+	tx, err := h.pool.Begin(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update project status"})
+		return
+	}
+	defer func() { _ = tx.Rollback(c.Request.Context()) }()
+
+	project, err = h.queries.WithTx(tx).UpdateProjectLifecycleStatus(c.Request.Context(), dbpkg.UpdateProjectLifecycleStatusParams{
 		ID:     id,
 		UserID: userID,
 		Status: nextStatus,
@@ -659,22 +680,17 @@ func (h *ProjectHandler) handleServiceControl(c *gin.Context, action, nextStatus
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update project status"})
 		return
 	}
-
-	if err := h.publisher.PublishServiceControlJob(c.Request.Context(), queue.ServiceControlJobEvent{
-		ProjectID: project.ID.String(),
-		Slug:      resourceName,
-		Action:    action,
-	}); err != nil {
-		failedStatus := "suspend_failed"
-		if action == "resume" {
-			failedStatus = "resume_failed"
-		}
-		_ = h.queries.MarkProjectOperationFailed(c.Request.Context(), dbpkg.MarkProjectOperationFailedParams{
-			ID:          id,
-			Status:      failedStatus,
-			DeleteError: sql.NullString{String: "failed to queue service operation", Valid: true},
-		})
+	if _, err := h.jobs.InsertTx(c.Request.Context(), tx, jobs.ScaleArgs{
+		ProjectID: project.ID,
+		Subdomain: resourceName,
+		Replicas:  replicas,
+	}, nil); err != nil {
+		slog.ErrorContext(c.Request.Context(), "failed to queue service operation", "project_id", id, "error", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to queue service operation"})
+		return
+	}
+	if err := tx.Commit(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update project status"})
 		return
 	}
 
@@ -699,23 +715,19 @@ func toProjectResponse(project dbpkg.Project) ProjectResponse {
 		Status:         project.Status,
 		CreatedAt:      project.CreatedAt.Format(time.RFC3339),
 	}
-	if project.Subdomain.Valid {
-		response.Subdomain = &project.Subdomain.String
-	}
-	if project.DeleteRequestedAt.Valid {
-		value := project.DeleteRequestedAt.Time.Format(time.RFC3339)
+	response.Subdomain = project.Subdomain
+	if project.DeleteRequestedAt != nil {
+		value := project.DeleteRequestedAt.Format(time.RFC3339)
 		response.DeleteRequestedAt = &value
 	}
-	if project.DeleteError.Valid {
-		response.DeleteError = &project.DeleteError.String
-	}
+	response.DeleteError = project.DeleteError
 	return response
 }
 
 func projectResourceName(project dbpkg.Project) string {
 	resourceName := project.ID.String()[:8]
-	if project.Subdomain.Valid && project.Subdomain.String != "" {
-		resourceName = project.Subdomain.String
+	if project.Subdomain != nil && *project.Subdomain != "" {
+		resourceName = *project.Subdomain
 	}
 	return resourceName
 }
@@ -1098,7 +1110,7 @@ func (h *ProjectHandler) replaceProjectEnvVars(ctx context.Context, q *dbpkg.Que
 			ProjectID: projectID,
 			Key:       key,
 			Value:     storedValue,
-			SecretArn: sql.NullString{},
+			SecretArn: nil,
 		}); err != nil {
 			return err
 		}

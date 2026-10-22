@@ -71,3 +71,60 @@ SET status      = 'live',
     deployed_at = now()
 WHERE id = $1
 RETURNING *;
+
+
+-- name: GetDeploymentStatus :one
+SELECT status FROM deployments WHERE id = $1;
+
+-- name: SetDeploymentStatus :exec
+-- Moves a deployment to a new status and clears its failure. A canceled
+-- deployment stays canceled unless the new status is 'canceled'.
+UPDATE deployments
+SET status = sqlc.arg(status)::text,
+    error_stage = NULL,
+    error_message = NULL,
+    failed_at = NULL
+WHERE id = sqlc.arg(id)
+  AND (sqlc.arg(status)::text = 'canceled' OR status <> 'canceled');
+
+-- name: FailDeployment :exec
+-- Records why a deployment failed. A canceled deployment stays canceled.
+UPDATE deployments
+SET status = 'failed',
+    error_stage = $2,
+    error_message = $3,
+    failed_at = now()
+WHERE id = $1 AND status <> 'canceled';
+
+-- name: FinishDeployment :execrows
+-- Marks a deployment live. It reports 0 rows when the deployment was canceled
+-- in the meantime.
+UPDATE deployments
+SET status = 'live',
+    image_uri = $2,
+    url = $3,
+    ecs_task_arn = $4,
+    ecs_service_name = $5,
+    target_group_arn = $6,
+    error_stage = NULL,
+    error_message = NULL,
+    failed_at = NULL,
+    deployed_at = now()
+WHERE id = $1 AND status <> 'canceled';
+
+-- name: ProjectHasOtherLiveDeployment :one
+-- Reports whether the deployment's project has a different live deployment.
+SELECT EXISTS (
+    SELECT 1
+    FROM deployments current_deployment
+    JOIN deployments live_deployment
+      ON live_deployment.project_id = current_deployment.project_id
+    WHERE current_deployment.id = $1
+      AND live_deployment.id <> current_deployment.id
+      AND live_deployment.status = 'live'
+);
+
+-- name: GetProjectImageURIs :many
+SELECT DISTINCT image_uri::text
+FROM deployments
+WHERE project_id = $1 AND image_uri IS NOT NULL AND image_uri <> '';

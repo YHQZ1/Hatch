@@ -11,10 +11,10 @@ import (
 	"github.com/YHQZ1/hatch/internal/api/auth"
 	"github.com/YHQZ1/hatch/internal/api/handlers"
 	"github.com/YHQZ1/hatch/internal/api/middleware"
-	"github.com/YHQZ1/hatch/internal/api/queue"
 	"github.com/YHQZ1/hatch/internal/api/spa"
 	wsHub "github.com/YHQZ1/hatch/internal/api/ws"
 	"github.com/YHQZ1/hatch/internal/config"
+	"github.com/YHQZ1/hatch/internal/jobs"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	"github.com/YHQZ1/hatch/internal/store"
 	"github.com/YHQZ1/hatch/web"
@@ -30,7 +30,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	// output, such as the route table, would only be noise.
 	gin.SetMode(gin.ReleaseMode)
 
-	db, err := store.Connect(cfg.DatabaseURL)
+	db, err := store.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
@@ -41,8 +41,12 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("initialize secret codec: %w", err)
 	}
 
-	publisher := queue.NewPublisher(cfg.RabbitMQURL)
-	defer publisher.Close()
+	// The API only causes jobs; the job runner (hatch serve or hatch worker)
+	// works them.
+	inserter, err := jobs.NewInserter(db)
+	if err != nil {
+		return err
+	}
 
 	opt, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
@@ -80,12 +84,12 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	}, db, sessions, secretCodec)
 	tokens := auth.NewTokens(db, secretCodec, cfg.GitHubClientID, cfg.GitHubClientSecret)
 
-	projectHandler := handlers.NewProjectHandler(db, publisher, cfg.WebhookBaseURL, secretCodec)
-	deploymentHandler := handlers.NewDeploymentHandler(db, publisher, rdb, secretCodec)
+	projectHandler := handlers.NewProjectHandler(db, inserter, cfg.WebhookBaseURL, secretCodec)
+	deploymentHandler := handlers.NewDeploymentHandler(db, inserter, rdb, secretCodec)
 	metricsHandler := handlers.NewMetricsHandler(db, cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN, cfg.ALBArn)
 	githubHandler := handlers.NewGitHubHandler(rdb)
 	publicConfigHandler := handlers.NewPublicConfigHandler(cfg.BaseDomain, cfg.DeploymentURLScheme)
-	webhookHandler := handlers.NewWebhookHandler(db, publisher, secretCodec)
+	webhookHandler := handlers.NewWebhookHandler(db, inserter, secretCodec)
 	authMiddleware := auth.Middleware(sessions, tokens)
 	csrfMiddleware := auth.CSRFMiddleware()
 
@@ -96,18 +100,14 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancel()
 
-		checks := gin.H{"database": "ok", "redis": "ok", "rabbitmq": "ok"}
+		checks := gin.H{"database": "ok", "redis": "ok"}
 		ready := true
-		if err := db.PingContext(ctx); err != nil {
+		if err := db.Ping(ctx); err != nil {
 			checks["database"] = "unavailable"
 			ready = false
 		}
 		if err := rdb.Ping(ctx).Err(); err != nil {
 			checks["redis"] = "unavailable"
-			ready = false
-		}
-		if !publisher.Healthy() {
-			checks["rabbitmq"] = "unavailable"
 			ready = false
 		}
 

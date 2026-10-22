@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 	"testing"
@@ -31,7 +32,7 @@ func TestMigrateAppliesEveryMigrationAndIsRepeatable(t *testing.T) {
 	}
 
 	for run := 1; run <= 2; run++ {
-		version, err := Migrate(url)
+		version, err := Migrate(context.Background(), url)
 		if err != nil {
 			t.Fatalf("run %d: %v", run, err)
 		}
@@ -55,7 +56,7 @@ func TestMigrateAppliesEveryMigrationAndIsRepeatable(t *testing.T) {
 }
 
 func TestMigrateReportsAnUnreachableDatabase(t *testing.T) {
-	_, err := Migrate("postgres://nobody@127.0.0.1:1/none?sslmode=disable&connect_timeout=1")
+	_, err := Migrate(context.Background(), "postgres://nobody@127.0.0.1:1/none?sslmode=disable&connect_timeout=1")
 	if err == nil {
 		t.Fatal("expected an error")
 	}

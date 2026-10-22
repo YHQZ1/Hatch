@@ -6,15 +6,19 @@ import (
 	"log/slog"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
 	"github.com/YHQZ1/hatch/internal/api"
-	buildqueue "github.com/YHQZ1/hatch/internal/build/queue"
+	"github.com/YHQZ1/hatch/internal/build/docker"
 	"github.com/YHQZ1/hatch/internal/config"
 	"github.com/YHQZ1/hatch/internal/githubapp"
-	runtimequeue "github.com/YHQZ1/hatch/internal/runtime/queue"
+	"github.com/YHQZ1/hatch/internal/jobs"
+	ecsdeploy "github.com/YHQZ1/hatch/internal/runtime/ecs"
+	"github.com/YHQZ1/hatch/internal/secrets"
 	"github.com/YHQZ1/hatch/internal/store"
+	"github.com/YHQZ1/hatch/internal/stream"
 )
 
 // component is one long-running part of Hatch. It runs until ctx is canceled
@@ -24,7 +28,7 @@ type component struct {
 	run  func(ctx context.Context) error
 }
 
-// runServe runs the API and web UI together with the workers.
+// runServe runs the API and web UI together with the job runner.
 func runServe() error {
 	cfg, err := config.Load(config.RoleServe)
 	if err != nil {
@@ -32,18 +36,17 @@ func runServe() error {
 	}
 	return runTogether(
 		component{"api", func(ctx context.Context) error { return api.Run(ctx, cfg) }},
-		builderComponent(cfg),
-		deployerComponent(cfg),
+		jobsComponent(cfg),
 	)
 }
 
-// runWorkers runs only the build and deploy workers.
+// runWorkers runs only the job runner.
 func runWorkers() error {
 	cfg, err := config.Load(config.RoleWorker)
 	if err != nil {
 		return err
 	}
-	return runTogether(builderComponent(cfg), deployerComponent(cfg))
+	return runTogether(jobsComponent(cfg))
 }
 
 func runMigrate() error {
@@ -51,7 +54,7 @@ func runMigrate() error {
 	if err != nil {
 		return err
 	}
-	version, err := store.Migrate(cfg.DatabaseURL)
+	version, err := store.Migrate(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
@@ -77,70 +80,41 @@ func runTogether(components ...component) error {
 	return group.Wait()
 }
 
-// worker is what the build and deploy workers have in common: Start blocks
-// until the worker stops, and Stop asks it to.
-type worker interface {
-	Start() error
-	Stop()
-}
+// jobShutdownGrace is how long running jobs get to finish when Hatch stops.
+// Jobs still running after that are canceled and run again on the next start.
+const jobShutdownGrace = 30 * time.Second
 
-// superviseWorker runs w until ctx is canceled, then stops it and waits.
-func superviseWorker(ctx context.Context, name string, w worker) error {
-	errCh := make(chan error, 1)
-	go func() { errCh <- w.Start() }()
-
-	select {
-	case <-ctx.Done():
-		slog.Info("component stopping", "component", name)
-		w.Stop()
-		if err := <-errCh; err != nil {
-			slog.Error("component stopped with an error", "component", name, "error", err)
+// jobsComponent works the background jobs: builds, deploys, pause and resume,
+// and project cleanup.
+func jobsComponent(cfg *config.Config) component {
+	return component{"jobs", func(ctx context.Context) error {
+		pool, err := store.Connect(ctx, cfg.DatabaseURL)
+		if err != nil {
+			return err
 		}
-		return nil
-	case err := <-errCh:
-		return err
-	}
-}
+		defer pool.Close()
 
-func builderComponent(cfg *config.Config) component {
-	return component{"builder", func(ctx context.Context) error {
-		w := buildqueue.NewWorker(
-			cfg.RabbitMQURL,
-			cfg.RedisURL,
-			cfg.ECRRegistry,
-			cfg.ECRRepository,
-			cfg.AWSRegion,
-			cfg.DatabaseURL,
-			cfg.DataEncryptionKey,
-			cfg.BuildTimeout,
-			githubapp.New(cfg.GitHubClientID, cfg.GitHubAppKey),
+		codec, err := secrets.NewCodec(cfg.DataEncryptionKey)
+		if err != nil {
+			return fmt.Errorf("initialize secret codec: %w", err)
+		}
+		logs := stream.NewRedis(cfg.RedisURL)
+		defer logs.Close()
+
+		deployer := ecsdeploy.NewDeployer(
+			cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN,
+			cfg.VPCID, cfg.SubnetA, cfg.SubnetB, cfg.ECSSecurityGroupID,
+			cfg.TaskExecutionRoleARN, cfg.BaseDomain, cfg.DeploymentURLScheme, logs,
 		)
-		defer w.Close()
-		slog.Info("component started", "component", "builder", "region", cfg.AWSRegion)
-		return superviseWorker(ctx, "builder", w)
-	}}
-}
-
-func deployerComponent(cfg *config.Config) component {
-	return component{"deployer", func(ctx context.Context) error {
-		w := runtimequeue.NewWorker(runtimequeue.Config{
-			RabbitMQURL:          cfg.RabbitMQURL,
-			RedisURL:             cfg.RedisURL,
-			AWSRegion:            cfg.AWSRegion,
-			ECSClusterName:       cfg.ECSClusterName,
-			ALBListenerARN:       cfg.ALBListenerARN,
-			PublicURLScheme:      cfg.DeploymentURLScheme,
-			VPCID:                cfg.VPCID,
-			SubnetA:              cfg.SubnetA,
-			SubnetB:              cfg.SubnetB,
-			ECSSgID:              cfg.ECSSecurityGroupID,
-			TaskExecutionRoleARN: cfg.TaskExecutionRoleARN,
-			DatabaseURL:          cfg.DatabaseURL,
-			BaseDomain:           cfg.BaseDomain,
-			DataEncryptionKey:    cfg.DataEncryptionKey,
-		})
-		defer w.Close()
-		slog.Info("component started", "component", "deployer", "region", cfg.AWSRegion, "cluster", cfg.ECSClusterName)
-		return superviseWorker(ctx, "deployer", w)
+		slog.Info("component started", "component", "jobs", "region", cfg.AWSRegion, "cluster", cfg.ECSClusterName)
+		return jobs.Run(ctx, jobs.Deps{
+			Pool:         pool,
+			Builder:      docker.NewBuilder(cfg.ECRRegistry, cfg.ECRRepository, cfg.AWSRegion, logs),
+			Runtime:      ecsdeploy.NewRuntime(deployer),
+			Logs:         logs,
+			Secrets:      codec,
+			CloneTokens:  githubapp.New(cfg.GitHubClientID, cfg.GitHubAppKey),
+			BuildTimeout: cfg.BuildTimeout,
+		}, jobShutdownGrace)
 	}}
 }

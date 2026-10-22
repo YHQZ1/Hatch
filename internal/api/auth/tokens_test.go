@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -36,8 +35,11 @@ func (h *harness) signedInUser(t *testing.T) dbpkg.User {
 // expired or fresh without waiting. A zero time stores NULL.
 func (h *harness) setAccessExpiry(t *testing.T, user dbpkg.User, at time.Time) dbpkg.User {
 	t.Helper()
-	expiry := sql.NullTime{Time: at, Valid: !at.IsZero()}
-	if _, err := h.db.Exec(`UPDATE users SET access_token_expires_at = $2 WHERE id = $1`, user.ID, expiry); err != nil {
+	var expiry *time.Time
+	if !at.IsZero() {
+		expiry = &at
+	}
+	if _, err := h.db.Exec(context.Background(), `UPDATE users SET access_token_expires_at = $2 WHERE id = $1`, user.ID, expiry); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, err := dbpkg.New(h.db).GetUserByID(context.Background(), user.ID)
@@ -99,11 +101,11 @@ func TestAccessTokenIsRenewedWhenItHasExpired(t *testing.T) {
 	if plain, err := h.codec.Decrypt(stored.AccessToken); err != nil || plain != got {
 		t.Errorf("stored access token = %q, %v; want %q", plain, err, got)
 	}
-	if plain, err := h.codec.Decrypt(stored.RefreshToken.String); err != nil || plain == testRefreshToken {
+	if plain, err := h.codec.Decrypt(*stored.RefreshToken); err != nil || plain == testRefreshToken {
 		t.Errorf("stored refresh token = %q, %v; want the rotated one", plain, err)
 	}
-	if time.Until(stored.AccessTokenExpiresAt.Time) < 7*time.Hour {
-		t.Errorf("new expiry %v is not about 8 hours away", stored.AccessTokenExpiresAt.Time)
+	if time.Until(*stored.AccessTokenExpiresAt) < 7*time.Hour {
+		t.Errorf("new expiry %v is not about 8 hours away", *stored.AccessTokenExpiresAt)
 	}
 
 	// Asking again uses the stored token and does not renew a second time.
@@ -174,7 +176,7 @@ func TestAccessTokenNeedsASignInWhenItCannotBeRenewed(t *testing.T) {
 		{
 			name: "no refresh token",
 			setup: func(t *testing.T, h *harness, user dbpkg.User) {
-				if _, err := h.db.Exec(`UPDATE users SET refresh_token = NULL WHERE id = $1`, user.ID); err != nil {
+				if _, err := h.db.Exec(context.Background(), `UPDATE users SET refresh_token = NULL WHERE id = $1`, user.ID); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -182,7 +184,7 @@ func TestAccessTokenNeedsASignInWhenItCannotBeRenewed(t *testing.T) {
 		{
 			name: "refresh token has expired",
 			setup: func(t *testing.T, h *harness, user dbpkg.User) {
-				if _, err := h.db.Exec(`UPDATE users SET refresh_token_expires_at = $2 WHERE id = $1`, user.ID, expired); err != nil {
+				if _, err := h.db.Exec(context.Background(), `UPDATE users SET refresh_token_expires_at = $2 WHERE id = $1`, user.ID, expired); err != nil {
 					t.Fatal(err)
 				}
 			},

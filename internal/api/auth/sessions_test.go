@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -10,21 +9,23 @@ import (
 	"github.com/YHQZ1/hatch/internal/store"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/YHQZ1/hatch/internal/store/storetest"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // newTestSessions returns Sessions over a migrated database, with a clock the
 // test controls.
-func newTestSessions(t *testing.T) (*Sessions, *sql.DB, *time.Time) {
+func newTestSessions(t *testing.T) (*Sessions, *pgxpool.Pool, *time.Time) {
 	t.Helper()
 	url := storetest.NewDatabase(t)
-	if _, err := store.Migrate(url); err != nil {
+	if _, err := store.Migrate(context.Background(), url); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	db, err := store.Connect(url)
+	db, err := store.Connect(context.Background(), url)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(db.Close)
 
 	now := time.Now()
 	sessions := NewSessions(db)
@@ -32,7 +33,7 @@ func newTestSessions(t *testing.T) (*Sessions, *sql.DB, *time.Time) {
 	return sessions, db, &now
 }
 
-func newTestUser(t *testing.T, db *sql.DB, githubID int64, name string) dbpkg.User {
+func newTestUser(t *testing.T, db *pgxpool.Pool, githubID int64, name string) dbpkg.User {
 	t.Helper()
 	user, err := dbpkg.New(db).CreateUser(context.Background(), dbpkg.CreateUserParams{
 		GithubID: githubID, GithubUsername: name, AccessToken: "token",
@@ -79,7 +80,7 @@ func TestSessionTokenIsNotStored(t *testing.T) {
 	}
 
 	// The database holds only the hash, so the token itself finds nothing.
-	if _, err := dbpkg.New(db).GetSessionByTokenHash(ctx, []byte(token)); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := dbpkg.New(db).GetSessionByTokenHash(ctx, []byte(token)); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("raw token matched a stored hash: %v", err)
 	}
 	if _, err := dbpkg.New(db).GetSessionByTokenHash(ctx, hashToken(token)); err != nil {
@@ -226,7 +227,7 @@ func TestSessionsEndWithTheirUser(t *testing.T) {
 	user := newTestUser(t, db, 1, "octocat")
 	token, _, _ := sessions.Create(ctx, user.ID)
 
-	if _, err := db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, user.ID); err != nil {
+	if _, err := db.Exec(ctx, `DELETE FROM users WHERE id = $1`, user.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := sessions.Lookup(ctx, token); !errors.Is(err, ErrNoSession) {

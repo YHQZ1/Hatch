@@ -2,7 +2,6 @@ package ws
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"sync"
@@ -13,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -31,7 +31,7 @@ const (
 	maxLogHistoryLines   = 5000
 )
 
-func NewHub(url string, sessions *auth.Sessions, allowedOrigins []string, db *sql.DB) (*Hub, error) {
+func NewHub(url string, sessions *auth.Sessions, allowedOrigins []string, pool *pgxpool.Pool) (*Hub, error) {
 	opt, err := redis.ParseURL(url)
 	if err != nil {
 		return nil, fmt.Errorf("parse REDIS_URL: %w", err)
@@ -44,7 +44,7 @@ func NewHub(url string, sessions *auth.Sessions, allowedOrigins []string, db *sq
 	}
 	return &Hub{
 		redis:         redis.NewClient(opt),
-		queries:       dbpkg.New(db),
+		queries:       dbpkg.New(pool),
 		sessions:      sessions,
 		allowedOrigin: originSet,
 	}, nil

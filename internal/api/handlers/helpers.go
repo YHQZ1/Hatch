@@ -29,3 +29,14 @@ func getUserID(c *gin.Context) (uuid.UUID, error) {
 
 	return id, nil
 }
+
+// ptr returns a pointer to v, for nullable columns.
+func ptr[T any](v T) *T { return &v }
+
+// derefString is *s, or "" when s is nil.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}

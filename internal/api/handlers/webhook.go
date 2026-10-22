@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,26 +13,28 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/YHQZ1/hatch/internal/api/queue"
+	"github.com/YHQZ1/hatch/internal/jobs"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type WebhookHandler struct {
-	queries   *dbpkg.Queries
-	db        *sql.DB
-	publisher *queue.Publisher
-	secrets   *secrets.Codec
+	queries *dbpkg.Queries
+	pool    *pgxpool.Pool
+	jobs    jobs.Inserter
+	secrets *secrets.Codec
 }
 
-func NewWebhookHandler(db *sql.DB, publisher *queue.Publisher, secretCodec *secrets.Codec) *WebhookHandler {
+func NewWebhookHandler(pool *pgxpool.Pool, inserter jobs.Inserter, secretCodec *secrets.Codec) *WebhookHandler {
 	return &WebhookHandler{
-		queries:   dbpkg.New(db),
-		db:        db,
-		publisher: publisher,
-		secrets:   secretCodec,
+		queries: dbpkg.New(pool),
+		pool:    pool,
+		jobs:    inserter,
+		secrets: secretCodec,
 	}
 }
 
@@ -146,25 +147,25 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 	}
 
 	resourceName := project.ID.String()[:8]
-	if project.Subdomain.Valid && project.Subdomain.String != "" {
-		resourceName = project.Subdomain.String
+	if project.Subdomain != nil && *project.Subdomain != "" {
+		resourceName = *project.Subdomain
 	}
 	healthCheck := h.latestHealthCheck(c.Request.Context(), project.ID)
 
-	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	tx, err := h.pool.Begin(c.Request.Context())
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback(c.Request.Context()) }()
 
-	_, _ = tx.ExecContext(
+	_, _ = tx.Exec(
 		c.Request.Context(),
 		"DELETE FROM webhook_deliveries WHERE project_id = $1 AND created_at < now() - interval '30 days'",
 		project.ID,
 	)
 	var storedDeliveryID string
-	err = tx.QueryRowContext(
+	err = tx.QueryRow(
 		c.Request.Context(),
 		`
 			INSERT INTO webhook_deliveries (project_id, delivery_id)
@@ -174,7 +175,7 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		project.ID,
 		deliveryID,
 	).Scan(&storedDeliveryID)
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusAccepted, gin.H{"status": "delivery already processed"})
 		return
 	}
@@ -191,7 +192,7 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 		MemoryMb:      defaultDeploymentMemoryMB,
 		Port:          project.Port,
 		HealthCheck:   healthCheck,
-		Subdomain:     sql.NullString{String: resourceName, Valid: true},
+		Subdomain:     ptr(resourceName),
 		CommitSha:     nullString(payload.HeadCommit.ID),
 		CommitMessage: nullString(firstCommitLine(payload.HeadCommit.Message)),
 	})
@@ -219,35 +220,29 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 			DeploymentID: deployment.ID,
 			Key:          key,
 			Value:        storedValue,
-			SecretArn:    sql.NullString{},
+			SecretArn:    nil,
 		}); err != nil {
 			c.Status(http.StatusInternalServerError)
 			return
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		c.Status(http.StatusInternalServerError)
-		return
-	}
-
-	if err := h.publisher.PublishBuildJob(c.Request.Context(), queue.BuildJobEvent{
-		DeploymentID:   deployment.ID.String(),
+	if _, err := h.jobs.InsertTx(c.Request.Context(), tx, jobs.BuildArgs{
+		DeploymentID:   deployment.ID,
 		RepoURL:        project.RepoUrl,
 		Branch:         project.Branch,
 		DockerfilePath: project.DockerfilePath,
-		UserID:         project.UserID.String(),
-		Port:           int(project.Port),
+		Port:           project.Port,
 		Subdomain:      resourceName,
 		CPU:            defaultDeploymentCPU,
 		MemoryMB:       defaultDeploymentMemoryMB,
 		HealthCheck:    healthCheck,
-	}); err != nil {
-		_, _ = h.queries.MarkDeploymentFailed(c.Request.Context(), dbpkg.MarkDeploymentFailedParams{
-			ID:           deployment.ID,
-			ErrorStage:   sql.NullString{String: "queue", Valid: true},
-			ErrorMessage: sql.NullString{String: "failed to queue webhook deployment", Valid: true},
-		})
+	}, nil); err != nil {
+		slog.ErrorContext(c.Request.Context(), "failed to queue webhook deployment", "deployment_id", deployment.ID, "error", err)
 		c.Status(http.StatusServiceUnavailable)
+		return
+	}
+	if err := tx.Commit(c.Request.Context()); err != nil {
+		c.Status(http.StatusInternalServerError)
 		return
 	}
 
@@ -259,7 +254,7 @@ func (h *WebhookHandler) HandlePush(c *gin.Context) {
 
 func (h *WebhookHandler) latestHealthCheck(ctx context.Context, projectID uuid.UUID) string {
 	var healthCheck string
-	err := h.db.QueryRowContext(
+	err := h.pool.QueryRow(
 		ctx,
 		`
 			SELECT health_check
@@ -277,8 +272,8 @@ func (h *WebhookHandler) latestHealthCheck(ctx context.Context, projectID uuid.U
 
 func (h *WebhookHandler) matchWebhookProject(ctx context.Context, projects []dbpkg.Project, body []byte, signature string) (dbpkg.Project, bool) {
 	for _, project := range projects {
-		if project.WebhookSecret.Valid && project.WebhookSecret.String != "" {
-			secret, err := h.secrets.Decrypt(project.WebhookSecret.String)
+		if project.WebhookSecret != nil && *project.WebhookSecret != "" {
+			secret, err := h.secrets.Decrypt(*project.WebhookSecret)
 			if err != nil {
 				slog.ErrorContext(ctx, "failed to decrypt a webhook secret", "alert", "security", "project_id", project.ID, "error", err)
 				continue

@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 	"github.com/YHQZ1/hatch/internal/secrets"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // refreshMargin is how long before expiry a token is renewed, so that a token
@@ -92,9 +92,9 @@ func requestGrant(ctx context.Context, githubURL string, form url.Values) (*gran
 // expiry as times.
 type storedTokens struct {
 	accessToken      string
-	refreshToken     sql.NullString
-	accessExpiresAt  sql.NullTime
-	refreshExpiresAt sql.NullTime
+	refreshToken     *string
+	accessExpiresAt  *time.Time
+	refreshExpiresAt *time.Time
 }
 
 func sealGrant(codec *secrets.Codec, g *grant, now time.Time) (storedTokens, error) {
@@ -108,13 +108,15 @@ func sealGrant(codec *secrets.Codec, g *grant, now time.Time) (storedTokens, err
 		if err != nil {
 			return storedTokens{}, err
 		}
-		stored.refreshToken = sql.NullString{String: sealed, Valid: true}
+		stored.refreshToken = &sealed
 	}
 	if g.ExpiresIn > 0 {
-		stored.accessExpiresAt = sql.NullTime{Time: now.Add(time.Duration(g.ExpiresIn) * time.Second), Valid: true}
+		expires := now.Add(time.Duration(g.ExpiresIn) * time.Second)
+		stored.accessExpiresAt = &expires
 	}
 	if g.RefreshExpiresIn > 0 {
-		stored.refreshExpiresAt = sql.NullTime{Time: now.Add(time.Duration(g.RefreshExpiresIn) * time.Second), Valid: true}
+		expires := now.Add(time.Duration(g.RefreshExpiresIn) * time.Second)
+		stored.refreshExpiresAt = &expires
 	}
 	return stored, nil
 }
@@ -123,7 +125,7 @@ func sealGrant(codec *secrets.Codec, g *grant, now time.Time) (storedTokens, err
 // about to expire. A GitHub App user token lasts 8 hours; its refresh token is
 // single-use, so renewal is serialized per user with a row lock.
 type Tokens struct {
-	db           *sql.DB
+	pool         *pgxpool.Pool
 	queries      *dbpkg.Queries
 	secrets      *secrets.Codec
 	clientID     string
@@ -132,10 +134,10 @@ type Tokens struct {
 	now          func() time.Time
 }
 
-func NewTokens(db *sql.DB, codec *secrets.Codec, clientID, clientSecret string) *Tokens {
+func NewTokens(pool *pgxpool.Pool, codec *secrets.Codec, clientID, clientSecret string) *Tokens {
 	return &Tokens{
-		db:           db,
-		queries:      dbpkg.New(db),
+		pool:         pool,
+		queries:      dbpkg.New(pool),
 		secrets:      codec,
 		clientID:     clientID,
 		clientSecret: clientSecret,
@@ -157,16 +159,16 @@ func (t *Tokens) AccessToken(ctx context.Context, user dbpkg.User) (string, erro
 // needsRefresh is false for a token with no recorded expiry: those predate
 // token expiry and are used as they are until GitHub rejects them.
 func (t *Tokens) needsRefresh(user dbpkg.User) bool {
-	return user.AccessTokenExpiresAt.Valid &&
-		!t.now().Add(refreshMargin).Before(user.AccessTokenExpiresAt.Time)
+	return user.AccessTokenExpiresAt != nil &&
+		!t.now().Add(refreshMargin).Before(*user.AccessTokenExpiresAt)
 }
 
 func (t *Tokens) refresh(ctx context.Context, userID uuid.UUID) (string, error) {
-	tx, err := t.db.BeginTx(ctx, nil)
+	tx, err := t.pool.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("begin token refresh: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 	q := t.queries.WithTx(tx)
 
 	user, err := q.GetUserByIDForUpdate(ctx, userID)
@@ -176,17 +178,17 @@ func (t *Tokens) refresh(ctx context.Context, userID uuid.UUID) (string, error) 
 	// A concurrent request may have renewed the token while this one waited for
 	// the lock.
 	if !t.needsRefresh(user) {
-		if err := tx.Commit(); err != nil {
+		if err := tx.Commit(ctx); err != nil {
 			return "", fmt.Errorf("commit token refresh: %w", err)
 		}
 		return t.secrets.Decrypt(user.AccessToken)
 	}
 
-	if !user.RefreshToken.Valid ||
-		(user.RefreshTokenExpiresAt.Valid && !t.now().Before(user.RefreshTokenExpiresAt.Time)) {
+	if user.RefreshToken == nil ||
+		(user.RefreshTokenExpiresAt != nil && !t.now().Before(*user.RefreshTokenExpiresAt)) {
 		return "", ErrReauthRequired
 	}
-	refreshToken, err := t.secrets.Decrypt(user.RefreshToken.String)
+	refreshToken, err := t.secrets.Decrypt(*user.RefreshToken)
 	if err != nil {
 		return "", fmt.Errorf("decrypt refresh token: %w", err)
 	}
@@ -214,7 +216,7 @@ func (t *Tokens) refresh(ctx context.Context, userID uuid.UUID) (string, error) 
 	}); err != nil {
 		return "", fmt.Errorf("save renewed tokens: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return "", fmt.Errorf("commit token refresh: %w", err)
 	}
 	return renewed.AccessToken, nil

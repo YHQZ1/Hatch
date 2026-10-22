@@ -2,31 +2,32 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Connect opens a pooled connection and checks that the database answers.
-func Connect(databaseURL string) (*sql.DB, error) {
-	db, err := sql.Open("pgx", databaseURL)
+// Connect opens a connection pool and checks that the database answers.
+func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("open database connection: %w", err)
+		return nil, fmt.Errorf("parse database URL: %w", err)
+	}
+	cfg.MaxConns = 25
+	cfg.MaxConnLifetime = 30 * time.Minute
+	cfg.MaxConnIdleTime = 5 * time.Minute
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("open database pool: %w", err)
 	}
 
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(10)
-	db.SetConnMaxLifetime(30 * time.Minute)
-	db.SetConnMaxIdleTime(5 * time.Minute)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
+	if err := pool.Ping(pingCtx); err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("reach the database: %w", err)
 	}
-
-	return db, nil
+	return pool, nil
 }

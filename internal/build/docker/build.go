@@ -14,12 +14,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/YHQZ1/hatch/internal/build/logs"
+	"github.com/YHQZ1/hatch/internal/build"
+	"github.com/YHQZ1/hatch/internal/stream"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 )
 
-var ErrCanceled = errors.New("build canceled")
+// ErrCanceled is build.ErrCanceled: errors from this package match either.
+var ErrCanceled = build.ErrCanceled
 
 const maxLogLineBytes = 1024 * 1024
 
@@ -53,25 +55,25 @@ func (e *CanceledError) Stage() CancelStage {
 	return e.stage
 }
 
+// Builder builds images with the Docker CLI on this host and pushes them to an
+// ECR repository. It implements build.Builder.
 type Builder struct {
 	registry string
 	repo     string
 	region   string
-	streamer *logs.Streamer
-	reporter func(id string, stage CancelStage)
+	streamer stream.Sink
 }
 
-func NewBuilder(registry, repo, region string, streamer *logs.Streamer, reporter func(id string, stage CancelStage)) *Builder {
+func NewBuilder(registry, repo, region string, sink stream.Sink) *Builder {
 	return &Builder{
 		registry: registry,
 		repo:     repo,
 		region:   region,
-		streamer: streamer,
-		reporter: reporter,
+		streamer: sink,
 	}
 }
 
-func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath string) (string, error) {
+func (b *Builder) buildAndPush(ctx context.Context, id, repoDir, dockerfilePath string) (string, error) {
 	imageTag := imageTag(id)
 	tag := fmt.Sprintf("%s/%s:%s", b.registry, b.repo, imageTag)
 
@@ -79,7 +81,6 @@ func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath 
 		return "", err
 	}
 
-	b.reportStage(id, CancelStageDuringDockerBuild)
 	b.streamer.Publish(ctx, id, "Starting Docker build...")
 	if err := b.runBuild(ctx, id, repoDir, dockerfilePath, tag); err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -92,7 +93,6 @@ func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath 
 		return "", err
 	}
 
-	b.reportStage(id, CancelStageDuringECRAuth)
 	b.streamer.Publish(ctx, id, "Authenticating with Amazon ECR...")
 	token, err := b.getAuthToken(ctx)
 	if err != nil {
@@ -106,7 +106,6 @@ func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath 
 		return "", err
 	}
 
-	b.reportStage(id, CancelStageDuringDockerPush)
 	b.streamer.Publish(ctx, id, "Pushing image to registry...")
 	if err := b.runPush(ctx, id, tag, token); err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -115,13 +114,11 @@ func (b *Builder) BuildAndPush(ctx context.Context, id, repoDir, dockerfilePath 
 		return "", fmt.Errorf("docker push failed: %w", err)
 	}
 
-	b.reportStage(id, CancelStageAfterDockerPush)
 	if err := ensureActive(ctx, CancelStageAfterDockerPush); err != nil {
 		return "", err
 	}
 
 	b.streamer.Publish(ctx, id, fmt.Sprintf("Image successfully pushed: %s", tag))
-	b.streamer.Publish(ctx, id, "Handoff to Deployer: Provisioning cloud infrastructure...")
 	return tag, nil
 }
 
@@ -258,12 +255,6 @@ func ensureActive(ctx context.Context, stage CancelStage) error {
 
 func canceled(stage CancelStage) error {
 	return &CanceledError{stage: stage}
-}
-
-func (b *Builder) reportStage(id string, stage CancelStage) {
-	if b.reporter != nil {
-		b.reporter(id, stage)
-	}
 }
 
 func buildContext(repoDir, dockerfilePath string) (string, string, error) {

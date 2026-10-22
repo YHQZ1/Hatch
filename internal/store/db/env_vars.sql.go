@@ -7,7 +7,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/google/uuid"
 )
@@ -24,14 +23,14 @@ INSERT INTO env_vars (
 `
 
 type CreateEnvVarParams struct {
-	DeploymentID uuid.UUID      `json:"deployment_id"`
-	Key          string         `json:"key"`
-	Value        string         `json:"value"`
-	SecretArn    sql.NullString `json:"secret_arn"`
+	DeploymentID uuid.UUID `json:"deployment_id"`
+	Key          string    `json:"key"`
+	Value        string    `json:"value"`
+	SecretArn    *string   `json:"secret_arn"`
 }
 
 func (q *Queries) CreateEnvVar(ctx context.Context, arg CreateEnvVarParams) (EnvVar, error) {
-	row := q.db.QueryRowContext(ctx, createEnvVar,
+	row := q.db.QueryRow(ctx, createEnvVar,
 		arg.DeploymentID,
 		arg.Key,
 		arg.Value,
@@ -54,7 +53,7 @@ SELECT id, deployment_id, key, value, secret_arn, created_at FROM env_vars WHERE
 `
 
 func (q *Queries) GetEnvVarsByDeployment(ctx context.Context, deploymentID uuid.UUID) ([]EnvVar, error) {
-	rows, err := q.db.QueryContext(ctx, getEnvVarsByDeployment, deploymentID)
+	rows, err := q.db.Query(ctx, getEnvVarsByDeployment, deploymentID)
 	if err != nil {
 		return nil, err
 	}
@@ -73,9 +72,6 @@ func (q *Queries) GetEnvVarsByDeployment(ctx context.Context, deploymentID uuid.
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -7,7 +7,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/google/uuid"
 )
@@ -20,7 +19,7 @@ WHERE id = $1
 `
 
 func (q *Queries) ClearProjectWebhook(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.ExecContext(ctx, clearProjectWebhook, id)
+	_, err := q.db.Exec(ctx, clearProjectWebhook, id)
 	return err
 }
 
@@ -33,18 +32,18 @@ INSERT INTO projects (
 `
 
 type CreateProjectParams struct {
-	UserID         uuid.UUID      `json:"user_id"`
-	RepoName       string         `json:"repo_name"`
-	RepoUrl        string         `json:"repo_url"`
-	Branch         string         `json:"branch"`
-	DockerfilePath string         `json:"dockerfile_path"`
-	Port           int32          `json:"port"`
-	Subdomain      sql.NullString `json:"subdomain"`
-	WebhookSecret  sql.NullString `json:"webhook_secret"`
+	UserID         uuid.UUID `json:"user_id"`
+	RepoName       string    `json:"repo_name"`
+	RepoUrl        string    `json:"repo_url"`
+	Branch         string    `json:"branch"`
+	DockerfilePath string    `json:"dockerfile_path"`
+	Port           int32     `json:"port"`
+	Subdomain      *string   `json:"subdomain"`
+	WebhookSecret  *string   `json:"webhook_secret"`
 }
 
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error) {
-	row := q.db.QueryRowContext(ctx, createProject,
+	row := q.db.QueryRow(ctx, createProject,
 		arg.UserID,
 		arg.RepoName,
 		arg.RepoUrl,
@@ -80,7 +79,7 @@ DELETE FROM projects WHERE id = $1
 `
 
 func (q *Queries) DeleteProject(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.ExecContext(ctx, deleteProject, id)
+	_, err := q.db.Exec(ctx, deleteProject, id)
 	return err
 }
 
@@ -94,7 +93,7 @@ type DeleteProjectByIDAndUserIDParams struct {
 }
 
 func (q *Queries) DeleteProjectByIDAndUserID(ctx context.Context, arg DeleteProjectByIDAndUserIDParams) error {
-	_, err := q.db.ExecContext(ctx, deleteProjectByIDAndUserID, arg.ID, arg.UserID)
+	_, err := q.db.Exec(ctx, deleteProjectByIDAndUserID, arg.ID, arg.UserID)
 	return err
 }
 
@@ -103,7 +102,7 @@ SELECT id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto
 `
 
 func (q *Queries) GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error) {
-	row := q.db.QueryRowContext(ctx, getProjectByID, id)
+	row := q.db.QueryRow(ctx, getProjectByID, id)
 	var i Project
 	err := row.Scan(
 		&i.ID,
@@ -135,7 +134,7 @@ type GetProjectByIDAndUserIDParams struct {
 }
 
 func (q *Queries) GetProjectByIDAndUserID(ctx context.Context, arg GetProjectByIDAndUserIDParams) (Project, error) {
-	row := q.db.QueryRowContext(ctx, getProjectByIDAndUserID, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, getProjectByIDAndUserID, arg.ID, arg.UserID)
 	var i Project
 	err := row.Scan(
 		&i.ID,
@@ -162,7 +161,7 @@ SELECT id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto
 `
 
 func (q *Queries) GetProjectByRepoURL(ctx context.Context, repoUrl string) (Project, error) {
-	row := q.db.QueryRowContext(ctx, getProjectByRepoURL, repoUrl)
+	row := q.db.QueryRow(ctx, getProjectByRepoURL, repoUrl)
 	var i Project
 	err := row.Scan(
 		&i.ID,
@@ -188,8 +187,8 @@ const getProjectBySubdomain = `-- name: GetProjectBySubdomain :one
 SELECT id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto_deploy, branch, dockerfile_path, port, subdomain, status, delete_requested_at, delete_error, created_at FROM projects WHERE subdomain = $1 LIMIT 1
 `
 
-func (q *Queries) GetProjectBySubdomain(ctx context.Context, subdomain sql.NullString) (Project, error) {
-	row := q.db.QueryRowContext(ctx, getProjectBySubdomain, subdomain)
+func (q *Queries) GetProjectBySubdomain(ctx context.Context, subdomain *string) (Project, error) {
+	row := q.db.QueryRow(ctx, getProjectBySubdomain, subdomain)
 	var i Project
 	err := row.Scan(
 		&i.ID,
@@ -216,7 +215,7 @@ SELECT id, user_id, repo_name, repo_url, webhook_secret, github_webhook_id, auto
 `
 
 func (q *Queries) GetProjectsByRepoURL(ctx context.Context, repoUrl string) ([]Project, error) {
-	rows, err := q.db.QueryContext(ctx, getProjectsByRepoURL, repoUrl)
+	rows, err := q.db.Query(ctx, getProjectsByRepoURL, repoUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -244,9 +243,6 @@ func (q *Queries) GetProjectsByRepoURL(ctx context.Context, repoUrl string) ([]P
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -262,7 +258,7 @@ ORDER BY created_at DESC
 `
 
 func (q *Queries) GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]Project, error) {
-	rows, err := q.db.QueryContext(ctx, getProjectsByUserID, userID)
+	rows, err := q.db.Query(ctx, getProjectsByUserID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -291,9 +287,6 @@ func (q *Queries) GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -308,12 +301,12 @@ WHERE id = $1
 `
 
 type MarkProjectDeleteFailedParams struct {
-	ID          uuid.UUID      `json:"id"`
-	DeleteError sql.NullString `json:"delete_error"`
+	ID          uuid.UUID `json:"id"`
+	DeleteError *string   `json:"delete_error"`
 }
 
 func (q *Queries) MarkProjectDeleteFailed(ctx context.Context, arg MarkProjectDeleteFailedParams) error {
-	_, err := q.db.ExecContext(ctx, markProjectDeleteFailed, arg.ID, arg.DeleteError)
+	_, err := q.db.Exec(ctx, markProjectDeleteFailed, arg.ID, arg.DeleteError)
 	return err
 }
 
@@ -332,7 +325,7 @@ type MarkProjectDeletingParams struct {
 }
 
 func (q *Queries) MarkProjectDeleting(ctx context.Context, arg MarkProjectDeletingParams) (Project, error) {
-	row := q.db.QueryRowContext(ctx, markProjectDeleting, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, markProjectDeleting, arg.ID, arg.UserID)
 	var i Project
 	err := row.Scan(
 		&i.ID,
@@ -362,13 +355,30 @@ WHERE id = $1
 `
 
 type MarkProjectOperationFailedParams struct {
-	ID          uuid.UUID      `json:"id"`
-	Status      string         `json:"status"`
-	DeleteError sql.NullString `json:"delete_error"`
+	ID          uuid.UUID `json:"id"`
+	Status      string    `json:"status"`
+	DeleteError *string   `json:"delete_error"`
 }
 
 func (q *Queries) MarkProjectOperationFailed(ctx context.Context, arg MarkProjectOperationFailedParams) error {
-	_, err := q.db.ExecContext(ctx, markProjectOperationFailed, arg.ID, arg.Status, arg.DeleteError)
+	_, err := q.db.Exec(ctx, markProjectOperationFailed, arg.ID, arg.Status, arg.DeleteError)
+	return err
+}
+
+const setProjectStatus = `-- name: SetProjectStatus :exec
+UPDATE projects
+SET status = $2,
+    delete_error = NULL
+WHERE id = $1
+`
+
+type SetProjectStatusParams struct {
+	ID     uuid.UUID `json:"id"`
+	Status string    `json:"status"`
+}
+
+func (q *Queries) SetProjectStatus(ctx context.Context, arg SetProjectStatusParams) error {
+	_, err := q.db.Exec(ctx, setProjectStatus, arg.ID, arg.Status)
 	return err
 }
 
@@ -387,7 +397,7 @@ type UpdateProjectLifecycleStatusParams struct {
 }
 
 func (q *Queries) UpdateProjectLifecycleStatus(ctx context.Context, arg UpdateProjectLifecycleStatusParams) (Project, error) {
-	row := q.db.QueryRowContext(ctx, updateProjectLifecycleStatus, arg.ID, arg.UserID, arg.Status)
+	row := q.db.QueryRow(ctx, updateProjectLifecycleStatus, arg.ID, arg.UserID, arg.Status)
 	var i Project
 	err := row.Scan(
 		&i.ID,
@@ -431,7 +441,7 @@ type UpdateProjectSettingsParams struct {
 }
 
 func (q *Queries) UpdateProjectSettings(ctx context.Context, arg UpdateProjectSettingsParams) (Project, error) {
-	row := q.db.QueryRowContext(ctx, updateProjectSettings,
+	row := q.db.QueryRow(ctx, updateProjectSettings,
 		arg.ID,
 		arg.UserID,
 		arg.RepoName,
@@ -470,14 +480,14 @@ WHERE id = $1
 `
 
 type UpdateProjectWebhookParams struct {
-	ID              uuid.UUID      `json:"id"`
-	WebhookSecret   sql.NullString `json:"webhook_secret"`
-	GithubWebhookID sql.NullInt64  `json:"github_webhook_id"`
-	AutoDeploy      bool           `json:"auto_deploy"`
+	ID              uuid.UUID `json:"id"`
+	WebhookSecret   *string   `json:"webhook_secret"`
+	GithubWebhookID *int64    `json:"github_webhook_id"`
+	AutoDeploy      bool      `json:"auto_deploy"`
 }
 
 func (q *Queries) UpdateProjectWebhook(ctx context.Context, arg UpdateProjectWebhookParams) error {
-	_, err := q.db.ExecContext(ctx, updateProjectWebhook,
+	_, err := q.db.Exec(ctx, updateProjectWebhook,
 		arg.ID,
 		arg.WebhookSecret,
 		arg.GithubWebhookID,

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -12,6 +11,8 @@ import (
 
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -35,8 +36,8 @@ type Sessions struct {
 	now     func() time.Time
 }
 
-func NewSessions(db *sql.DB) *Sessions {
-	return &Sessions{queries: dbpkg.New(db), now: time.Now}
+func NewSessions(pool *pgxpool.Pool) *Sessions {
+	return &Sessions{queries: dbpkg.New(pool), now: time.Now}
 }
 
 // Create starts a session for the user and returns the token to put in the
@@ -69,7 +70,7 @@ func (s *Sessions) Lookup(ctx context.Context, token string) (dbpkg.User, error)
 		return dbpkg.User{}, ErrNoSession
 	}
 	session, err := s.queries.GetSessionByTokenHash(ctx, hashToken(token))
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return dbpkg.User{}, ErrNoSession
 	}
 	if err != nil {
@@ -82,7 +83,7 @@ func (s *Sessions) Lookup(ctx context.Context, token string) (dbpkg.User, error)
 	}
 
 	user, err := s.queries.GetUserByID(ctx, session.UserID)
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return dbpkg.User{}, ErrNoSession
 	}
 	if err != nil {
