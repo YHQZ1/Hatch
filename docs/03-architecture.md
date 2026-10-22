@@ -97,24 +97,33 @@ deploy/cloudformation/hatch-connect.yaml
 Build and runtime are separate interfaces, so they can be mixed and faked in
 tests. Sketch _(signatures will change during implementation)_:
 
+As built (`internal/build`, `internal/runtime`, `internal/cost`). Each is
+created with the `stream.Sink` its progress goes to, and cancellation is the
+context: the job cancels it when the deployment is canceled.
+
 ```go
 type Builder interface {
-    // Build turns a source revision into an image reference, streaming logs.
-    Build(ctx context.Context, spec BuildSpec, logs LogSink) (Image, error)
-    Cancel(ctx context.Context, buildID string) error
+    // Build clones, builds and pushes, and returns the image.
+    Build(ctx context.Context, spec Spec) (Image, error)
+    DeleteImages(ctx context.Context, images []Image) error
 }
 
 type Runtime interface {
-    Deploy(ctx context.Context, spec DeploySpec, logs LogSink) (Release, error)
-    Scale(ctx context.Context, app AppRef, replicas int) error
+    // canceled is checked between steps; true stops the deploy with ErrCanceled.
+    Deploy(ctx context.Context, spec DeploySpec, canceled func(context.Context) (bool, error)) (Release, error)
+    Scale(ctx context.Context, app AppRef, replicas int32) error
     Destroy(ctx context.Context, app AppRef) error
-    RuntimeLogs(ctx context.Context, app AppRef, q LogQuery) (LogPage, error)
+    // RuntimeLogs(...) arrives with the runtime log viewer.
 }
 
-type CostEstimator interface {
-    Estimate(ctx context.Context, spec DeploySpec) (MonthlyCost, error)
+type Estimator interface { // package cost
+    Estimate(ctx context.Context, spec runtime.DeploySpec) (Monthly, error)
 }
 ```
+
+`build/docker` (Docker on the host, pushing to ECR) and `runtime/ecs` implement
+the first two today; each package `fake` is used in tests. `cost` has an
+interface and a fake only; nothing calls it until Phase 4.
 
 | Provider | Builder | Runtime | Routing |
 |----------|---------|---------|---------|
@@ -132,7 +141,7 @@ change that causes them.
 
 | Job | Trigger | Does |
 |-----|---------|------|
-| `build` | Deploy requested | Run the Builder, record the image, enqueue `deploy` |
+| `build` | Deploy requested | Run the Builder, enqueue `deploy` and finish in one transaction |
 | `deploy` | Build finished | Run the Runtime, wait for health, mark live, retire the previous release |
 | `scale` | Pause, resume, idle policy | Set replicas |
 | `destroy_app` | Project deleted, expiry reached | Remove all inventory rows for the app |

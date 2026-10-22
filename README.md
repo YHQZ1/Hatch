@@ -57,24 +57,26 @@ Known problems, including the ones the rebuild exists to fix, are listed in
 
 ```text
 Browser ── REST + WebSocket ──▶ API (Go, Gin)
-                                 │  GitHub OAuth, sessions, projects, webhooks
+                                 │  GitHub App sign-in, sessions, projects, webhooks
                                  │
-                                 ▼  RabbitMQ: hatch.build.jobs
-                               Builder (Go)
+                                 ▼  job "build" (River, in Postgres)
+                               Build job
                                  │  git clone → docker build → push to ECR
                                  │
-                                 ▼  RabbitMQ: hatch.deploy.jobs
-                               Deployer (Go)
+                                 ▼  job "deploy"
+                               Deploy job
                                     task definition → target group →
                                     host-based ALB rule → ECS service →
                                     wait until healthy
 
-Logs:  builder / deployer → Redis → API WebSocket hub → browser
-Data:  PostgreSQL (sqlc queries, migrations embedded in the binary)
+Logs:  build / deploy jobs → Redis → API WebSocket hub → browser
+Data:  PostgreSQL (sqlc queries on pgx, jobs on River, migrations embedded in the binary)
 ```
 
-The API also sends project cleanup and suspend/resume jobs to the deployer
-through `hatch.cleanup.jobs` and `hatch.service.jobs`.
+Deleting, suspending, and resuming a project are jobs too (`destroy_app`,
+`scale`). Each job is queued in the same database transaction as the change that
+causes it. `hatch serve` runs the API and the job runner together; `hatch worker`
+runs only the job runner.
 
 ## Where it is going
 
@@ -101,7 +103,7 @@ git clone https://github.com/YHQZ1/Hatch.git && cd Hatch
 # Configuration: fill in the GitHub App values and DATA_ENCRYPTION_KEY. Every hatch command reads this one file.
 cp .env.example .env
 
-make infra     # Postgres, Redis, and RabbitMQ in Docker
+make infra     # Postgres and Redis in Docker
 make migrate   # apply database migrations (hatch migrate)
 make dev       # run hatch serve and the Vite dev server
 ```

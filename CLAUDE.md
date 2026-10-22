@@ -44,15 +44,22 @@ Read, in order:
   1,000-line components.
 - Dependencies: one Go module at the root; run `go mod tidy` after adding
   one.
-- Database: add a new migration in `internal/store/migrations/` named
+- Jobs: background work is a River job in `internal/jobs`, queued with
+  `InsertTx` in the same transaction as the change that causes it, and worked
+  against the `build.Builder` and `runtime.Runtime` interfaces, never against
+  Docker or AWS directly. A job records a failure it cannot recover from on the
+  deployment or project and returns `river.JobCancel`; it returns a plain error
+  only when Hatch is stopping, so the job runs again on the next start. Test
+  jobs against real Postgres with the fakes in `build/fake` and `runtime/fake`.
+- Database: queries use pgx (`*pgxpool.Pool`, `pgx.Tx`); nullable columns are
+  `*string`, `*time.Time`, `*int64`. Add a new migration in `internal/store/migrations/` named
   `NNNNNN_short_description.up.sql`, continuing the numbering; never edit a
   merged migration. After changing migrations or `internal/store/queries/`,
   run `cd internal/store && sqlc generate` and commit the generated code.
 - Logging: use `log/slog` with attributes (`slog.Error("failed to X",
   "project_id", id, "error", err)`), not `log.Printf`. In request handlers use
   the Context variants with `c.Request.Context()` so the request ID is
-  attached. Never log secrets, tokens, or query strings. (The RabbitMQ worker
-  packages still use `log`; they are deleted in the deploy slice.)
+  attached. Never log secrets, tokens, or query strings.
 - Never commit `.env` files or credentials.
 - Web (`web/`): load server data with TanStack Query (definitions in
   `src/lib/queries.ts`; a 401 signs the user out centrally); the React hook
@@ -85,7 +92,7 @@ Read, in order:
 ## Commands
 
 ```bash
-make infra                      # Postgres, Redis, RabbitMQ via Docker Compose
+make infra                      # Postgres and Redis via Docker Compose
 make dev                        # infra + hatch serve + Vite dev server
 make migrate                    # apply migrations (hatch migrate, embedded in the binary)
 go run ./cmd/hatch help         # serve, worker, migrate, version
