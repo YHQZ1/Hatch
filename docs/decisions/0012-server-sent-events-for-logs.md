@@ -47,3 +47,9 @@ Stream logs with **server-sent events (SSE)** from
 - A deployment keeps at most 20,000 lines of at most 8 KB each.
 - The API server's 30-second `WriteTimeout` would end every stream, so the
   handler clears the deadline for its own response.
+- Old logs are pruned by a daily River job (`prune_logs`, also run when the job
+  runner starts). A finished deployment's lines are deleted 30 days after it was
+  created, except that each project's newest five deployments keep theirs
+  however old, and a queued or running deployment is never touched. The
+  deployment stays and its page says no log was kept. Deletes run in batches of
+  5,000 lines; a failed run is not retried because the next day's covers it.

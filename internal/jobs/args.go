@@ -173,3 +173,14 @@ func (a ScaleArgs) Validate() error {
 	}
 	return nil
 }
+
+// PruneLogsArgs is the periodic job that deletes old deployment logs. It has no
+// fields: what is old is decided when it runs.
+type PruneLogsArgs struct{}
+
+func (PruneLogsArgs) Kind() string { return "prune_logs" }
+
+func (PruneLogsArgs) InsertOpts() river.InsertOpts {
+	// A missed run is made up by the next one, so a failure is not retried.
+	return river.InsertOpts{Queue: queueControl, MaxAttempts: 1}
+}

@@ -33,3 +33,27 @@ FROM (
   LIMIT $2
 ) AS newest
 ORDER BY seq;
+
+-- name: PruneDeploymentLogs :execrows
+-- Deletes up to batch_size log lines of deployments that have finished, were
+-- created before older_than and are not among their project's newest `keep`
+-- deployments (those keep their log however old). Deployments that are queued
+-- or running are never touched. Called until it deletes nothing, so a large
+-- backlog is removed in small transactions.
+DELETE FROM deployment_logs
+WHERE (deployment_id, seq) IN (
+  SELECT l.deployment_id, l.seq
+  FROM deployment_logs l
+  WHERE l.deployment_id IN (
+    SELECT d.id
+    FROM (
+      SELECT id, status, created_at,
+             row_number() OVER (PARTITION BY project_id ORDER BY created_at DESC, id DESC) AS recency
+      FROM deployments
+    ) d
+    WHERE d.status NOT IN ('queued', 'building', 'deploying')
+      AND d.created_at < sqlc.arg(older_than)::timestamptz
+      AND d.recency > sqlc.arg(keep)::int
+  )
+  LIMIT sqlc.arg(batch_size)::int
+);

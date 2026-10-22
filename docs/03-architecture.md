@@ -161,7 +161,8 @@ Build and deploy log lines are inserted into `deployment_logs` (deployment id,
 `deployments.log_seq` and inserts in one statement, so writers of the same
 deployment are serialised and lines are numbered and committed in order. A
 deployment keeps at most 20,000 lines (the last says the log was cut) and a
-line at most 8 KB.
+line at most 8 KB. A daily job deletes a finished deployment's lines 30 days
+after it was created, except for the newest five deployments of each project.
 
 Triggers `NOTIFY deployment_events` with just the deployment id when a line is
 added or a status changes. The API holds one connection that `LISTEN`s

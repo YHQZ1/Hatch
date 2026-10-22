@@ -84,6 +84,12 @@ type Querier interface {
 	MarkProjectOperationFailed(ctx context.Context, arg MarkProjectOperationFailedParams) error
 	// Reports whether the deployment's project has a different live deployment.
 	ProjectHasOtherLiveDeployment(ctx context.Context, id uuid.UUID) (bool, error)
+	// Deletes up to batch_size log lines of deployments that have finished, were
+	// created before older_than and are not among their project's newest `keep`
+	// deployments (those keep their log however old). Deployments that are queued
+	// or running are never touched. Called until it deletes nothing, so a large
+	// backlog is removed in small transactions.
+	PruneDeploymentLogs(ctx context.Context, arg PruneDeploymentLogsParams) (int64, error)
 	// Moves a deployment to a new status and clears its failure. A canceled
 	// deployment stays canceled unless the new status is 'canceled'.
 	SetDeploymentStatus(ctx context.Context, arg SetDeploymentStatusParams) error

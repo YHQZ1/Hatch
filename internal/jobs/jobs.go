@@ -69,6 +69,7 @@ func Workers(deps Deps) (*river.Workers, error) {
 		river.AddWorkerSafely(workers, newDeployWorker(deps)),
 		river.AddWorkerSafely(workers, newDestroyAppWorker(deps)),
 		river.AddWorkerSafely(workers, newScaleWorker(deps)),
+		river.AddWorkerSafely(workers, newPruneLogsWorker(deps)),
 	} {
 		if add != nil {
 			return nil, add
@@ -83,7 +84,7 @@ func NewClient(deps Deps) (*river.Client[pgx.Tx], error) {
 	if err != nil {
 		return nil, err
 	}
-	longest := max(deps.BuildTimeout, deployTimeout, destroyTimeout, scaleTimeout)
+	longest := max(deps.BuildTimeout, deployTimeout, destroyTimeout, scaleTimeout, pruneTimeout)
 	client, err := river.NewClient(riverpgxv5.New(deps.Pool), &river.Config{
 		Logger: slog.Default(),
 		Queues: map[string]river.QueueConfig{
@@ -91,7 +92,8 @@ func NewClient(deps Deps) (*river.Client[pgx.Tx], error) {
 			queueDeploy:  {MaxWorkers: 1},
 			queueControl: {MaxWorkers: 2},
 		},
-		Workers: workers,
+		Workers:      workers,
+		PeriodicJobs: periodicJobs(),
 		// Each worker sets its own timeout; this one only has to be longer.
 		JobTimeout: longest + time.Minute,
 		// A job still "running" after this long belongs to a process that died:

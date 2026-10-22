@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -128,4 +129,43 @@ func (q *Queries) GetDeploymentLogsAfter(ctx context.Context, arg GetDeploymentL
 		return nil, err
 	}
 	return items, nil
+}
+
+const pruneDeploymentLogs = `-- name: PruneDeploymentLogs :execrows
+DELETE FROM deployment_logs
+WHERE (deployment_id, seq) IN (
+  SELECT l.deployment_id, l.seq
+  FROM deployment_logs l
+  WHERE l.deployment_id IN (
+    SELECT d.id
+    FROM (
+      SELECT id, status, created_at,
+             row_number() OVER (PARTITION BY project_id ORDER BY created_at DESC, id DESC) AS recency
+      FROM deployments
+    ) d
+    WHERE d.status NOT IN ('queued', 'building', 'deploying')
+      AND d.created_at < $1::timestamptz
+      AND d.recency > $2::int
+  )
+  LIMIT $3::int
+)
+`
+
+type PruneDeploymentLogsParams struct {
+	OlderThan time.Time `json:"older_than"`
+	Keep      int32     `json:"keep"`
+	BatchSize int32     `json:"batch_size"`
+}
+
+// Deletes up to batch_size log lines of deployments that have finished, were
+// created before older_than and are not among their project's newest `keep`
+// deployments (those keep their log however old). Deployments that are queued
+// or running are never touched. Called until it deletes nothing, so a large
+// backlog is removed in small transactions.
+func (q *Queries) PruneDeploymentLogs(ctx context.Context, arg PruneDeploymentLogsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, pruneDeploymentLogs, arg.OlderThan, arg.Keep, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
