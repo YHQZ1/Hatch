@@ -77,7 +77,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "projects/:id/deployments/:deploymentId",
-            handle: { title: "Deployment Summary" },
+            handle: { title: "Deployment" },
             ...page(() => import("./routes/Deployment")),
           },
           {

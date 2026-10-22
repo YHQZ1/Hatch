@@ -89,15 +89,6 @@ export const projectQuery = (projectId: string) =>
 export const isActiveDeployment = (status: string | undefined) =>
   ACTIVE_DEPLOYMENT_STATUSES.has(status?.toLowerCase() ?? "");
 
-/** One deployment; polls while it is in progress. */
-export const deploymentQuery = (deploymentId: string) =>
-  queryOptions({
-    queryKey: ["deployments", deploymentId],
-    queryFn: () => apiJson<Deployment>(`/api/deployments/${deploymentId}`),
-    refetchInterval: (query) =>
-      isActiveDeployment(query.state.data?.status) ? 3500 : false,
-  });
-
 /** A project's environment variables. */
 export const projectEnvVarsQuery = (projectId: string) =>
   queryOptions({

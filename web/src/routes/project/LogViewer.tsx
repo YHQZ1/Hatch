@@ -25,10 +25,16 @@ export default function LogViewer({
   deployment,
   logs,
   running,
+  className,
+  showId = true,
 }: {
   deployment: Deployment | null;
   logs: LogLine[];
   running: boolean;
+  /** Replaces the box's default height. */
+  className?: string;
+  /** Name the deployment in the heading; leave it out where the page already does. */
+  showId?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const following = useRef(true);
@@ -56,7 +62,7 @@ export default function LogViewer({
           <h2 className="text-[1rem] font-semibold tracking-tight">Logs</h2>
           {deployment && (
             <span className="truncate text-sm text-muted">
-              {deployment.id.slice(0, 8)} · {count(logs)}
+              {showId ? `${deployment.id.slice(0, 8)} · ` : ""}{count(logs)}
             </span>
           )}
         </div>
@@ -71,7 +77,7 @@ export default function LogViewer({
           const el = box.current;
           if (el) following.current = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_MARGIN;
         }}
-        className="h-[520px] overflow-y-auto rounded-hatch border border-line-strong bg-panel py-2 font-mono text-xs"
+        className={cn("h-[520px] overflow-y-auto rounded-hatch border border-line-strong bg-panel py-2 font-mono text-xs", className)}
       >
         {logs.length === 0 ? (
           <p className="flex h-full items-center justify-center px-6 text-center font-sans text-sm text-muted">
