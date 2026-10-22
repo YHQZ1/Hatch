@@ -103,7 +103,7 @@ func (f projectFixture) handler(t *testing.T, inserter jobs.Inserter) *ProjectHa
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewProjectHandler(f.pool, inserter, "", codec)
+	return NewProjectHandler(f.pool, inserter, codec, nil, false)
 }
 
 func TestSuspendingAProjectQueuesTheScaleJobWithTheStatusChange(t *testing.T) {

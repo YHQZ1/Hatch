@@ -85,6 +85,9 @@ type DeploymentHandler struct {
 	pool    *pgxpool.Pool
 	logs    stream.Sink
 	secrets *secrets.Codec
+	// tokens reads the project's repository through the GitHub App; githubAPI is where.
+	tokens    InstallationTokens
+	githubAPI string
 }
 
 const (
@@ -95,13 +98,15 @@ const (
 
 // NewDeploymentHandler serves deployments. logs receives the lines the API
 // itself writes to a deployment's log, such as "canceled by user".
-func NewDeploymentHandler(pool *pgxpool.Pool, inserter jobs.Inserter, logs stream.Sink, secretCodec *secrets.Codec) *DeploymentHandler {
+func NewDeploymentHandler(pool *pgxpool.Pool, inserter jobs.Inserter, logs stream.Sink, secretCodec *secrets.Codec, tokens InstallationTokens) *DeploymentHandler {
 	return &DeploymentHandler{
-		queries: dbpkg.New(pool),
-		jobs:    inserter,
-		pool:    pool,
-		logs:    logs,
-		secrets: secretCodec,
+		queries:   dbpkg.New(pool),
+		jobs:      inserter,
+		pool:      pool,
+		logs:      logs,
+		secrets:   secretCodec,
+		tokens:    tokens,
+		githubAPI: "https://api.github.com",
 	}
 }
 
@@ -160,9 +165,11 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		return
 	}
 
-	userToken, ok := accessTokenFromContext(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required: sign in again"})
+	// The repository is read as the GitHub App, as the build will read it. If the
+	// App cannot, the build would fail, so this says so first and says what to do.
+	repoToken, access := tokenForRepo(c.Request.Context(), h.tokens, project.RepoUrl, http.StatusConflict)
+	if access != nil {
+		c.JSON(access.status, gin.H{"error": access.message})
 		return
 	}
 
@@ -186,9 +193,10 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 
 	commitSHA, commitMessage := fetchGitHubBranchHead(
 		c.Request.Context(),
+		h.githubAPI,
 		project.RepoUrl,
 		branch,
-		userToken,
+		repoToken,
 	)
 
 	tx, err := h.pool.Begin(c.Request.Context())
@@ -537,13 +545,13 @@ type githubBranchResponse struct {
 	} `json:"commit"`
 }
 
-func fetchGitHubBranchHead(ctx context.Context, repoURL, branch, token string) (string, string) {
+func fetchGitHubBranchHead(ctx context.Context, apiBase, repoURL, branch, token string) (string, string) {
 	owner, repo, err := parseRepoURL(repoURL)
 	if err != nil || owner == "" || repo == "" || branch == "" || token == "" {
 		return "", ""
 	}
 
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/branches/%s", owner, repo, url.PathEscape(branch))
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/branches/%s", apiBase, owner, repo, url.PathEscape(branch))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", ""

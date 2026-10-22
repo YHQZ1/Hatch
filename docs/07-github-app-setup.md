@@ -22,7 +22,7 @@ On GitHub: **Settings, Developer settings, GitHub Apps, New GitHub App**.
 | Expire user authorization tokens | Leave checked. |
 | Request user authorization (OAuth) during installation | **Check this.** Installing the App then signs the user in too. |
 | Enable Device Flow | Leave unchecked. |
-| Webhook, Active | Uncheck for now. Webhooks are needed only for auto-deploy, and need a public URL. |
+| Webhook, Active | Optional, and only for "deploy on every push": see [Pushes and auto-deploy](#pushes-and-auto-deploy). It needs a public URL, so leave it unchecked for local development. |
 | Repository permissions | **Contents: Read-only** and **Metadata: Read-only** (GitHub always requires metadata). |
 | Account permissions | None. |
 | Where can this GitHub App be installed? | Only on this account, unless others will use your Hatch. |
@@ -64,6 +64,55 @@ requests an installation token limited to that one repository with
 `contents: read`. The token lasts an hour, is used for the `git clone`, and is
 not stored. If the App is not installed on the repository, the build fails with
 a message telling you to install it.
+
+Creating a project and starting a deployment read the repository the same way
+(branch, Dockerfile, latest commit), so they say so up front when the App is not
+installed on it, instead of the build failing later. Whether a user may use a
+repository at all is checked separately, with the user's own GitHub token: the
+App's token can read every repository it is installed on, whoever installed it,
+so it cannot say who may ask for one.
+
+## Pushes and auto-deploy
+
+A project with **Deploy on every push** on is deployed when its branch is
+pushed to. Hatch learns of a push from the App's own webhook: GitHub sends one
+delivery per event for every repository the App is installed on, to one URL,
+signed with one secret ([ADR 0010](decisions/0010-github-app.md)). Hatch
+registers no webhook per project and stores no per-project secret.
+
+To turn it on, set these on the App (**Settings, Developer settings, GitHub
+Apps, your App**):
+
+| Field | Value |
+| --- | --- |
+| Webhook, Active | Checked. |
+| Webhook URL | Your server's public address plus `/api/webhooks/github`, for example `https://hatch.example.com/api/webhooks/github`. GitHub has to be able to reach it. |
+| Webhook secret | A random string of at least 16 characters, such as the output of `openssl rand -hex 32`. |
+| Subscribe to events | **Push**. (It is offered because the App has the Contents permission.) |
+
+and the same secret in `.env`:
+
+```
+GITHUB_WEBHOOK_SECRET=...
+```
+
+Without `GITHUB_WEBHOOK_SECRET` Hatch refuses every delivery (503), and the
+settings page says that a push cannot deploy anything and does not let you turn
+the setting on. Every delivery is checked against the secret before anything
+else; an unsigned or wrongly signed one gets a 401 and does nothing. GitHub's
+"Redeliver" button is safe: a delivery already handled is recognised and
+ignored. One push deploys every project of that repository that follows the
+pushed branch.
+
+On a laptop GitHub cannot reach `localhost`. A relay such as
+[smee.io](https://smee.io) forwards deliveries to
+`http://localhost:8080/api/webhooks/github`; set the App's Webhook URL to the
+relay's address.
+
+**Older projects:** before this, Hatch registered a webhook on each
+repository. Those no longer match anything and GitHub will report their
+deliveries as failing. They can be deleted under the repository's
+**Settings, Webhooks** (look for the one pointing at your Hatch server).
 
 ## How sign-in works
 

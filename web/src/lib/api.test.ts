@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   apiFetch,
   deploymentUrl,
+  getAppConfig,
   loadAppConfig,
   productionHost,
   readApiError,
@@ -35,6 +36,19 @@ test("deployed app URLs use the configured domain and scheme", async () => {
   expect(deploymentUrl("my-app.apps.example.com")).toBe(
     "http://my-app.apps.example.com",
   );
+});
+
+test("the server says whether pushes can deploy anything, and the default is no", async () => {
+  fetchMock.mockResolvedValueOnce(jsonResponse({ base_domain: "x.dev", webhooks: true }));
+  await loadAppConfig();
+  expect(getAppConfig().webhooks).toBe(true);
+
+  // Anything but an explicit true counts as not set up.
+  for (const webhooks of [false, "true", 1, null, undefined]) {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ base_domain: "x.dev", webhooks }));
+    await loadAppConfig();
+    expect(getAppConfig().webhooks, String(webhooks)).toBe(false);
+  }
 });
 
 test("hosts that are already complete are left alone", () => {

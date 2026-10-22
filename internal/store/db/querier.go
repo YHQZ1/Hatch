@@ -16,7 +16,6 @@ type Querier interface {
 	// kept is limit_line, so a log that was cut says so.
 	AppendDeploymentLog(ctx context.Context, arg AppendDeploymentLogParams) (int64, error)
 	CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelDeploymentByIDAndUserIDParams) (Deployment, error)
-	ClearProjectWebhook(ctx context.Context, id uuid.UUID) error
 	// Gives a deployment the environment another one ran with, values as stored.
 	CopyDeploymentEnvVars(ctx context.Context, arg CopyDeploymentEnvVarsParams) error
 	CreateActivityLog(ctx context.Context, arg CreateActivityLogParams) (ActivityLog, error)
@@ -61,7 +60,9 @@ type Querier interface {
 	GetProjectBySubdomain(ctx context.Context, subdomain *string) (Project, error)
 	GetProjectEnvVarsByProject(ctx context.Context, projectID uuid.UUID) ([]ProjectEnvVar, error)
 	GetProjectImageURIs(ctx context.Context, projectID uuid.UUID) ([]string, error)
-	GetProjectsByRepoURL(ctx context.Context, repoUrl string) ([]Project, error)
+	// GitHub treats owner and repository names without regard to case, so a push
+	// finds the project however its address was typed.
+	GetProjectsByRepoURL(ctx context.Context, lower string) ([]Project, error)
 	GetProjectsByUserID(ctx context.Context, userID uuid.UUID) ([]Project, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (Session, error)
 	// The images of a project's releases beyond the newest `keep` distinct ones, by
@@ -88,7 +89,6 @@ type Querier interface {
 	UpdateDeploymentStatus(ctx context.Context, arg UpdateDeploymentStatusParams) (Deployment, error)
 	UpdateProjectLifecycleStatus(ctx context.Context, arg UpdateProjectLifecycleStatusParams) (Project, error)
 	UpdateProjectSettings(ctx context.Context, arg UpdateProjectSettingsParams) (Project, error)
-	UpdateProjectWebhook(ctx context.Context, arg UpdateProjectWebhookParams) error
 	UpdateUserTokens(ctx context.Context, arg UpdateUserTokensParams) error
 }
 

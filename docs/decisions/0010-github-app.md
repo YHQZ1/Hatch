@@ -83,7 +83,33 @@ not used yet. Setup is in [07-github-app-setup.md](../07-github-app-setup.md).
   installed on the repository the build fails with an instruction to install
   it. `GITHUB_APP_PRIVATE_KEY_PATH` is required by `hatch serve` and
   `hatch worker`.
-- **Still to do:** the per-project webhooks and their stored secret still
-  drive auto-deploy. They go once the App's own webhook (which needs a public
-  URL, see the setup guide) delivers pushes. The user token stays stored, since
-  it is how the repository list is read, but it is no longer used to deploy.
+- **Per-project webhooks:** replaced, see the next section.
+
+## As built, webhooks and repository access (2026-10-22)
+
+- **One webhook for the App.** `POST /api/webhooks/github` verifies every
+  delivery against `GITHUB_WEBHOOK_SECRET` (HMAC-SHA256, constant-time) before
+  reading anything else, answers `ping`, ignores events other than `push`, and
+  ignores deleted branches and tags. A push deploys every project of that
+  repository (matched without regard to case) that has `auto_deploy` on, is
+  active, and follows the pushed branch. Deliveries are deduplicated per project
+  for 30 days. Without the secret every delivery gets a 503.
+- **No per-project hook, no per-project secret.** Migration 000015 drops
+  `projects.webhook_secret` and `projects.github_webhook_id`. Creating or
+  deleting a project, or toggling `auto_deploy`, no longer calls GitHub.
+  `auto_deploy` is a plain setting: new projects get it on only when the server
+  has a webhook secret, and it cannot be turned on where there is none (the
+  settings page says so; it is told by `GET /api/config`). Hooks that older
+  versions registered stay on those repositories until their owners delete them;
+  the setup guide says how.
+- **Installation tokens read the repository.** Creating a project, changing its
+  branch or Dockerfile folder, and starting a deployment read the repository
+  (branch, Dockerfile, latest commit) with an installation token, the way the
+  build will, and say "install the App on owner/repo" up front when it cannot.
+  A deployment no longer needs the signed-in user's GitHub token.
+- **The user's own token is still the ownership check.** An installation token
+  reads every repository the App is installed on, whoever installed it, so on its
+  own it would let one user deploy another's private repository. Creating a
+  project therefore first asks GitHub, with the user's token, whether they can see
+  the repository. The user token also still lists the user's installations and
+  the Dockerfile check on the New project page, and is still stored encrypted.

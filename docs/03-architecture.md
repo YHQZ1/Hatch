@@ -303,7 +303,8 @@ New or changed tables (names provisional):
 - `sessions`: user, SHA-256 hash of the session ID, created, last seen, and
   expiry times.
 - `github_installations`: installation ID, account, owning user; replaces the
-  stored OAuth token and the per-project `webhook_secret` and `webhook_id`.
+  stored OAuth token. (The per-project `webhook_secret` and `webhook_id` are gone:
+  pushes arrive through the App's own webhook, ADR 0010.)
 - v1 is single-user: each user owns their own connections and projects, but
   ownership columns are named so an organization owner can be added later.
 - `env_vars` and `project_env_vars`: mark each variable as secret or plain;

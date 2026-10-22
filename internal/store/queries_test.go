@@ -31,8 +31,6 @@ func newQueries(t *testing.T) (*dbpkg.Queries, *pgxpool.Pool) {
 	return dbpkg.New(db), db
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func deref(s *string) string {
 	if s == nil {
 		return ""
@@ -58,7 +56,7 @@ func createProject(t *testing.T, q *dbpkg.Queries, user dbpkg.User, subdomain st
 	project, err := q.CreateProject(context.Background(), dbpkg.CreateProjectParams{
 		UserID: user.ID, RepoName: "octo/" + subdomain, RepoUrl: "https://github.com/octo/" + subdomain,
 		Branch: "main", DockerfilePath: "Dockerfile", Port: 8080,
-		Subdomain: str(subdomain), WebhookSecret: str("secret"), HealthCheck: "/",
+		Subdomain: str(subdomain), HealthCheck: "/", AutoDeploy: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -119,8 +117,7 @@ func TestProjectsAreScopedToTheirOwner(t *testing.T) {
 	if project.Status != "active" || !project.AutoDeploy || project.CreatedAt.IsZero() {
 		t.Fatalf("unexpected defaults: %+v", project)
 	}
-	if project.Subdomain == nil || *project.Subdomain != "shop" ||
-		project.WebhookSecret == nil || project.GithubWebhookID != nil {
+	if project.Subdomain == nil || *project.Subdomain != "shop" {
 		t.Fatalf("nullable columns did not round trip: %+v", project)
 	}
 
@@ -194,25 +191,6 @@ func TestProjectUpdates(t *testing.T) {
 	}
 	if updated.RepoName != "octo/renamed" || updated.Branch != "release" || updated.Port != 9000 || updated.AutoDeploy || updated.HealthCheck != "/ready" {
 		t.Fatalf("settings not applied: %+v", updated)
-	}
-
-	err = q.UpdateProjectWebhook(ctx, dbpkg.UpdateProjectWebhookParams{
-		ID: project.ID, WebhookSecret: str("s2"), GithubWebhookID: ptr(int64(77)), AutoDeploy: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, _ := q.GetProjectByID(ctx, project.ID)
-	if got.GithubWebhookID == nil || *got.GithubWebhookID != 77 || !got.AutoDeploy {
-		t.Fatalf("webhook not stored: %+v", got)
-	}
-	if err := q.ClearProjectWebhook(ctx, project.ID); err != nil {
-		t.Fatal(err)
-	}
-	got, _ = q.GetProjectByID(ctx, project.ID)
-	// Clearing forgets the hook and turns auto-deploy off; the secret stays.
-	if got.GithubWebhookID != nil || got.AutoDeploy || got.WebhookSecret == nil || *got.WebhookSecret != "s2" {
-		t.Fatalf("webhook not cleared as expected: %+v", got)
 	}
 
 	deleting, err := q.MarkProjectDeleting(ctx, dbpkg.MarkProjectDeletingParams{ID: project.ID, UserID: user.ID})
@@ -508,5 +486,45 @@ func TestDeploymentEventsAreNotified(t *testing.T) {
 	}
 	if payload, ok := heard(); ok {
 		t.Fatalf("an unchanged status was announced: %q", payload)
+	}
+}
+
+func TestProjectsAreFoundByRepositoryWithoutRegardToCase(t *testing.T) {
+	q, _ := newQueries(t)
+	ctx := context.Background()
+	alice := createUser(t, q, 1, "alice")
+	bob := createUser(t, q, 2, "bob")
+	// Two projects built from one repository, one of them typed with other capitals.
+	one := createProject(t, q, alice, "shop")
+	two, err := q.CreateProject(ctx, dbpkg.CreateProjectParams{
+		UserID: bob.ID, RepoName: "shop2", RepoUrl: "https://github.com/Octo/Shop", Branch: "main",
+		DockerfilePath: "Dockerfile", Port: 80, Subdomain: str("shop2"), HealthCheck: "/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createProject(t, q, alice, "elsewhere")
+
+	got, err := q.GetProjectsByRepoURL(ctx, "https://github.com/octo/shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("found %d projects, want both of the repository's", len(got))
+	}
+	ids := map[uuid.UUID]bool{got[0].ID: true, got[1].ID: true}
+	if !ids[one.ID] || !ids[two.ID] {
+		t.Errorf("found %v, want %v and %v", ids, one.ID, two.ID)
+	}
+}
+
+func TestAProjectHasNoPerProjectWebhookColumns(t *testing.T) {
+	_, pool := newQueries(t)
+	var n int
+	err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM information_schema.columns
+		 WHERE table_name = 'projects' AND column_name IN ('webhook_secret', 'github_webhook_id')`).Scan(&n)
+	if err != nil || n != 0 {
+		t.Fatalf("per-project webhook columns remain: %d (%v)", n, err)
 	}
 }

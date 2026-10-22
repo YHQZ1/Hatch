@@ -13,6 +13,7 @@ import (
 	"github.com/YHQZ1/hatch/internal/api/middleware"
 	"github.com/YHQZ1/hatch/internal/api/spa"
 	"github.com/YHQZ1/hatch/internal/config"
+	"github.com/YHQZ1/hatch/internal/githubapp"
 	"github.com/YHQZ1/hatch/internal/jobs"
 	"github.com/YHQZ1/hatch/internal/proxy"
 	"github.com/YHQZ1/hatch/internal/secrets"
@@ -93,8 +94,11 @@ func Run(ctx context.Context, cfg *config.Config, local *LocalTarget) error {
 	}, db, sessions, secretCodec)
 	tokens := auth.NewTokens(db, secretCodec, cfg.GitHubClientID, cfg.GitHubClientSecret)
 
-	projectHandler := handlers.NewProjectHandler(db, inserter, cfg.WebhookBaseURL, secretCodec)
-	deploymentHandler := handlers.NewDeploymentHandler(db, inserter, stream.NewPostgres(db), secretCodec)
+	// Repositories are read as the GitHub App, the same way builds read them.
+	repoTokens := githubapp.New(cfg.GitHubClientID, cfg.GitHubAppKey)
+	webhooksEnabled := cfg.GitHubWebhookSecret != ""
+	projectHandler := handlers.NewProjectHandler(db, inserter, secretCodec, repoTokens, webhooksEnabled)
+	deploymentHandler := handlers.NewDeploymentHandler(db, inserter, stream.NewPostgres(db), secretCodec, repoTokens)
 	logStreamHandler := handlers.NewLogStreamHandler(db, broker, ctx.Done())
 	metricsHandler := handlers.NewMetricsHandler(db, cfg.AWSRegion, cfg.ECSClusterName, cfg.ALBListenerARN, cfg.ALBArn)
 	githubHandler := handlers.NewGitHubHandler()
@@ -105,8 +109,8 @@ func Run(ctx context.Context, cfg *config.Config, local *LocalTarget) error {
 	}
 	trafficHandler := handlers.NewTrafficHandler(db, stats)
 	iconHandler := handlers.NewIconHandler(db, resolver)
-	publicConfigHandler := handlers.NewPublicConfigHandler(cfg.BaseDomain, cfg.DeploymentURLScheme)
-	webhookHandler := handlers.NewWebhookHandler(db, inserter, secretCodec)
+	publicConfigHandler := handlers.NewPublicConfigHandler(cfg.BaseDomain, cfg.DeploymentURLScheme, webhooksEnabled)
+	webhookHandler := handlers.NewWebhookHandler(db, inserter, secretCodec, cfg.GitHubWebhookSecret)
 	authMiddleware := auth.Middleware(sessions, tokens)
 	csrfMiddleware := auth.CSRFMiddleware()
 
@@ -137,7 +141,7 @@ func Run(ctx context.Context, cfg *config.Config, local *LocalTarget) error {
 	r.GET("/auth/install", authHandler.RedirectToInstall)
 	r.GET("/auth/callback", authHandler.HandleCallback)
 	r.POST("/auth/logout", authMiddleware, csrfMiddleware, authHandler.Logout)
-	r.POST("/api/webhooks/github", webhookHandler.HandlePush)
+	r.POST("/api/webhooks/github", webhookHandler.HandleGitHub)
 	r.GET("/api/config", publicConfigHandler.Get)
 
 	api := r.Group("/api")

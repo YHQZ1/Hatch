@@ -192,9 +192,14 @@ export interface AppConfig {
   baseDomain: string;
   /** How deployed apps are reached. */
   deploymentUrlScheme: "http" | "https";
+  /**
+   * Whether this server is set up to hear pushes from the GitHub App's webhook.
+   * Without it nothing can deploy a project on a push, however it is configured.
+   */
+  webhooks: boolean;
 }
 
-let appConfig: AppConfig = { baseDomain: "", deploymentUrlScheme: "https" };
+let appConfig: AppConfig = { baseDomain: "", deploymentUrlScheme: "https", webhooks: false };
 
 export function getAppConfig(): AppConfig {
   return appConfig;
@@ -217,6 +222,7 @@ export async function loadAppConfig(): Promise<void> {
         typeof data?.base_domain === "string" ? data.base_domain : "",
       deploymentUrlScheme:
         data?.deployment_url_scheme === "http" ? "http" : "https",
+      webhooks: data?.webhooks === true,
     };
   } catch {
     // Keep the defaults.

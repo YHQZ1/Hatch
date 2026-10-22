@@ -34,7 +34,7 @@ func newRollbackFixture(t *testing.T) rollbackFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return rollbackFixture{projectFixture: f, handler: NewDeploymentHandler(f.pool, inserter, stream.Discard{}, codec)}
+	return rollbackFixture{projectFixture: f, handler: NewDeploymentHandler(f.pool, inserter, stream.Discard{}, codec, nil)}
 }
 
 // release adds a deployment of the project that went live with its own image,

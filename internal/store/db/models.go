@@ -64,8 +64,6 @@ type Project struct {
 	UserID            uuid.UUID  `json:"user_id"`
 	RepoName          string     `json:"repo_name"`
 	RepoUrl           string     `json:"repo_url"`
-	WebhookSecret     *string    `json:"webhook_secret"`
-	GithubWebhookID   *int64     `json:"github_webhook_id"`
 	AutoDeploy        bool       `json:"auto_deploy"`
 	Branch            string     `json:"branch"`
 	DockerfilePath    string     `json:"dockerfile_path"`

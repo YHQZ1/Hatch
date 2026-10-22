@@ -38,8 +38,8 @@ The prototype runs the full flow on AWS:
 
 - Sign in with GitHub, browse your repositories, and detect the Dockerfile and
   exposed port.
-- Create a project; Hatch registers a GitHub webhook so pushes redeploy
-  automatically.
+- Create a project; with the GitHub App's webhook set up, pushes to its branch
+  redeploy it automatically.
 - Build the Dockerfile, push the image to ECR, and run it on ECS Fargate behind
   a shared Application Load Balancer, with a subdomain per project.
 - Stream build and deploy logs to the browser live, and cancel a deployment at

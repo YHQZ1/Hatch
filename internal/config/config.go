@@ -40,6 +40,10 @@ const (
 	TargetAWS = "aws"
 )
 
+// minWebhookSecretLength is the shortest webhook secret accepted: GitHub signs
+// every delivery with it, so a guessable one would let anyone forge a push.
+const minWebhookSecretLength = 16
+
 type Config struct {
 	Role Role
 
@@ -64,8 +68,11 @@ type Config struct {
 	GitHubClientSecret string
 	GitHubRedirectURI  string
 	GitHubAppSlug      string
-	WebhookBaseURL     string
-	ALBArn             string
+	// GitHubWebhookSecret is the secret of the GitHub App's webhook. It is
+	// optional: without it Hatch cannot tell that a push happened, so pushes
+	// deploy nothing (ADR 0010).
+	GitHubWebhookSecret string
+	ALBArn              string
 
 	// LocalProxyAddr is where the built-in proxy serves apps (TargetLocal).
 	LocalProxyAddr string
@@ -194,7 +201,10 @@ func Load(role Role) (*Config, error) {
 		cfg.GitHubClientSecret = r.require("GITHUB_CLIENT_SECRET")
 		cfg.GitHubRedirectURI = r.require("GITHUB_REDIRECT_URI")
 		cfg.GitHubAppSlug = r.require("GITHUB_APP_SLUG")
-		cfg.WebhookBaseURL = strings.TrimRight(r.require("WEBHOOK_BASE_URL"), "/")
+		cfg.GitHubWebhookSecret = strings.TrimSpace(getEnv("GITHUB_WEBHOOK_SECRET", ""))
+		if cfg.GitHubWebhookSecret != "" && len(cfg.GitHubWebhookSecret) < minWebhookSecretLength {
+			r.problems = append(r.problems, fmt.Sprintf("GITHUB_WEBHOOK_SECRET must be at least %d characters, such as the output of `openssl rand -hex 32`", minWebhookSecretLength))
+		}
 		cfg.ALBArn = getEnv("ALB_ARN", "")
 	}
 
@@ -257,7 +267,6 @@ func (c *Config) Validate() error {
 	for name, value := range map[string]string{
 		"FRONTEND_URL":        c.FrontendURL,
 		"GITHUB_REDIRECT_URI": c.GitHubRedirectURI,
-		"WEBHOOK_BASE_URL":    c.WebhookBaseURL,
 	} {
 		parsed, err := url.Parse(value)
 		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {

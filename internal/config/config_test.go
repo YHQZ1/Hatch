@@ -26,7 +26,6 @@ func TestValidateAllowsDevelopmentDefaults(t *testing.T) {
 	cfg := Config{
 		Environment:        "development",
 		FrontendURL:        "http://localhost:3000",
-		WebhookBaseURL:     "http://localhost:8080",
 		CORSAllowedOrigins: []string{"http://localhost:3000"},
 		GitHubAppSlug:      "hatch-local-dev",
 	}
@@ -87,7 +86,6 @@ func validProductionConfig() Config {
 		Environment:        "production",
 		FrontendURL:        "https://app.hatchcloud.xyz",
 		GitHubRedirectURI:  "https://api.hatchcloud.xyz/auth/callback",
-		WebhookBaseURL:     "https://api.hatchcloud.xyz",
 		CORSAllowedOrigins: []string{"https://app.hatchcloud.xyz"},
 		GitHubAppSlug:      "hatch",
 		DataEncryptionKey:  strings.Repeat("d", 32),
@@ -170,7 +168,7 @@ var allVars = map[string]string{
 	"GITHUB_CLIENT_SECRET":        "client-secret",
 	"GITHUB_REDIRECT_URI":         "http://localhost:8080/auth/callback",
 	"GITHUB_APP_SLUG":             "hatch-local-dev",
-	"WEBHOOK_BASE_URL":            "http://localhost:8080",
+	"GITHUB_WEBHOOK_SECRET":       "0123456789abcdef0123456789abcdef",
 }
 
 // setEnv clears every variable Load reads, then sets the given ones.
@@ -192,6 +190,16 @@ func setEnv(t *testing.T, vars map[string]string) {
 		}
 		t.Setenv(key, value)
 	}
+}
+
+// with returns a copy of vars with one variable set.
+func with(vars map[string]string, key, value string) map[string]string {
+	out := make(map[string]string, len(vars)+1)
+	for k, v := range vars {
+		out[k] = v
+	}
+	out[key] = value
+	return out
 }
 
 func without(vars map[string]string, keys ...string) map[string]string {
@@ -254,7 +262,7 @@ func TestLoadReportsEveryMissingVariable(t *testing.T) {
 
 func TestWorkerDoesNotNeedTheAPISettings(t *testing.T) {
 	setEnv(t, without(allVars,
-		"GITHUB_CLIENT_SECRET", "GITHUB_REDIRECT_URI", "GITHUB_APP_SLUG", "WEBHOOK_BASE_URL"))
+		"GITHUB_CLIENT_SECRET", "GITHUB_REDIRECT_URI", "GITHUB_APP_SLUG"))
 
 	if _, err := Load(RoleWorker); err != nil {
 		t.Fatalf("worker should load without API settings: %v", err)
@@ -429,5 +437,26 @@ func TestAWSTargetStillNeedsItsSettings(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "ECS_CLUSTER_NAME") || !strings.Contains(err.Error(), "BASE_DOMAIN") {
 		t.Fatalf("err = %v, want the missing AWS settings listed", err)
+	}
+}
+
+func TestTheWebhookSecretIsOptionalButNotGuessable(t *testing.T) {
+	setEnv(t, without(allVars, "GITHUB_WEBHOOK_SECRET"))
+	cfg, err := Load(RoleServe)
+	if err != nil {
+		t.Fatalf("serve should load without a webhook secret: %v", err)
+	}
+	if cfg.GitHubWebhookSecret != "" {
+		t.Errorf("GitHubWebhookSecret = %q, want none", cfg.GitHubWebhookSecret)
+	}
+
+	setEnv(t, with(allVars, "GITHUB_WEBHOOK_SECRET", "  "+strings.Repeat("s", 16)+"  "))
+	if cfg, err := Load(RoleServe); err != nil || cfg.GitHubWebhookSecret != strings.Repeat("s", 16) {
+		t.Fatalf("a 16 character secret (trimmed) was refused or changed: %q, %v", cfg.GitHubWebhookSecret, err)
+	}
+
+	setEnv(t, with(allVars, "GITHUB_WEBHOOK_SECRET", "short"))
+	if _, err := Load(RoleServe); err == nil || !strings.Contains(err.Error(), "GITHUB_WEBHOOK_SECRET must be at least 16") {
+		t.Fatalf("a short secret was accepted, or the error does not say why: %v", err)
 	}
 }

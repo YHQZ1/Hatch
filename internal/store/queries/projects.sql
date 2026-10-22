@@ -1,6 +1,6 @@
 -- name: CreateProject :one
 INSERT INTO projects (
-  user_id, repo_name, repo_url, branch, dockerfile_path, port, subdomain, webhook_secret, health_check
+  user_id, repo_name, repo_url, branch, dockerfile_path, port, subdomain, health_check, auto_deploy
 ) VALUES (
   $1, $2, $3, $4, $5, $6, $7, $8, $9
 ) RETURNING *;
@@ -21,20 +21,9 @@ SELECT * FROM projects WHERE id = $1 AND user_id = $2;
 SELECT * FROM projects WHERE repo_url = $1 LIMIT 1;
 
 -- name: GetProjectsByRepoURL :many
-SELECT * FROM projects WHERE repo_url = $1 ORDER BY created_at DESC;
-
--- name: UpdateProjectWebhook :exec
-UPDATE projects
-SET webhook_secret = $2,
-    github_webhook_id = $3,
-    auto_deploy = $4
-WHERE id = $1;
-
--- name: ClearProjectWebhook :exec
-UPDATE projects
-SET github_webhook_id = NULL,
-    auto_deploy = false
-WHERE id = $1;
+-- GitHub treats owner and repository names without regard to case, so a push
+-- finds the project however its address was typed.
+SELECT * FROM projects WHERE lower(repo_url) = lower($1) ORDER BY created_at DESC;
 
 -- name: UpdateProjectSettings :one
 UPDATE projects
