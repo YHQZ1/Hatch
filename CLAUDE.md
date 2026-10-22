@@ -44,6 +44,12 @@ Read, in order:
   1,000-line components.
 - Dependencies: one Go module at the root; run `go mod tidy` after adding
   one.
+- Targets: `HATCH_TARGET=local` (the default) builds and runs apps with the
+  host's Docker (`build/docker` in local mode, `runtime/docker`) and serves them
+  through the built-in proxy in `internal/proxy` (ADR 0018); `aws` is the old
+  path. Pick the providers in `cmd/hatch/run.go` only; nothing else may know the
+  target. Anything that drives the `docker` CLI validates names against a DNS
+  label first and passes secrets by `--env-file`, never as arguments.
 - Jobs: background work is a River job in `internal/jobs`, queued with
   `InsertTx` in the same transaction as the change that causes it, and worked
   against the `build.Builder` and `runtime.Runtime` interfaces, never against
@@ -99,6 +105,7 @@ go run ./cmd/hatch help         # serve, worker, migrate, version
 make build                      # bin/hatch, version stamped from git
 
 make web                        # build the web UI into web/dist (embedded by go build)
+HATCH_TEST_DOCKER=1 go test ./internal/runtime/docker ./internal/build/docker   # opt-in: builds and runs real containers (needs Docker; pulls busybox)
 make check                      # golangci-lint, ESLint, go test -race, web tests
 cd web && pnpm lint && pnpm build   # web checks (pnpm, version pinned in package.json)
 ```

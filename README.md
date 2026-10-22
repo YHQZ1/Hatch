@@ -116,18 +116,25 @@ To run the single binary instead, `make build` builds the web UI into
 `bin/hatch`, and `bin/hatch serve` then serves the UI and the API together on
 port 8080.
 
-Signing in, browsing repositories, and creating projects work with only the
-local services. Building and deploying need an AWS account with an ECR
-repository, an ECS cluster, and an ALB, set in `.env`. The rebuild removes
-that requirement for local development.
+By default Hatch uses the **local target** (`HATCH_TARGET=local`): it clones a
+repository, builds its Dockerfile with this machine's Docker, runs the image as
+a container, and serves it at `http://<name>.localhost:8081` through a reverse
+proxy built into `hatch serve`. It needs Docker running and no AWS account.
+Deploying a repository still needs the GitHub App installed on it, because the
+build clones with the App's installation token.
+
+`HATCH_TARGET=aws` keeps the old hosted path, which needs an AWS account with an
+ECR repository, an ECS cluster, and an ALB, set in `.env`.
 
 ## Repository layout
 
 ```text
 cmd/hatch          the hatch binary: `serve`, `worker`, and `migrate` commands
 internal/api       REST API, GitHub OAuth and webhooks, WebSocket log hub
-internal/build     cloning, building, and pushing images
-internal/runtime   ECS services and ALB routing
+internal/build     cloning, building, and pushing images (Docker, ECR)
+internal/runtime   running apps: local Docker containers, or ECS services and ALB routing
+internal/proxy     the built-in reverse proxy for <name>.localhost
+internal/jobs      the background jobs (build, deploy, delete, pause and resume)
 internal/store     database access (sqlc) and migrations
 internal/config    configuration loading
 internal/secrets   encryption at rest
