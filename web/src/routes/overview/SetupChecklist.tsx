@@ -6,12 +6,22 @@ export interface SetupStep {
   title: string;
   detail: string;
   done: boolean;
+  /**
+   * A suggestion, not a requirement: it does not count towards the progress,
+   * is never the highlighted next step, and does not keep the list open.
+   */
+  optional?: boolean;
   action: { label: string; href: string; external?: boolean };
 }
 
+const NEXT_CLASS =
+  "mt-3 inline-flex h-8 items-center rounded-hatch bg-accent px-3 text-sm font-medium text-accent-ink transition-colors hover:bg-accent-hover";
+const OPTIONAL_CLASS =
+  "mt-3 inline-flex h-8 items-center rounded-hatch border border-line-strong px-3 text-sm font-medium text-ink transition-colors hover:border-ink/40 hover:bg-ink/5";
+
 /**
  * A short list of what is left to do before the first deploy. It is only
- * shown until every step is done, and lists only steps that exist today.
+ * shown until every required step is done, and lists only steps that exist today.
  */
 export default function SetupChecklist({
   steps,
@@ -20,20 +30,22 @@ export default function SetupChecklist({
   steps: SetupStep[];
   className?: string;
 }) {
-  const doneCount = steps.filter((step) => step.done).length;
-  const nextId = steps.find((step) => !step.done)?.id;
+  // Progress counts what is required; an optional step is offered alongside.
+  const required = steps.filter((step) => !step.optional);
+  const doneCount = required.filter((step) => step.done).length;
+  const nextId = required.find((step) => !step.done)?.id;
 
   return (
     <section className={cn("rounded-hatch border border-line-strong bg-base", className)}>
       <div className="relative flex h-12 items-center justify-between border-b border-line px-4">
         <h2 className="text-sm font-semibold">Get started</h2>
         <p className="text-[13px] text-muted">
-          {doneCount} of {steps.length}
+          {doneCount} of {required.length}
         </p>
         <div aria-hidden className="absolute inset-x-0 bottom-[-1px] h-px">
           <div
             className="h-px bg-accent transition-[width] duration-500"
-            style={{ width: `${(doneCount / steps.length) * 100}%` }}
+            style={{ width: `${(doneCount / required.length) * 100}%` }}
           />
         </div>
       </div>
@@ -60,23 +72,20 @@ export default function SetupChecklist({
             <div className="min-w-0 flex-1">
               <p className={cn("text-sm font-medium", step.done && "text-muted line-through decoration-faint")}>
                 {step.title}
+                {step.optional && !step.done && (
+                  <span className="ml-2 text-xs font-normal text-faint">Optional</span>
+                )}
               </p>
               {!step.done && (
                 <p className="mt-1 text-sm leading-relaxed text-muted">{step.detail}</p>
               )}
-              {step.id === nextId &&
+              {(step.id === nextId || (step.optional && !step.done)) &&
                 (step.action.external ? (
-                  <a
-                    href={step.action.href}
-                    className="mt-3 inline-flex h-8 items-center rounded-hatch bg-accent px-3 text-sm font-medium text-accent-ink transition-colors hover:bg-accent-hover"
-                  >
+                  <a href={step.action.href} className={step.id === nextId ? NEXT_CLASS : OPTIONAL_CLASS}>
                     {step.action.label}
                   </a>
                 ) : (
-                  <Link
-                    to={step.action.href}
-                    className="mt-3 inline-flex h-8 items-center rounded-hatch bg-accent px-3 text-sm font-medium text-accent-ink transition-colors hover:bg-accent-hover"
-                  >
+                  <Link to={step.action.href} className={step.id === nextId ? NEXT_CLASS : OPTIONAL_CLASS}>
                     {step.action.label}
                   </Link>
                 ))}

@@ -6,6 +6,8 @@ import SelectField from "@/components/SelectField";
 import { AppShell, Button } from "@/components/ui";
 import { PlusIcon } from "./overview/Glyphs";
 import { useNotice } from "@/components/useNotice";
+import { getAppConfig } from "@/lib/api";
+import { useAwsConnection } from "@/lib/aws";
 import { githubReposQuery, isActiveDeployment, trafficQuery } from "@/lib/queries";
 import { useServiceRows } from "./services/useServiceRows";
 import AccountPanel from "./overview/AccountPanel";
@@ -14,10 +16,8 @@ import RecentActivity from "./overview/RecentActivity";
 import RightNow from "./overview/RightNow";
 import ProjectCard from "./overview/ProjectCard";
 import ProjectRow from "./overview/ProjectRow";
-import SetupChecklist, {
-  SetupChecklistSkeleton,
-  type SetupStep,
-} from "./overview/SetupChecklist";
+import SetupChecklist, { SetupChecklistSkeleton } from "./overview/SetupChecklist";
+import { isSetupFinished, setupSteps } from "./overview/setup";
 import Toolbar, { FilterTabs, type ViewMode } from "./overview/Toolbar";
 import TrafficPanel from "./overview/TrafficPanel";
 import {
@@ -91,34 +91,19 @@ export default function OverviewPage() {
   const [view, setView] = useStoredView(VIEW_KEY);
   const searchRef = useSearchShortcut();
 
-  const steps: SetupStep[] = [
-    {
-      id: "signin",
-      title: "Sign in with GitHub",
-      detail: "",
-      done: true,
-      action: { label: "", href: "/overview" },
-    },
-    {
-      id: "app",
-      title: "Install the Hatch App",
-      detail: "Choose which repositories Hatch can read. It never gets write access.",
-      done: repos.data?.installed === true,
-      action: { label: "Install on GitHub", href: "/auth/install", external: true },
-    },
-    {
-      id: "deploy",
-      title: "Deploy your first service",
-      detail: "Pick a repository with a Dockerfile and Hatch builds and runs it.",
-      done: rows.length > 0,
-      action: { label: "New service", href: "/new" },
-    },
-  ];
-  // Both answers are needed to know whether setup is finished. Until then the
+  const aws = useAwsConnection();
+  const awsAvailable = getAppConfig().awsConnections;
+  const steps = setupSteps({
+    appInstalled: repos.data?.installed === true,
+    awsAvailable,
+    awsConnected: aws.connected,
+    hasProjects: rows.length > 0,
+  });
+  // The answers are needed to know whether setup is finished. Until then the
   // checklist's space is held (unless it was finished last time), so nothing
   // jumps when the answer arrives.
-  const setupKnown = !loading && !repos.isPending;
-  const setupFinished = steps.every((step) => step.done);
+  const setupKnown = !loading && !repos.isPending && !(awsAvailable && aws.loading);
+  const setupFinished = isSetupFinished(steps);
   const [wasFinished] = useState(readSetupDone);
   const showSetup = setupKnown && !setupFinished;
   const showSetupSkeleton = !setupKnown && !wasFinished;
