@@ -4,12 +4,13 @@ import { useAwsConnection } from "@/lib/aws";
 import PanelHeader from "./PanelHeader";
 
 /**
- * Holds the place of what the AWS phase brings: the account and the month's
- * cost. It says in plain words what will appear and when, and shows no made-up
- * numbers. The phase that connects an account replaces it.
+ * For an account that is not connected yet: the account, and the month's cost,
+ * which arrives with the cost phase. It says in plain words what will appear
+ * and when, and shows no made-up numbers. Once an account is connected it is
+ * gone; the connection itself is on the AWS page of Settings.
  */
 export default function AccountPanel({ className }: { className?: string }) {
-  const { connected } = useAwsConnection();
+  const { connected, loading } = useAwsConnection();
   if (connected) return null;
 
   return (
@@ -24,15 +25,15 @@ export default function AccountPanel({ className }: { className?: string }) {
           <dt className="text-muted">AWS account</dt>
           <dd className="flex items-center gap-2 font-medium text-muted">
             <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-faint" />
-            Not connected
+            {loading ? "—" : "Not connected"}
           </dd>
         </div>
       </dl>
       <p className="border-t border-line p-4 text-[13px] leading-relaxed text-muted">
         Hatch deploys into an AWS account you own, so the bill is yours. Cost shows here, against a
-        monthly cap, once one is connected.{" "}
+        monthly cap, once the cost phase is built and an account is connected.{" "}
         <Link to="/settings?section=aws" className="text-accent transition-colors hover:text-accent-hover">
-          See how connecting works
+          Connect an account
         </Link>
         .
       </p>

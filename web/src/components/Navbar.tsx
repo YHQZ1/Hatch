@@ -88,13 +88,13 @@ export default function Navbar({
         <div className="relative flex shrink-0 items-center gap-3 pl-4" ref={menuRef}>
           <Link
             to="/settings?section=aws"
-            className="hidden h-10 items-center gap-2 rounded-hatch border border-line-strong px-3 text-sm text-muted transition-colors hover:border-ink/40 hover:text-ink xl:flex"
+            className="hidden h-10 min-w-[10.5rem] items-center justify-center gap-2 rounded-hatch border border-line-strong px-3 text-sm text-muted transition-colors hover:border-ink/40 hover:text-ink xl:flex"
           >
             <span
               aria-hidden
               className={cn("h-1.5 w-1.5 rounded-full", aws.connected ? "bg-success" : "bg-faint")}
             />
-            {aws.connected ? "AWS connected" : "AWS not connected"}
+            {aws.loading ? "AWS" : aws.connected ? "AWS connected" : "AWS not connected"}
           </Link>
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <div className="hidden sm:block">

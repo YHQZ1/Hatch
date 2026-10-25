@@ -103,7 +103,7 @@ export default function SettingsPage() {
             <AccountSection user={me.data} onSignOut={handleSignOut} />
           )}
           {section === "github" && <GitHubSection />}
-          {section === "aws" && <AwsSection />}
+          {section === "aws" && <AwsSection notify={setNotice} />}
           {section === "guardrails" && <GuardrailsSection />}
           {section === "browser" && <BrowserSection onClear={handleClearCache} />}
         </div>

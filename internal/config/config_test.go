@@ -487,6 +487,7 @@ func TestAWSConnectionSettingsAreOptionalAndGoTogether(t *testing.T) {
 		{"only the template", with(allVars, "HATCH_CONNECT_TEMPLATE_URL", template), "go together"},
 		{"a principal that is not an ARN", with(with(allVars, "HATCH_AWS_PRINCIPAL_ARN", "hatch"), "HATCH_CONNECT_TEMPLATE_URL", template), "HATCH_AWS_PRINCIPAL_ARN"},
 		{"a template over http", with(with(allVars, "HATCH_AWS_PRINCIPAL_ARN", principal), "HATCH_CONNECT_TEMPLATE_URL", "http://example.com/t.yaml"), "HATCH_CONNECT_TEMPLATE_URL"},
+		{"a template that is not in S3", with(with(allVars, "HATCH_AWS_PRINCIPAL_ARN", principal), "HATCH_CONNECT_TEMPLATE_URL", "https://example.com/hatch-connect.yaml"), "address in S3"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

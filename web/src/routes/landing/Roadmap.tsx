@@ -22,13 +22,13 @@ const COLUMNS: { status: Status; heading: string; items: string[] }[] = [
       "Sign in with a GitHub App",
       "Dockerfile builds and deploys on local Docker",
       "Live build and runtime logs",
+      "Connect an AWS account",
     ],
   },
   {
     status: "planned",
     heading: "Next",
     items: [
-      "Connect an AWS account",
       "Run services in your account",
       "All cost guardrails",
       "Workers, cron jobs and databases",

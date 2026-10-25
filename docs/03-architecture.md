@@ -216,9 +216,9 @@ sequenceDiagram
 ### As built so far
 
 Built (2026-10-25): the table, the API that starts and manages a connection, the
-`verify_connection` job that checks one, and the code behind it. Not built: the
-page, re-checking a connected account on a schedule, and anything that uses a
-connection to build or run an app.
+`verify_connection` job that checks one, the code behind it, and the page. Not
+built: re-checking a connected account on a schedule, updating a stack to a newer
+template, and anything that uses a connection to build or run an app.
 
 - `cloud_connections` (migration 000016): user, status (`pending`, `connected`
   or `error`), region, stack name, ExternalId, the principal it was created with,
@@ -252,6 +252,14 @@ connection to build or run an app.
   [0022](decisions/0022-the-connect-template-is-published-to-a-public-bucket.md)).
   Set one without the other and Hatch will not start; set neither and starting a
   connection answers 503.
+- The page is the AWS section of Settings (`web/src/routes/settings/aws/`). The
+  server tells it whether connecting is set up (`aws_connections` in
+  `GET /api/config`); if not, it says so instead of offering a form. It polls
+  while a check runs, shows the server's own message when one fails, and warns
+  when a connected account serves apps over HTTP. The top bar's AWS chip and the
+  Overview's AWS panel read the same connections (`web/src/lib/aws.ts`). The
+  connections are not kept in session storage, since each carries the link that
+  opens its stack.
 - `internal/cloud/aws` builds the link and verifies a connection against faked
   STS and CloudFormation; the SDK versions have never run against AWS.
 
