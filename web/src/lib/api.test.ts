@@ -51,6 +51,18 @@ test("the server says whether pushes can deploy anything, and the default is no"
   }
 });
 
+test("the server says whether AWS accounts can be connected, and the default is no", async () => {
+  fetchMock.mockResolvedValueOnce(jsonResponse({ base_domain: "x.dev", aws_connections: true }));
+  await loadAppConfig();
+  expect(getAppConfig().awsConnections).toBe(true);
+
+  for (const value of [false, "true", 1, null, undefined]) {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ base_domain: "x.dev", aws_connections: value }));
+    await loadAppConfig();
+    expect(getAppConfig().awsConnections, String(value)).toBe(false);
+  }
+});
+
 test("hosts that are already complete are left alone", () => {
   expect(productionHost("my-app.other.dev")).toBe("my-app.other.dev");
   expect(deploymentUrl("https://my-app.other.dev")).toBe("https://my-app.other.dev");

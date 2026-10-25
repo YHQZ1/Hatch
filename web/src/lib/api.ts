@@ -197,9 +197,19 @@ export interface AppConfig {
    * Without it nothing can deploy a project on a push, however it is configured.
    */
   webhooks: boolean;
+  /**
+   * Whether this server is set up to connect users' AWS accounts. Without it the
+   * connection form could only fail, so the page says so instead of offering it.
+   */
+  awsConnections: boolean;
 }
 
-let appConfig: AppConfig = { baseDomain: "", deploymentUrlScheme: "https", webhooks: false };
+let appConfig: AppConfig = {
+  baseDomain: "",
+  deploymentUrlScheme: "https",
+  webhooks: false,
+  awsConnections: false,
+};
 
 export function getAppConfig(): AppConfig {
   return appConfig;
@@ -223,6 +233,7 @@ export async function loadAppConfig(): Promise<void> {
       deploymentUrlScheme:
         data?.deployment_url_scheme === "http" ? "http" : "https",
       webhooks: data?.webhooks === true,
+      awsConnections: data?.aws_connections === true,
     };
   } catch {
     // Keep the defaults.

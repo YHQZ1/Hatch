@@ -2,6 +2,7 @@ import { type UseQueryResult, queryOptions } from "@tanstack/react-query";
 import { apiJson } from "./api";
 import type {
   ActivityEvent,
+  CloudConnection,
   Deployment,
   GitHubInstallation,
   GitHubRepo,
@@ -133,6 +134,27 @@ export const projectDeploymentsQuery = (projectId: string) =>
       )
         ? POLL_MS
         : false,
+  });
+
+export const NO_CONNECTIONS: CloudConnection[] = [];
+
+/** How often to look again while a connection is being checked, which takes seconds. */
+const CHECK_POLL_MS = 2500;
+
+/** A role has been given and the check has not finished. */
+export const isChecking = (connection: CloudConnection) =>
+  connection.status === "pending" && connection.role_arn !== null;
+
+/**
+ * The user's AWS connections, newest first; polls while one is being checked.
+ * The key is not kept between visits: each carries the link that opens its stack.
+ */
+export const connectionsQuery = () =>
+  queryOptions({
+    queryKey: ["connections"],
+    queryFn: async () =>
+      list(await apiJson<CloudConnection[] | null>("/api/connections"), NO_CONNECTIONS),
+    refetchInterval: (query) => (query.state.data?.some(isChecking) ? CHECK_POLL_MS : false),
   });
 
 /** How often the traffic counts are re-read. */

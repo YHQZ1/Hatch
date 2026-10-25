@@ -104,3 +104,26 @@ export interface GitHubInstallation {
   account: string;
   type: "User" | "Organization" | string;
 }
+
+/** A connection to one of the user's own AWS accounts (GET /api/connections). */
+export interface CloudConnection {
+  id: string;
+  provider: "aws";
+  /** pending until checked, then connected or error. */
+  status: "pending" | "connected" | "error";
+  region: string;
+  stack_name: string;
+  monthly_budget_usd: number;
+  budget_email: string;
+  certificate_arn: string | null;
+  role_arn: string | null;
+  aws_account_id: string | null;
+  template_version: string | null;
+  template_up_to_date: boolean | null;
+  serves_https: boolean | null;
+  last_error: string | null;
+  last_verified_at: string | null;
+  created_at: string;
+  /** Opens the stack in the user's AWS console; given until the connection is connected. */
+  quick_create_url?: string;
+}
