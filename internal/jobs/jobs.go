@@ -117,7 +117,8 @@ func Run(ctx context.Context, deps Deps, grace time.Duration) error {
 	}
 	// River's own context must outlive ctx so that jobs can be given time to
 	// finish after shutdown starts.
-	workCtx, cancelWork := context.WithCancel(context.WithoutCancel(ctx))
+	workCtx, stopping := withStopping(context.WithoutCancel(ctx))
+	workCtx, cancelWork := context.WithCancel(workCtx)
 	defer cancelWork()
 	if err := client.Start(workCtx); err != nil {
 		return fmt.Errorf("start the job runner: %w", err)
@@ -125,6 +126,7 @@ func Run(ctx context.Context, deps Deps, grace time.Duration) error {
 	slog.Info("job runner started")
 
 	<-ctx.Done()
+	stopping.Store(true)
 	slog.Info("job runner stopping", "grace", grace)
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), grace)

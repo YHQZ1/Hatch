@@ -407,6 +407,63 @@ func TestABuildInterruptedByShutdownResumesOnTheNextStart(t *testing.T) {
 	eventually(t, func() bool { return h.jobState("build") == "completed" }, func() string { return "build job state " + h.jobState("build") })
 }
 
+// Stopping Hatch gives running jobs a grace period before their context is
+// canceled, and the terminal (or a process manager) signals a build's docker
+// child at once, so the build can die with its own error while the job's context
+// still looks healthy. That is shutdown's doing, not the build's.
+func TestABuildThatDiesWhileHatchIsStoppingResumesOnTheNextStart(t *testing.T) {
+	h := newHarness(t)
+	var calls sync.Mutex
+	count := 0
+	started := make(chan struct{})
+	release := make(chan struct{})
+	h.builder.BuildFunc = func(_ context.Context, spec build.Spec) (build.Image, error) {
+		calls.Lock()
+		count++
+		first := count == 1
+		calls.Unlock()
+		if first {
+			close(started)
+			<-release
+			return build.Image{}, errors.New("docker build failed: exit status 130")
+		}
+		return build.Image{URI: "fake.registry/hatch:" + spec.DeploymentID}, nil
+	}
+	d := h.newDeployment(nil)
+
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	stopped := make(chan error, 1)
+	go func() { stopped <- Run(ctx, h.deps, time.Minute) }()
+	// Run starts its own client, so the job is queued from a plain inserter.
+	inserter, err := NewInserter(h.pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inserter.Insert(context.Background(), h.buildArgs(d), nil); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+
+	stop()
+	// Let Run notice, then let the build die inside the grace period.
+	time.Sleep(200 * time.Millisecond)
+	close(release)
+	if err := <-stopped; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if got := h.status(d.ID).Status; got != "building" {
+		t.Fatalf("status after shutdown = %q, want building (not failed)", got)
+	}
+	if got := h.jobState("build"); got == "cancelled" || got == "discarded" {
+		t.Fatalf("build job state after shutdown = %q, want it to run again", got)
+	}
+
+	h.start()
+	h.waitForStatus(d.ID, "live")
+}
+
 func TestDestroyAppRemovesTheServiceImagesAndProject(t *testing.T) {
 	h := newHarness(t)
 	d := h.newDeployment(nil)
