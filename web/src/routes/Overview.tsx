@@ -17,7 +17,7 @@ import RightNow from "./overview/RightNow";
 import ProjectCard from "./overview/ProjectCard";
 import ProjectRow from "./overview/ProjectRow";
 import SetupChecklist, { SetupChecklistSkeleton } from "./overview/SetupChecklist";
-import { setupSteps } from "./overview/setup";
+import { isSetupFinished, setupSteps } from "./overview/setup";
 import Toolbar, { FilterTabs, type ViewMode } from "./overview/Toolbar";
 import TrafficPanel from "./overview/TrafficPanel";
 import {
@@ -103,7 +103,7 @@ export default function OverviewPage() {
   // checklist's space is held (unless it was finished last time), so nothing
   // jumps when the answer arrives.
   const setupKnown = !loading && !repos.isPending && !(awsAvailable && aws.loading);
-  const setupFinished = steps.every((step) => step.done);
+  const setupFinished = isSetupFinished(steps);
   const [wasFinished] = useState(readSetupDone);
   const showSetup = setupKnown && !setupFinished;
   const showSetupSkeleton = !setupKnown && !wasFinished;

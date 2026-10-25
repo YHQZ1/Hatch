@@ -13,8 +13,8 @@ export interface SetupState {
 /**
  * What is left to do before the first deploy, in the order of the user journey
  * (docs/01-vision.md): GitHub, then AWS, then a project. The AWS step is listed
- * only where this server can connect an account; elsewhere it could never be
- * done, and a checklist that cannot finish is worse than none.
+ * only where this server can connect an account, and it is optional: nothing
+ * needs it until deploys to AWS exist (Phase 3), so it is offered, not required.
  */
 export function setupSteps(state: SetupState): SetupStep[] {
   return [
@@ -38,8 +38,9 @@ export function setupSteps(state: SetupState): SetupStep[] {
             id: "aws",
             title: "Connect your AWS account",
             detail:
-              "Hatch deploys into an AWS account you own, so the bill is yours. You create one stack in your own AWS console and paste a role into Hatch; it never asks for access keys. Deploying to it arrives in the next phase; until then, projects run on local Docker.",
+              "Hatch deploys into an AWS account you own, so the bill is yours. Optional for now: deploying to it arrives in the next phase, and until then projects run on local Docker. You create one stack in your own AWS console and paste a role into Hatch; it never asks for access keys.",
             done: state.awsConnected,
+            optional: true,
             action: { label: "Connect AWS", href: "/settings?section=aws" },
           },
         ]
@@ -52,4 +53,9 @@ export function setupSteps(state: SetupState): SetupStep[] {
       action: { label: "New service", href: "/new" },
     },
   ];
+}
+
+/** Setup is finished when every required step is done; an optional one may wait. */
+export function isSetupFinished(steps: SetupStep[]): boolean {
+  return steps.every((step) => step.done || step.optional === true);
 }

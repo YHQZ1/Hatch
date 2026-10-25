@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { setupSteps } from "./setup";
+import { isSetupFinished, setupSteps } from "./setup";
 
 const none = { appInstalled: false, awsAvailable: true, awsConnected: false, hasProjects: false };
 const ids = (state = none) => setupSteps(state).map((step) => step.id);
@@ -25,11 +25,18 @@ describe("setupSteps", () => {
     });
   });
 
-  it("is finished only when every listed step is, so a server without AWS can finish", () => {
-    const finished = (state: typeof none) => setupSteps(state).every((step) => step.done);
-    expect(finished({ appInstalled: true, awsAvailable: false, awsConnected: false, hasProjects: true })).toBe(true);
-    expect(finished({ appInstalled: true, awsAvailable: true, awsConnected: false, hasProjects: true })).toBe(false);
-    expect(finished({ appInstalled: true, awsAvailable: true, awsConnected: true, hasProjects: true })).toBe(true);
+  it("is finished when the required steps are, whether or not AWS is connected", () => {
+    const finished = (state: typeof none) => isSetupFinished(setupSteps(state));
+    const base = { appInstalled: true, hasProjects: true };
+    expect(finished({ ...base, awsAvailable: false, awsConnected: false })).toBe(true);
+    expect(finished({ ...base, awsAvailable: true, awsConnected: false })).toBe(true);
+    expect(finished({ ...base, awsAvailable: true, awsConnected: true })).toBe(true);
+    expect(finished({ appInstalled: false, hasProjects: true, awsAvailable: true, awsConnected: true })).toBe(false);
+    expect(finished({ appInstalled: true, hasProjects: false, awsAvailable: true, awsConnected: true })).toBe(false);
+  });
+
+  it("makes AWS the only optional step", () => {
+    expect(setupSteps(none).filter((step) => step.optional).map((step) => step.id)).toEqual(["aws"]);
   });
 
   it("sends the AWS step to the AWS page of Settings, inside the app", () => {
@@ -40,6 +47,7 @@ describe("setupSteps", () => {
 
   it("does not promise AWS deploys that do not exist yet", () => {
     const aws = setupSteps(none).find((step) => step.id === "aws");
+    expect(aws?.detail).toMatch(/Optional for now/);
     expect(aws?.detail).toMatch(/arrives in the next phase/);
     expect(aws?.detail).toMatch(/local Docker/);
   });
