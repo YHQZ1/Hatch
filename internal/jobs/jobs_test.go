@@ -459,6 +459,9 @@ func TestABuildThatDiesWhileHatchIsStoppingResumesOnTheNextStart(t *testing.T) {
 	if got := h.jobState("build"); got == "cancelled" || got == "discarded" {
 		t.Fatalf("build job state after shutdown = %q, want it to run again", got)
 	}
+	if log := h.logs.text(d.ID); !strings.Contains(log, "build was interrupted") {
+		t.Errorf("the log does not say the build was interrupted:\n%s", log)
+	}
 
 	h.start()
 	h.waitForStatus(d.ID, "live")
