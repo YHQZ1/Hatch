@@ -217,12 +217,12 @@ sequenceDiagram
 
 | Resource | Notes |
 |----------|-------|
-| IAM role `hatch-control` | Trusts Hatch's principal with the ExternalId condition. Policy limited to `hatch-` resources and required reads. |
+| IAM role `hatch-control` | Trusts the configured Hatch principal ([0020](decisions/0020-the-connection-role-trusts-a-configured-principal.md)) with the ExternalId condition. Policy limited to `hatch-` resources and required reads. |
 | IAM role `hatch-task-execution` | Used by ECS to pull images and read app secrets. |
 | IAM role `hatch-codebuild` | Used by CodeBuild to pull source and push to ECR. |
 | VPC, 2 public subnets, security groups | App security group accepts traffic only from the ALB. |
 | ECS cluster `hatch` | Fargate only. |
-| ALB with HTTP→HTTPS redirect | Certificate is optional at connect time; without one, apps use HTTP on the ALB hostname _(open)_. |
+| ALB with HTTP→HTTPS redirect | Certificate is optional at connect time; without one, apps use HTTP on the ALB hostname ([0021](decisions/0021-http-only-without-a-domain.md)). |
 | ECR repository `hatch-apps` | Lifecycle policy expires untagged and old images. |
 | CodeBuild project `hatch-build` | Privileged mode for Docker builds; per-build source and image passed as overrides. |
 | CloudWatch log group `/hatch/apps` | Retention set (for example 14 days) so logs do not grow forever. |

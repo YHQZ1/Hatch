@@ -116,6 +116,7 @@ make build                      # bin/hatch, version stamped from git
 make web                        # build the web UI into web/dist (embedded by go build)
 HATCH_TEST_DOCKER=1 go test ./internal/runtime/docker ./internal/build/docker   # opt-in: builds and runs real containers (needs Docker; pulls busybox)
 make check                      # golangci-lint, ESLint, go test -race, web tests
+pipx run cfn-lint deploy/cloudformation/hatch-connect.yaml   # the AWS connection template; CI runs it
 cd web && pnpm lint && pnpm build   # web checks (pnpm, version pinned in package.json)
 ```
 

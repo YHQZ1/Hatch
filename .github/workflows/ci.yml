@@ -60,6 +60,11 @@ jobs:
       - name: Lint
         run: make lint-go
 
+      # The template the user runs in their own AWS account: a mistake here is
+      # found when someone connects, not when the code is built.
+      - name: Lint the CloudFormation template
+        run: pipx run --spec cfn-lint==1.58.0 cfn-lint deploy/cloudformation/hatch-connect.yaml
+
       # Tests that need Postgres create and drop their own databases here.
       - name: Test
         run: make test
