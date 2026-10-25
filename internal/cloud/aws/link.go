@@ -38,6 +38,25 @@ var (
 	certPattern      = regexp.MustCompile(`^arn:aws[a-z-]*:acm:([a-z0-9-]+):[0-9]{12}:certificate/.+$`)
 )
 
+// ValidatePrincipalARN checks the AWS identity the hatch-control role will trust:
+// an IAM role, user or account root (ADR 0020).
+func ValidatePrincipalARN(arn string) error {
+	if !principalPattern.MatchString(arn) {
+		return fmt.Errorf("the principal %q is not the ARN of an IAM role, user or account", arn)
+	}
+	return nil
+}
+
+// ValidateTemplateURL checks the address the template is published at, which
+// CloudFormation fetches over https (ADR 0022).
+func ValidateTemplateURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("the template URL must be an https address")
+	}
+	return nil
+}
+
 // QuickCreateURL builds the CloudFormation console link that opens the
 // hatch-connect stack with its parameters filled in, so the user only reviews
 // and creates it. CloudFormation fetches the template itself, and only from S3,
@@ -51,8 +70,8 @@ func QuickCreateURL(p LinkParams) (string, error) {
 		return "", fmt.Errorf("%q is not an AWS region", p.Region)
 	case !stackNamePattern.MatchString(p.StackName):
 		return "", fmt.Errorf("%q is not a valid stack name", p.StackName)
-	case !principalPattern.MatchString(p.PrincipalARN):
-		return "", fmt.Errorf("the principal %q is not the ARN of an IAM role, user or account", p.PrincipalARN)
+	case ValidatePrincipalARN(p.PrincipalARN) != nil:
+		return "", ValidatePrincipalARN(p.PrincipalARN)
 	case !externalPattern.MatchString(p.ExternalID):
 		return "", fmt.Errorf("the external id must be 32 to 128 characters of letters, digits and _+=,.@:/-")
 	case p.MonthlyBudgetUSD < 1:
@@ -63,9 +82,8 @@ func QuickCreateURL(p LinkParams) (string, error) {
 	if m := certPattern.FindStringSubmatch(p.CertificateARN); p.CertificateARN != "" && (m == nil || m[1] != p.Region) {
 		return "", fmt.Errorf("the certificate must be an ACM certificate in %s", p.Region)
 	}
-	tu, err := url.Parse(p.TemplateURL)
-	if err != nil || tu.Scheme != "https" || tu.Host == "" {
-		return "", fmt.Errorf("the template URL must be an https address")
+	if err := ValidateTemplateURL(p.TemplateURL); err != nil {
+		return "", err
 	}
 
 	q := url.Values{}

@@ -213,6 +213,35 @@ sequenceDiagram
   prompts for a stack update when the template changes.
 - **Region:** one region per connection in v1.
 
+### As built so far
+
+Built (2026-10-25): the table, the API that starts a connection, and the code
+that will check one. Not built: checking one (the `verify_connection` job), the
+page, and anything that uses a connection to build or run an app.
+
+- `cloud_connections` (migration 000016): user, status (`pending`, `connected`
+  or `error`), region, stack name, ExternalId, the principal it was created with,
+  the budget, the optional certificate, the role ARN and account the user gave,
+  and what verification will record (template version, whether it serves HTTPS,
+  the stack's outputs, the last error and time).
+- `POST /api/connections` takes a region, a monthly budget, an email and an
+  optional certificate, records a pending connection with a fresh ExternalId, and
+  returns the CloudFormation quick-create link. `GET /api/connections` and
+  `GET /api/connections/:id` read them (the link is given until a connection is
+  connected). `PUT /api/connections/:id/role` saves the role ARN the stack
+  created; a different role starts over. `DELETE /api/connections/:id` forgets a
+  connection and leaves the stack in the user's account alone. All of it is scoped
+  to the signed-in user: someone else's connection is "not found". A user may have
+  five.
+- The ExternalId appears in the quick-create link and nowhere else in a response.
+- Two settings turn it on: `HATCH_AWS_PRINCIPAL_ARN` and
+  `HATCH_CONNECT_TEMPLATE_URL` ([0020](decisions/0020-the-connection-role-trusts-a-configured-principal.md),
+  [0022](decisions/0022-the-connect-template-is-published-to-a-public-bucket.md)).
+  Set one without the other and Hatch will not start; set neither and starting a
+  connection answers 503.
+- `internal/cloud/aws` builds the link and verifies a connection against faked
+  STS and CloudFormation; the SDK versions have never run against AWS.
+
 ### What the `hatch-connect` stack creates
 
 | Resource | Notes |
