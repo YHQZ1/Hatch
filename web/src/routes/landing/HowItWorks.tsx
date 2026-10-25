@@ -9,7 +9,7 @@ const STEPS = [
   },
   {
     title: "Connect your AWS account",
-    body: "One click to grant Hatch a scoped role. No access keys to copy or store.",
+    body: "Create one CloudFormation stack that grants Hatch a scoped role, and paste its role ARN. No access keys to copy or store.",
   },
   {
     title: "Deploy",
