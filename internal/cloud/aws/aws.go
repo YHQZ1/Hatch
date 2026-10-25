@@ -62,6 +62,10 @@ var (
 	// ErrCannotAssumeRole is the usual first mistake: the role ARN is wrong, the
 	// stack is not there yet, or it was made with a different ExternalId.
 	ErrCannotAssumeRole = errors.New("the role could not be assumed: check the role ARN, and that the stack was created from the link Hatch gave you, which carries this connection's ExternalId")
+	// ErrServerCredentials is Hatch's own identity being unusable, which no amount
+	// of fixing the role or the stack helps: the server has no AWS credentials, or
+	// they have expired or are wrong. It is the operator's to fix, so it says so.
+	ErrServerCredentials = errors.New("this Hatch server's own AWS credentials are missing or not valid, so it cannot assume the role; this is not something to fix in your account, ask whoever runs this Hatch")
 	// ErrStackNotFound means the role works but the stack is not in this region.
 	ErrStackNotFound = errors.New("the stack was not found in this region")
 	// ErrRoleMismatch means the stack belongs to another role than the one given.

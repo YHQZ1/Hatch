@@ -52,13 +52,37 @@ func (s *SDKSTS) AssumeRole(ctx context.Context, req AssumeRoleRequest) (Credent
 	}, nil
 }
 
-// classifyAssumeRole turns the SDK's error into one a person can act on. Only
-// AccessDenied means "wrong role or ExternalId"; anything else (throttling, no
-// network, Hatch's own credentials missing) is passed on as it is.
+// credentialErrorCodes are what AWS answers when the caller's own credentials
+// are the problem: unknown or expired keys, a session token that no longer works,
+// or a request that could not be signed.
+var credentialErrorCodes = map[string]bool{
+	"InvalidClientTokenId":        true,
+	"UnrecognizedClientException": true,
+	"ExpiredToken":                true,
+	"ExpiredTokenException":       true,
+	"SignatureDoesNotMatch":       true,
+	"InvalidSignatureException":   true,
+	"IncompleteSignature":         true,
+	"MissingAuthenticationToken":  true,
+}
+
+// classifyAssumeRole turns the SDK's error into one a person can act on.
+// AccessDenied means "wrong role or ExternalId", which the user can fix; a
+// credential error means Hatch's own identity is unusable, which only whoever runs
+// Hatch can fix; anything else (throttling, no network) is passed on as it is.
 func classifyAssumeRole(err error) error {
 	var api smithy.APIError
-	if errors.As(err, &api) && api.ErrorCode() == "AccessDenied" {
-		return ErrCannotAssumeRole
+	if errors.As(err, &api) {
+		switch {
+		case api.ErrorCode() == "AccessDenied":
+			return ErrCannotAssumeRole
+		case credentialErrorCodes[api.ErrorCode()]:
+			return ErrServerCredentials
+		}
+	}
+	// The SDK could not find any credentials to sign with, so no request was made.
+	if strings.Contains(err.Error(), "failed to retrieve credentials") || strings.Contains(err.Error(), "no EC2 IMDS role found") {
+		return ErrServerCredentials
 	}
 	return fmt.Errorf("assume the role: %w", err)
 }
