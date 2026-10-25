@@ -202,19 +202,9 @@ func Load(role Role) (*Config, error) {
 		}
 	}
 
-	if role == RoleServe {
-		cfg.Port = getEnv("PORT", "8080")
-		cfg.FrontendURL = strings.TrimRight(getEnv("FRONTEND_URL", "http://localhost:3000"), "/")
-		cfg.CORSAllowedOrigins = parseCSV(getEnv("CORS_ALLOWED_ORIGINS", cfg.FrontendURL))
-		cfg.GitHubClientSecret = r.require("GITHUB_CLIENT_SECRET")
-		cfg.GitHubRedirectURI = r.require("GITHUB_REDIRECT_URI")
-		cfg.GitHubAppSlug = r.require("GITHUB_APP_SLUG")
-		cfg.GitHubWebhookSecret = strings.TrimSpace(getEnv("GITHUB_WEBHOOK_SECRET", ""))
-		if cfg.GitHubWebhookSecret != "" && len(cfg.GitHubWebhookSecret) < minWebhookSecretLength {
-			r.problems = append(r.problems, fmt.Sprintf("GITHUB_WEBHOOK_SECRET must be at least %d characters, such as the output of `openssl rand -hex 32`", minWebhookSecretLength))
-		}
-		cfg.ALBArn = getEnv("ALB_ARN", "")
-
+	// Read by every role that works jobs: the API starts a connection, a worker
+	// verifies it.
+	if role != RoleMigrate {
 		cfg.AWSPrincipalARN = strings.TrimSpace(getEnv("HATCH_AWS_PRINCIPAL_ARN", ""))
 		cfg.ConnectTemplateURL = strings.TrimSpace(getEnv("HATCH_CONNECT_TEMPLATE_URL", ""))
 		switch {
@@ -229,6 +219,20 @@ func Load(role Role) (*Config, error) {
 				r.problems = append(r.problems, "HATCH_CONNECT_TEMPLATE_URL: "+err.Error())
 			}
 		}
+	}
+
+	if role == RoleServe {
+		cfg.Port = getEnv("PORT", "8080")
+		cfg.FrontendURL = strings.TrimRight(getEnv("FRONTEND_URL", "http://localhost:3000"), "/")
+		cfg.CORSAllowedOrigins = parseCSV(getEnv("CORS_ALLOWED_ORIGINS", cfg.FrontendURL))
+		cfg.GitHubClientSecret = r.require("GITHUB_CLIENT_SECRET")
+		cfg.GitHubRedirectURI = r.require("GITHUB_REDIRECT_URI")
+		cfg.GitHubAppSlug = r.require("GITHUB_APP_SLUG")
+		cfg.GitHubWebhookSecret = strings.TrimSpace(getEnv("GITHUB_WEBHOOK_SECRET", ""))
+		if cfg.GitHubWebhookSecret != "" && len(cfg.GitHubWebhookSecret) < minWebhookSecretLength {
+			r.problems = append(r.problems, fmt.Sprintf("GITHUB_WEBHOOK_SECRET must be at least %d characters, such as the output of `openssl rand -hex 32`", minWebhookSecretLength))
+		}
+		cfg.ALBArn = getEnv("ALB_ARN", "")
 	}
 
 	if err := r.err(); err != nil {

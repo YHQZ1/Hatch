@@ -35,3 +35,26 @@ RETURNING *;
 
 -- name: DeleteCloudConnection :execrows
 DELETE FROM cloud_connections WHERE id = $1 AND user_id = $2;
+
+-- The two below are what the verification job writes. Both only apply while the
+-- connection still has the role that was checked: if the user has given another
+-- one since, that result is about a role nobody is asking about any more.
+-- name: GetCloudConnection :one
+SELECT * FROM cloud_connections WHERE id = $1;
+
+-- name: RecordCloudConnectionVerified :execrows
+UPDATE cloud_connections
+SET status = 'connected',
+    aws_account_id = $3,
+    template_version = $4,
+    serves_https = $5,
+    stack_outputs = $6,
+    last_error = NULL,
+    last_verified_at = now(),
+    updated_at = now()
+WHERE id = $1 AND role_arn = $2;
+
+-- name: RecordCloudConnectionError :execrows
+UPDATE cloud_connections
+SET status = 'error', last_error = $3, updated_at = now()
+WHERE id = $1 AND role_arn = $2;

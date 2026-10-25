@@ -7,6 +7,7 @@ import (
 	"time"
 
 	awsconn "github.com/YHQZ1/hatch/internal/cloud/aws"
+	"github.com/YHQZ1/hatch/internal/jobs"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -23,14 +24,16 @@ const maxConnectionsPerUser = 5
 // hatch-connect stack; nothing here calls AWS.
 type ConnectionHandler struct {
 	queries *dbpkg.Queries
+	pool    *pgxpool.Pool
+	jobs    jobs.Inserter
 	// principalARN and templateURL are this server's settings (ADRs 0020, 0022).
 	// Without them a connection cannot be started.
 	principalARN string
 	templateURL  string
 }
 
-func NewConnectionHandler(pool *pgxpool.Pool, principalARN, templateURL string) *ConnectionHandler {
-	return &ConnectionHandler{queries: dbpkg.New(pool), principalARN: principalARN, templateURL: templateURL}
+func NewConnectionHandler(pool *pgxpool.Pool, inserter jobs.Inserter, principalARN, templateURL string) *ConnectionHandler {
+	return &ConnectionHandler{queries: dbpkg.New(pool), pool: pool, jobs: inserter, principalARN: principalARN, templateURL: templateURL}
 }
 
 func (h *ConnectionHandler) enabled() bool { return h.principalARN != "" && h.templateURL != "" }
@@ -231,11 +234,17 @@ type setRoleRequest struct {
 }
 
 // SetRole is PUT /api/connections/:id/role: the user gives the ARN of the
-// hatch-control role their stack created. It does not check that the role works;
-// that is verification's job. A different role than before starts over.
+// hatch-control role their stack created. Saving it queues a check of the
+// connection in the same transaction, so a role is never saved without one. A
+// different role than before starts over.
 func (h *ConnectionHandler) SetRole(c *gin.Context) {
+	ctx := c.Request.Context()
 	row, ok := h.own(c)
 	if !ok {
+		return
+	}
+	if !h.enabled() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AWS connections are not set up on this Hatch server"})
 		return
 	}
 	var req setRoleRequest
@@ -248,15 +257,73 @@ func (h *ConnectionHandler) SetRole(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	updated, err := h.queries.SetCloudConnectionRole(c.Request.Context(), dbpkg.SetCloudConnectionRoleParams{
-		ID: row.ID, UserID: row.UserID, RoleArn: &req.RoleARN, AwsAccountID: &account,
-	})
+
+	updated, err := h.saveRoleAndQueueCheck(c, row, req.RoleARN, account)
 	if err != nil {
-		slog.ErrorContext(c.Request.Context(), "could not save a connection's role", "connection_id", row.ID, "error", err)
+		slog.ErrorContext(ctx, "could not save a connection's role", "connection_id", row.ID, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save the role"})
 		return
 	}
-	c.JSON(http.StatusOK, h.response(c, updated))
+	c.JSON(http.StatusAccepted, h.response(c, updated))
+}
+
+func (h *ConnectionHandler) saveRoleAndQueueCheck(c *gin.Context, row dbpkg.CloudConnection, roleARN, account string) (dbpkg.CloudConnection, error) {
+	ctx := c.Request.Context()
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		return dbpkg.CloudConnection{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	updated, err := h.queries.WithTx(tx).SetCloudConnectionRole(ctx, dbpkg.SetCloudConnectionRoleParams{
+		ID: row.ID, UserID: row.UserID, RoleArn: &roleARN, AwsAccountID: &account,
+	})
+	if err != nil {
+		return dbpkg.CloudConnection{}, err
+	}
+	if _, err := h.jobs.InsertTx(ctx, tx, jobs.VerifyConnectionArgs{ConnectionID: row.ID, RoleARN: roleARN}, nil); err != nil {
+		return dbpkg.CloudConnection{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return dbpkg.CloudConnection{}, err
+	}
+	return updated, nil
+}
+
+// Verify is POST /api/connections/:id/verify: check again, after the user has
+// fixed what the last check reported. It answers 202; the result appears on the
+// connection when the job has run.
+func (h *ConnectionHandler) Verify(c *gin.Context) {
+	ctx := c.Request.Context()
+	row, ok := h.own(c)
+	if !ok {
+		return
+	}
+	if !h.enabled() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AWS connections are not set up on this Hatch server"})
+		return
+	}
+	if row.RoleArn == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "give the role ARN the stack created first"})
+		return
+	}
+
+	tx, err := h.pool.Begin(ctx)
+	if err == nil {
+		defer func() { _ = tx.Rollback(ctx) }()
+		// Already queued or running for this role is not an error: it is what the
+		// user asked for.
+		_, err = h.jobs.InsertTx(ctx, tx, jobs.VerifyConnectionArgs{ConnectionID: row.ID, RoleARN: *row.RoleArn}, nil)
+	}
+	if err == nil {
+		err = tx.Commit(ctx)
+	}
+	if err != nil {
+		slog.ErrorContext(ctx, "could not queue a connection check", "connection_id", row.ID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start the check"})
+		return
+	}
+	c.JSON(http.StatusAccepted, h.response(c, row))
 }
 
 // Delete is DELETE /api/connections/:id. It forgets the connection; the stack in

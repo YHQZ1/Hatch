@@ -14,6 +14,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/YHQZ1/hatch/internal/build"
+	awsconn "github.com/YHQZ1/hatch/internal/cloud/aws"
 	"github.com/YHQZ1/hatch/internal/runtime"
 	"github.com/YHQZ1/hatch/internal/secrets"
 	"github.com/YHQZ1/hatch/internal/stream"
@@ -49,6 +50,9 @@ type Deps struct {
 	Logs        stream.Sink
 	Secrets     *secrets.Codec
 	CloneTokens CloneTokenSource
+	// Connections checks a user's AWS connection. It is nil when this server has
+	// no AWS credentials of its own, and a check then says so.
+	Connections awsconn.Verifier
 
 	// BuildTimeout bounds one build.
 	BuildTimeout time.Duration
@@ -69,6 +73,7 @@ func Workers(deps Deps) (*river.Workers, error) {
 		river.AddWorkerSafely(workers, newDeployWorker(deps)),
 		river.AddWorkerSafely(workers, newDestroyAppWorker(deps)),
 		river.AddWorkerSafely(workers, newScaleWorker(deps)),
+		river.AddWorkerSafely(workers, newVerifyConnectionWorker(deps)),
 		river.AddWorkerSafely(workers, newPruneLogsWorker(deps)),
 	} {
 		if add != nil {

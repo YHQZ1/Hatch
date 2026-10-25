@@ -215,9 +215,10 @@ sequenceDiagram
 
 ### As built so far
 
-Built (2026-10-25): the table, the API that starts a connection, and the code
-that will check one. Not built: checking one (the `verify_connection` job), the
-page, and anything that uses a connection to build or run an app.
+Built (2026-10-25): the table, the API that starts and manages a connection, the
+`verify_connection` job that checks one, and the code behind it. Not built: the
+page, re-checking a connected account on a schedule, and anything that uses a
+connection to build or run an app.
 
 - `cloud_connections` (migration 000016): user, status (`pending`, `connected`
   or `error`), region, stack name, ExternalId, the principal it was created with,
@@ -229,11 +230,23 @@ page, and anything that uses a connection to build or run an app.
   returns the CloudFormation quick-create link. `GET /api/connections` and
   `GET /api/connections/:id` read them (the link is given until a connection is
   connected). `PUT /api/connections/:id/role` saves the role ARN the stack
-  created; a different role starts over. `DELETE /api/connections/:id` forgets a
+  created and queues a check of it in the same transaction; a different role
+  starts over. `POST /api/connections/:id/verify` checks again, and asking while
+  a check of the same role is queued or running queues nothing more. Both answer
+  202 and the result appears on the connection. `DELETE /api/connections/:id` forgets a
   connection and leaves the stack in the user's account alone. All of it is scoped
   to the signed-in user: someone else's connection is "not found". A user may have
   five.
 - The ExternalId appears in the quick-create link and nowhere else in a response.
+- The `verify_connection` job assumes the role and reads the stack
+  (`aws.Connector`), then records on the connection either `connected` with the
+  account, template version, whether it serves HTTPS and the stack's outputs, or
+  `error` with a message the user can act on. A failed check is recorded and not
+  retried, like every other job; the user checks again once they have fixed what
+  it says. Only Hatch stopping part-way leaves it to run again. A result is
+  recorded only if the connection still has the role that was checked, so a role
+  replaced mid-check is not overwritten by the old one's result. A server with no
+  AWS credentials of its own records that, and does not fail to start.
 - Two settings turn it on: `HATCH_AWS_PRINCIPAL_ARN` and
   `HATCH_CONNECT_TEMPLATE_URL` ([0020](decisions/0020-the-connection-role-trusts-a-configured-principal.md),
   [0022](decisions/0022-the-connect-template-is-published-to-a-public-bucket.md)).

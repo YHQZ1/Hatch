@@ -22,6 +22,12 @@ type Verification struct {
 	Outputs   StackOutputs
 }
 
+// Verifier checks a connection. *Connector is the one that does it; jobs depend
+// on this so they can be tested without a cloud.
+type Verifier interface {
+	Verify(ctx context.Context, conn Connection) (Verification, error)
+}
+
 // Connector checks that a connection works end to end: Hatch can assume the
 // role, the stack is there and finished, and it carries what Hatch needs.
 type Connector struct {

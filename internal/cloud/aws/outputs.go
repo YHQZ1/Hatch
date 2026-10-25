@@ -11,24 +11,25 @@ import (
 // two equal.
 const CurrentTemplateVersion = "1"
 
-// StackOutputs is what the hatch-connect stack tells Hatch about itself.
+// StackOutputs is what the hatch-connect stack tells Hatch about itself. It is
+// stored as JSON on the connection, so the tags are part of what is saved.
 type StackOutputs struct {
-	TemplateVersion      string
-	ControlRoleARN       string
-	Region               string
-	ClusterName          string
-	VPCID                string
-	SubnetIDs            []string
-	AppSecurityGroupID   string
-	LoadBalancerARN      string
-	LoadBalancerDNSName  string
-	AppListenerARN       string
-	ServesHTTPS          bool
-	RepositoryURI        string
-	BuildProjectName     string
-	AppLogGroupName      string
-	TaskExecutionRoleARN string
-	CodeBuildRoleARN     string
+	TemplateVersion      string   `json:"template_version"`
+	ControlRoleARN       string   `json:"control_role_arn"`
+	Region               string   `json:"region"`
+	ClusterName          string   `json:"cluster_name"`
+	VPCID                string   `json:"vpc_id"`
+	SubnetIDs            []string `json:"subnet_ids"`
+	AppSecurityGroupID   string   `json:"app_security_group_id"`
+	LoadBalancerARN      string   `json:"load_balancer_arn"`
+	LoadBalancerDNSName  string   `json:"load_balancer_dns_name"`
+	AppListenerARN       string   `json:"app_listener_arn"`
+	ServesHTTPS          bool     `json:"serves_https"`
+	RepositoryURI        string   `json:"repository_uri"`
+	BuildProjectName     string   `json:"build_project_name"`
+	AppLogGroupName      string   `json:"app_log_group_name"`
+	TaskExecutionRoleARN string   `json:"task_execution_role_arn"`
+	CodeBuildRoleARN     string   `json:"codebuild_role_arn"`
 }
 
 // UpToDate says whether the stack was made from the template version this Hatch
