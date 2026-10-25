@@ -109,7 +109,7 @@ func Run(ctx context.Context, cfg *config.Config, local *LocalTarget) error {
 	}
 	trafficHandler := handlers.NewTrafficHandler(db, stats)
 	iconHandler := handlers.NewIconHandler(db, resolver)
-	publicConfigHandler := handlers.NewPublicConfigHandler(cfg.BaseDomain, cfg.DeploymentURLScheme, webhooksEnabled)
+	publicConfigHandler := handlers.NewPublicConfigHandler(cfg.BaseDomain, cfg.DeploymentURLScheme, webhooksEnabled, cfg.AWSPrincipalARN != "" && cfg.ConnectTemplateURL != "")
 	connectionHandler := handlers.NewConnectionHandler(db, inserter, cfg.AWSPrincipalARN, cfg.ConnectTemplateURL)
 	webhookHandler := handlers.NewWebhookHandler(db, inserter, secretCodec, cfg.GitHubWebhookSecret)
 	authMiddleware := auth.Middleware(sessions, tokens)

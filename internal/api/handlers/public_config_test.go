@@ -12,8 +12,8 @@ import (
 func TestPublicConfigReturnsDeploymentSettings(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/api/config", NewPublicConfigHandler("apps.example.com", "https", false).Get)
-	r.GET("/api/config-with-webhooks", NewPublicConfigHandler("apps.example.com", "https", true).Get)
+	r.GET("/api/config", NewPublicConfigHandler("apps.example.com", "https", false, false).Get)
+	r.GET("/api/config-with-webhooks", NewPublicConfigHandler("apps.example.com", "https", true, true).Get)
 
 	get := func(path string) map[string]any {
 		rec := httptest.NewRecorder()
@@ -38,5 +38,12 @@ func TestPublicConfigReturnsDeploymentSettings(t *testing.T) {
 	}
 	if get("/api/config-with-webhooks")["webhooks"] != true {
 		t.Error("webhooks is not true when the App's webhook is set up")
+	}
+	// Likewise whether an AWS account can be connected at all.
+	if got["aws_connections"] != false {
+		t.Errorf("aws_connections = %v, want false when connecting is not set up", got["aws_connections"])
+	}
+	if get("/api/config-with-webhooks")["aws_connections"] != true {
+		t.Error("aws_connections is not true when connecting is set up")
 	}
 }
