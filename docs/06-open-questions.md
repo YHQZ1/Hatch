@@ -27,6 +27,21 @@ table (simple, needs refreshing).
 Recommendation: bundled table for v1, generated from the Price List API by a
 script and refreshed each release.
 
+### Q20. Where is the `hatch-connect` template published? (Phase 2)
+
+CloudFormation's quick-create link fetches the template itself, and only from an
+S3 address, so Hatch cannot serve it from its own URL. Someone has to publish
+each version to a bucket that anyone can read. `QuickCreateURL` takes the
+address as a setting, so the code does not depend on the answer.
+
+Options: a public bucket Hatch's maintainers publish to at each release (one
+address for every hosted and self-hosted install, versioned by path), or each
+operator publishing the template to a bucket of their own.
+
+Recommendation: the maintainers' public bucket with the template version in the
+path, so a stack's `HatchTemplateVersion` output names exactly what it was made
+from; an operator can still point the setting at their own.
+
 ## Decided
 
 | # | Question | Decision | Recorded in |
