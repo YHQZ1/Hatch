@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 )
 
 // Queue names. Builds and deploys run one at a time, as they did before jobs
@@ -183,4 +184,40 @@ func (PruneLogsArgs) Kind() string { return "prune_logs" }
 func (PruneLogsArgs) InsertOpts() river.InsertOpts {
 	// A missed run is made up by the next one, so a failure is not retried.
 	return river.InsertOpts{Queue: queueControl, MaxAttempts: 1}
+}
+
+// VerifyConnectionArgs asks for a cloud connection to be checked: Hatch assumes
+// its role, reads its stack, and records what it found. The role is part of the
+// job, so a check of the role the user gave first and one of the role they gave
+// next are different jobs, and a result about the old role is not recorded.
+type VerifyConnectionArgs struct {
+	ConnectionID uuid.UUID `json:"connection_id"`
+	RoleARN      string    `json:"role_arn"`
+}
+
+func (VerifyConnectionArgs) Kind() string { return "verify_connection" }
+
+func (VerifyConnectionArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		Queue:       queueControl,
+		MaxAttempts: maxAttempts,
+		// A second click on "check again" while one is under way queues nothing.
+		UniqueOpts: river.UniqueOpts{
+			ByArgs: true,
+			ByState: []rivertype.JobState{
+				rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRunning,
+				rivertype.JobStateRetryable, rivertype.JobStateScheduled,
+			},
+		},
+	}
+}
+
+func (a VerifyConnectionArgs) Validate() error {
+	if a.ConnectionID == uuid.Nil {
+		return fmt.Errorf("connection_id is required")
+	}
+	if strings.TrimSpace(a.RoleARN) == "" {
+		return fmt.Errorf("role_arn is required")
+	}
+	return nil
 }

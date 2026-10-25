@@ -13,6 +13,7 @@ import (
 	"github.com/YHQZ1/hatch/internal/api"
 	"github.com/YHQZ1/hatch/internal/build"
 	"github.com/YHQZ1/hatch/internal/build/docker"
+	awsconn "github.com/YHQZ1/hatch/internal/cloud/aws"
 	"github.com/YHQZ1/hatch/internal/config"
 	"github.com/YHQZ1/hatch/internal/githubapp"
 	"github.com/YHQZ1/hatch/internal/jobs"
@@ -158,6 +159,7 @@ func jobsComponent(cfg *config.Config) component {
 		p := providersFor(ctx, cfg, logs)
 		slog.Info("component started", "component", "jobs", "target", cfg.Target)
 		return jobs.Run(ctx, jobs.Deps{
+			Connections:  connectionVerifier(ctx, cfg),
 			Pool:         pool,
 			Builder:      p.builder,
 			Runtime:      p.runtime,
@@ -174,4 +176,19 @@ func proxyComponent(cfg *config.Config, local *api.LocalTarget) component {
 	return component{"proxy", func(ctx context.Context) error {
 		return proxy.Serve(ctx, cfg.LocalProxyAddr, proxy.New(local.Resolver, "localhost", local.Stats))
 	}}
+}
+
+// connectionVerifier returns what checks users' AWS connections, or nil when
+// connections are switched off or this server has no AWS credentials of its own
+// (a check then records that, instead of Hatch failing to start).
+func connectionVerifier(ctx context.Context, cfg *config.Config) awsconn.Verifier {
+	if cfg.AWSPrincipalARN == "" {
+		return nil
+	}
+	sts, err := awsconn.NewSDKSTS(ctx)
+	if err != nil {
+		slog.Warn("AWS connections cannot be verified", "error", err)
+		return nil
+	}
+	return &awsconn.Connector{STS: sts, Stacks: awsconn.SDKStacks{}}
 }
