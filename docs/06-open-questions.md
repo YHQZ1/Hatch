@@ -27,21 +27,6 @@ table (simple, needs refreshing).
 Recommendation: bundled table for v1, generated from the Price List API by a
 script and refreshed each release.
 
-### Q20. Where is the `hatch-connect` template published? (Phase 2)
-
-CloudFormation's quick-create link fetches the template itself, and only from an
-S3 address, so Hatch cannot serve it from its own URL. Someone has to publish
-each version to a bucket that anyone can read. `QuickCreateURL` takes the
-address as a setting, so the code does not depend on the answer.
-
-Options: a public bucket Hatch's maintainers publish to at each release (one
-address for every hosted and self-hosted install, versioned by path), or each
-operator publishing the template to a bucket of their own.
-
-Recommendation: the maintainers' public bucket with the template version in the
-path, so a stack's `HatchTemplateVersion` output names exactly what it was made
-from; an operator can still point the setting at their own.
-
 ## Decided
 
 | # | Question | Decision | Recorded in |
@@ -63,6 +48,7 @@ from; an operator can still point the setting at their own.
 | Q18 | Managed databases, caches, and queues? | After v1: SQS, then RDS Postgres with strict guardrails, caches last. | [0015](decisions/0015-v1-runs-web-services-only.md) |
 | Q19 | Suggest a Dockerfile when a repository has none? | After v1. | [0015](decisions/0015-v1-runs-web-services-only.md) |
 | Q16 | License and openness? MIT, public repository; no outside contributions for now. | [LICENSE](../LICENSE) |
+| Q20 | Where is the `hatch-connect` template published? | The maintainers publish each version to a public S3 bucket with the version in the path; the address Hatch builds links from is a setting an operator can change. | [0022](decisions/0022-the-connect-template-is-published-to-a-public-bucket.md) |
 | — | Live log transport | Server-sent events instead of WebSocket. | [0012](decisions/0012-server-sent-events-for-logs.md) |
 | — | Logging | `log/slog`, JSON in production. | [Architecture](03-architecture.md#technology-stack) |
 | — | Database tests | Real Postgres locally and in CI; fakes only for cloud providers. | [Architecture](03-architecture.md#technology-stack) |

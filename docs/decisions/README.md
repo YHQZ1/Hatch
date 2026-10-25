@@ -27,6 +27,7 @@ reversed; do not rewrite history in old records, mark them superseded instead.
 | [0019](0019-rollback-runs-a-kept-image-again.md) | Rollback runs a kept image again | Accepted |
 | [0020](0020-the-connection-role-trusts-a-configured-principal.md) | The connection role trusts a configured principal | Accepted |
 | [0021](0021-http-only-without-a-domain.md) | Apps are reachable over HTTP without a domain | Accepted |
+| [0022](0022-the-connect-template-is-published-to-a-public-bucket.md) | The hatch-connect template is published to a public bucket | Accepted |
 
 Template:
 
