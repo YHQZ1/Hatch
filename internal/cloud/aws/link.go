@@ -47,12 +47,24 @@ func ValidatePrincipalARN(arn string) error {
 	return nil
 }
 
-// ValidateTemplateURL checks the address the template is published at, which
-// CloudFormation fetches over https (ADR 0022).
+// s3Host matches the hosts S3 serves objects from: a bucket in the host
+// (bucket.s3.amazonaws.com, bucket.s3.us-east-1.amazonaws.com, the older
+// bucket.s3-us-west-2.amazonaws.com) or the bucket in the path
+// (s3.amazonaws.com/bucket/key), in the China partition too.
+var s3Host = regexp.MustCompile(`^(?:[a-z0-9][a-z0-9.-]*\.)?s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com(?:\.cn)?$`)
+
+// ValidateTemplateURL checks the address the template is published at. The
+// CloudFormation console reads a quick-create template only from S3 over https
+// and answers "TemplateURL must be a supported URL" to anything else (ADR 0022),
+// so an address elsewhere is refused here, where the operator sets it, instead of
+// failing for the first user who opens the link.
 func ValidateTemplateURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return fmt.Errorf("the template URL must be an https address")
+		return fmt.Errorf("the template URL must be an https address in S3, because CloudFormation only reads templates from there")
+	}
+	if !s3Host.MatchString(strings.ToLower(u.Hostname())) {
+		return fmt.Errorf("the template URL must be an address in S3 (such as https://my-bucket.s3.amazonaws.com/hatch-connect.yaml), because CloudFormation only reads templates from there; %q is not", u.Hostname())
 	}
 	return nil
 }

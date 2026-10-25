@@ -30,5 +30,8 @@ can publish the template to a bucket of their own and point Hatch at it.
 - A template version that has been published is never replaced: a change means a
   new version and a new path, so an existing stack can always be traced to its
   source, and Hatch's "stack is out of date" check stays meaningful.
-- The setting itself arrives with the connection API.
+- The setting itself arrives with the connection API. It must be an S3 address
+  over https (a bucket in the host or in the path): the CloudFormation console
+  answers "TemplateURL must be a supported URL" to anything else, as seen when a
+  placeholder address elsewhere was tried, so Hatch refuses one when it starts.
 - Q20 moves from open to decided.

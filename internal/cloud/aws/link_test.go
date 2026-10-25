@@ -85,6 +85,8 @@ func TestQuickCreateURLRefusesWhatCloudFormationWould(t *testing.T) {
 			p.CertificateARN = "arn:aws:acm:us-east-1:123456789012:certificate/abc"
 		}, "certificate"},
 		{"a plain http template", func(p *aws.LinkParams) { p.TemplateURL = "http://example.com/t.yaml" }, "https"},
+		{"an https address that is not S3", func(p *aws.LinkParams) { p.TemplateURL = "https://example.com/hatch-connect.yaml" }, "in S3"},
+		{"a host that only ends like S3", func(p *aws.LinkParams) { p.TemplateURL = "https://evil-s3.amazonaws.com.example.com/t.yaml" }, "in S3"},
 		{"no template", func(p *aws.LinkParams) { p.TemplateURL = "" }, "https"},
 	}
 	for _, tc := range tests {
@@ -112,5 +114,31 @@ func TestNewExternalIDIsAcceptedByTheLinkAndDiffers(t *testing.T) {
 	p.ExternalID = a
 	if _, err := aws.QuickCreateURL(p); err != nil {
 		t.Fatalf("a generated external id was refused: %v", err)
+	}
+}
+
+func TestValidateTemplateURLAcceptsTheWaysS3ServesAnObject(t *testing.T) {
+	for _, ok := range []string{
+		"https://hatch-templates.s3.amazonaws.com/v1/hatch-connect.yaml",
+		"https://hatch-templates.s3.us-east-1.amazonaws.com/v1/hatch-connect.yaml",
+		"https://hatch-templates.s3-us-west-2.amazonaws.com/hatch-connect.yaml",
+		"https://s3.amazonaws.com/hatch-templates/hatch-connect.yaml",
+		"https://s3.eu-west-1.amazonaws.com/hatch-templates/hatch-connect.yaml",
+		"https://my.bucket.name.s3.amazonaws.com/t.yaml",
+		"https://HATCH-Templates.S3.amazonaws.com/t.yaml",
+	} {
+		if err := aws.ValidateTemplateURL(ok); err != nil {
+			t.Errorf("%s was refused: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{
+		"", "hatch-connect.yaml", "http://hatch-templates.s3.amazonaws.com/t.yaml",
+		"https://example.com/t.yaml", "https://amazonaws.com/t.yaml",
+		"https://s3.amazonaws.com.evil.example/t.yaml", "https://evil.example/s3.amazonaws.com/t.yaml",
+		"https://user@example.com/t.yaml",
+	} {
+		if err := aws.ValidateTemplateURL(bad); err == nil {
+			t.Errorf("%q was accepted", bad)
+		}
 	}
 }
