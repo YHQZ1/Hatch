@@ -343,8 +343,18 @@ Resources:
         - { Key: "hatch:managed", Value: "true" }
 
   # The role Hatch assumes. It can only be assumed by the configured principal
-  # presenting this connection's ExternalId, and can only change hatch-* things.
-  # It has no IAM write access beyond passing the two roles above.
+  # presenting this connection's ExternalId. What it may do is the least that
+  # Hatch's own calls need, and docs/08-iam-policy-review.md says which code makes
+  # each one and what was checked against AWS's own reference:
+  #
+  #  - Anything Hatch creates must carry the tag hatch:managed=true (IAM refuses
+  #    the create without it), and anything it changes or deletes must carry it
+  #    too, as well as being named hatch-*. A service or secret you made yourself
+  #    that happens to be named hatch-* cannot be touched.
+  #  - Each create action has its own statement: a condition on a key an action
+  #    does not carry would deny it, so none is shared.
+  #  - It has no IAM write access beyond passing the task-execution role to ECS.
+  #  - It cannot read a secret's value (the task-execution role does that).
   ControlRole:
     Type: AWS::IAM::Role
     Properties:
@@ -363,93 +373,33 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              # Reads. None of these can change anything; most have no
-              # resource-level scoping in IAM.
-              - Sid: ReadOnly
+              # ── Reads ──────────────────────────────────────────────────────
+              # This stack's own outputs, by its own name (so renaming it in the
+              # console does not break the connection).
+              - Sid: ReadThisStack
+                Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+              - Sid: ReadServicesInTheHatchCluster
+                Effect: Allow
+                Action: ecs:DescribeServices
+                Resource: !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/hatch/*
+              # These actions take no resource in IAM, so they cannot be scoped:
+              # they let Hatch see task definitions, listener rules, target groups
+              # and metrics anywhere in the account, and change nothing.
+              - Sid: ReadWhatIAMCannotScope
                 Effect: Allow
                 Action:
-                  - cloudformation:DescribeStacks
-                  - ecs:DescribeClusters
-                  - ecs:DescribeServices
-                  - ecs:DescribeTaskDefinition
-                  - ecs:DescribeTasks
-                  - ecs:ListServices
-                  - ecs:ListTasks
                   - ecs:ListTaskDefinitions
-                  - elasticloadbalancing:DescribeListeners
-                  - elasticloadbalancing:DescribeLoadBalancers
                   - elasticloadbalancing:DescribeRules
                   - elasticloadbalancing:DescribeTargetGroups
                   - elasticloadbalancing:DescribeTargetHealth
-                  - elasticloadbalancing:DescribeTags
-                  - ecr:DescribeImages
-                  - ecr:DescribeRepositories
-                  - ecr:GetAuthorizationToken
                   - cloudwatch:GetMetricData
-                  - cloudwatch:GetMetricStatistics
-                  - tag:GetResources
                 Resource: "*"
-
-              # Task definitions are not scoped by resource when registered, so
-              # the name prefix is enforced on the family where IAM allows it
-              # (deregistering) and by the tag Hatch must send when registering.
-              - Sid: TaskDefinitions
+              - Sid: ReadImagesInTheHatchRepository
                 Effect: Allow
-                Action: ecs:RegisterTaskDefinition
-                Resource: "*"
-                Condition:
-                  StringEquals: { "aws:RequestTag/hatch:managed": "true" }
-              - Sid: DeregisterTaskDefinitions
-                Effect: Allow
-                Action: ecs:DeregisterTaskDefinition
-                Resource: !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/hatch-*:*
-
-              - Sid: ServicesInTheHatchCluster
-                Effect: Allow
-                Action:
-                  - ecs:CreateService
-                  - ecs:UpdateService
-                  - ecs:DeleteService
-                  - ecs:TagResource
-                Resource: !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/hatch/hatch-*
-
-              - Sid: TargetGroups
-                Effect: Allow
-                Action:
-                  - elasticloadbalancing:CreateTargetGroup
-                  - elasticloadbalancing:ModifyTargetGroup
-                  - elasticloadbalancing:DeleteTargetGroup
-                  - elasticloadbalancing:AddTags
-                Resource: !Sub arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/hatch-*/*
-
-              # Rules are added to Hatch's own load balancer only.
-              - Sid: ListenerRules
-                Effect: Allow
-                Action:
-                  - elasticloadbalancing:CreateRule
-                  - elasticloadbalancing:ModifyRule
-                  - elasticloadbalancing:DeleteRule
-                  - elasticloadbalancing:AddTags
-                Resource:
-                  - !Sub arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:listener/app/hatch-alb/*/*
-                  - !Sub arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:listener-rule/app/hatch-alb/*/*/*
-
-              - Sid: ImagesInTheHatchRepository
-                Effect: Allow
-                Action:
-                  - ecr:BatchDeleteImage
-                  - ecr:BatchGetImage
-                  - ecr:ListImages
+                Action: ecr:DescribeImages
                 Resource: !GetAtt Repository.Arn
-
-              - Sid: BuildsInTheHatchProject
-                Effect: Allow
-                Action:
-                  - codebuild:StartBuild
-                  - codebuild:StopBuild
-                  - codebuild:BatchGetBuilds
-                Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/hatch-build
-
               - Sid: ReadLogs
                 Effect: Allow
                 Action:
@@ -457,33 +407,139 @@ Resources:
                   - logs:FilterLogEvents
                   - logs:GetLogEvents
                 Resource:
-                  - !GetAtt AppLogGroup.Arn
-                  - !Sub ${AppLogGroup.Arn}:*
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/hatch/apps
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/hatch/apps:*
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/hatch-build
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/hatch-build:*
 
-              - Sid: AppSecrets
+              # ── Builds ─────────────────────────────────────────────────────
+              - Sid: BuildsInTheHatchProject
                 Effect: Allow
                 Action:
-                  - secretsmanager:CreateSecret
+                  - codebuild:StartBuild
+                  - codebuild:StopBuild
+                  - codebuild:BatchGetBuilds
+                Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/hatch-build
+              - Sid: DeleteImagesInTheHatchRepository
+                Effect: Allow
+                Action: ecr:BatchDeleteImage
+                Resource: !GetAtt Repository.Arn
+
+              # ── Creating (one statement each; the tag is required) ─────────
+              - Sid: CreateServices
+                Effect: Allow
+                Action: ecs:CreateService
+                Resource: !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/hatch/hatch-*
+                Condition:
+                  StringEquals: { "aws:RequestTag/hatch:managed": "true" }
+              # RegisterTaskDefinition is authorised before the revision exists, so
+              # it is not scoped by name; the tag is what marks it as Hatch's.
+              - Sid: RegisterTaskDefinitions
+                Effect: Allow
+                Action: ecs:RegisterTaskDefinition
+                Resource: "*"
+                Condition:
+                  StringEquals: { "aws:RequestTag/hatch:managed": "true" }
+              # Creating with tags is itself a tagging call, allowed only as part of
+              # those two creates and not to retag something that exists.
+              - Sid: TagWhatEcsCreates
+                Effect: Allow
+                Action: ecs:TagResource
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/hatch/hatch-*
+                  - !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/hatch-*:*
+                Condition:
+                  StringEquals: { "ecs:CreateAction": [CreateService, RegisterTaskDefinition] }
+              - Sid: CreateTargetGroups
+                Effect: Allow
+                Action: elasticloadbalancing:CreateTargetGroup
+                Resource: !Sub arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/hatch-*/*
+                Condition:
+                  StringEquals: { "aws:RequestTag/hatch:managed": "true" }
+              # Rules are added to Hatch's own load balancer's listeners only.
+              - Sid: CreateListenerRules
+                Effect: Allow
+                Action: elasticloadbalancing:CreateRule
+                Resource: !Sub arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:listener/app/hatch-alb/*/*
+                Condition:
+                  StringEquals: { "aws:RequestTag/hatch:managed": "true" }
+              - Sid: TagWhatElbCreates
+                Effect: Allow
+                Action: elasticloadbalancing:AddTags
+                Resource:
+                  - !Sub arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/hatch-*/*
+                  - !Sub arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:listener-rule/app/hatch-alb/*/*/*
+                Condition:
+                  StringEquals: { "elasticloadbalancing:CreateAction": [CreateTargetGroup, CreateRule] }
+              - Sid: CreateAppSecrets
+                Effect: Allow
+                Action: secretsmanager:CreateSecret
+                Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:hatch/*
+                Condition:
+                  StringEquals: { "aws:RequestTag/hatch:managed": "true" }
+              - Sid: TagWhatSecretsManagerCreates
+                Effect: Allow
+                Action: secretsmanager:TagResource
+                Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:hatch/*
+                Condition:
+                  StringEquals: { "aws:RequestTag/hatch:managed": "true" }
+
+              # ── Changing and deleting: only what Hatch created ─────────────
+              - Sid: ChangeServicesHatchCreated
+                Effect: Allow
+                Action:
+                  - ecs:UpdateService
+                  - ecs:DeleteService
+                Resource: !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/hatch/hatch-*
+                Condition:
+                  StringEquals: { "aws:ResourceTag/hatch:managed": "true" }
+              - Sid: ChangeTargetGroupsHatchCreated
+                Effect: Allow
+                Action:
+                  - elasticloadbalancing:ModifyTargetGroup
+                  - elasticloadbalancing:DeleteTargetGroup
+                Resource: !Sub arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/hatch-*/*
+                Condition:
+                  StringEquals: { "aws:ResourceTag/hatch:managed": "true" }
+              # The listeners' own default actions were made by this stack, carry no
+              # tag, and so cannot be changed from here.
+              - Sid: ChangeListenerRulesHatchCreated
+                Effect: Allow
+                Action:
+                  - elasticloadbalancing:ModifyRule
+                  - elasticloadbalancing:DeleteRule
+                Resource: !Sub arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:listener-rule/app/hatch-alb/*/*/*
+                Condition:
+                  StringEquals: { "aws:ResourceTag/hatch:managed": "true" }
+              - Sid: ChangeAppSecretsHatchCreated
+                Effect: Allow
+                Action:
                   - secretsmanager:DeleteSecret
                   - secretsmanager:DescribeSecret
                   - secretsmanager:PutSecretValue
-                  - secretsmanager:TagResource
                   - secretsmanager:UpdateSecret
                 Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:hatch/*
+                Condition:
+                  StringEquals: { "aws:ResourceTag/hatch:managed": "true" }
+              # IAM has no resource for this action, so it cannot be limited to
+              # Hatch's task definitions here; Hatch only deregisters the ones it
+              # registered (hatch-* families). Deregistering stops new tasks from
+              # a revision; it does not stop running ones.
+              - Sid: DeregisterTaskDefinitions
+                Effect: Allow
+                Action: ecs:DeregisterTaskDefinition
+                Resource: "*"
 
-              # The one IAM action: handing the two Hatch roles to the service
-              # that needs each. No other role can be passed.
-              - Sid: PassTheHatchRolesOnly
+              # ── The one IAM action ─────────────────────────────────────────
+              # Handing the task-execution role to ECS when a task definition is
+              # registered. CodeBuild's role is not passed: the project, made by
+              # this stack, already has it.
+              - Sid: PassTheTaskExecutionRoleToEcs
                 Effect: Allow
                 Action: iam:PassRole
-                Resource:
-                  - !GetAtt TaskExecutionRole.Arn
-                  - !GetAtt CodeBuildRole.Arn
+                Resource: !GetAtt TaskExecutionRole.Arn
                 Condition:
-                  StringEquals:
-                    "iam:PassedToService": [ecs-tasks.amazonaws.com, codebuild.amazonaws.com]
+                  StringEquals: { "iam:PassedToService": ecs-tasks.amazonaws.com }
       Tags:
         - { Key: "hatch:managed", Value: "true" }
 
