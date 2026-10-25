@@ -267,7 +267,7 @@ template, and anything that uses a connection to build or run an app.
 
 | Resource | Notes |
 |----------|-------|
-| IAM role `hatch-control` | Trusts the configured Hatch principal ([0020](decisions/0020-the-connection-role-trusts-a-configured-principal.md)) with the ExternalId condition. Policy limited to `hatch-` resources and required reads. |
+| IAM role `hatch-control` | Trusts the configured Hatch principal ([0020](decisions/0020-the-connection-role-trusts-a-configured-principal.md)) with the ExternalId condition. Policy limited to `hatch-` resources that carry the `hatch:managed` tag, and to the reads it needs ([review](08-iam-policy-review.md)). |
 | IAM role `hatch-task-execution` | Used by ECS to pull images and read app secrets. |
 | IAM role `hatch-codebuild` | Used by CodeBuild to pull source and push to ECR. |
 | VPC, 2 public subnets, security groups | App security group accepts traffic only from the ALB. |
@@ -328,7 +328,7 @@ release's image and env snapshot without rebuilding.
 | Malicious Dockerfile attacks Hatch | Builds never run on the control plane (AWS); local target is single-tenant by design |
 | One Hatch user assumes another's role | ExternalId per connection; role ownership checked on every job |
 | Leaked control-plane database | No long-lived AWS keys stored; GitHub tokens and secrets encrypted at rest; app secrets live in the user's account |
-| Overly broad AWS permissions | Role policy scoped by `hatch-` prefix and `hatch:managed` tag; no IAM write except passing the two Hatch roles |
+| Overly broad AWS permissions | Role policy scoped by `hatch-` prefix and `hatch:managed` tag; no IAM write except passing the task-execution role to ECS; anything created must carry the tag and anything changed must, too ([review](08-iam-policy-review.md)) |
 | Over-broad GitHub access | GitHub App installed per repository, read-only, short-lived tokens ([0010](decisions/0010-github-app.md)) |
 | Stolen session | Server-side sessions in Postgres that can be revoked; only hashed IDs stored ([0013](decisions/0013-server-side-sessions.md)) |
 | Surprise cost | See [Cost guardrails](04-cost-guardrails.md) |
