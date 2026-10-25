@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/YHQZ1/hatch/internal/jobs"
 	"github.com/YHQZ1/hatch/internal/store"
 	dbpkg "github.com/YHQZ1/hatch/internal/store/db"
 	"github.com/YHQZ1/hatch/internal/store/storetest"
@@ -30,6 +31,7 @@ type connectionFixture struct {
 	owner   dbpkg.User
 	other   dbpkg.User
 	handler *ConnectionHandler
+	jobs    jobs.Inserter
 }
 
 func newConnectionFixture(t *testing.T) connectionFixture {
@@ -53,7 +55,11 @@ func newConnectionFixture(t *testing.T) connectionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return connectionFixture{pool: pool, q: q, owner: owner, other: other, handler: NewConnectionHandler(pool, testPrincipal, testTemplate)}
+	inserter, err := jobs.NewInserter(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return connectionFixture{pool: pool, q: q, owner: owner, other: other, jobs: inserter, handler: NewConnectionHandler(pool, inserter, testPrincipal, testTemplate)}
 }
 
 // do calls a handler as a user, with an optional JSON body and path id.
@@ -181,9 +187,9 @@ func TestACertificateIsKeptAndSharedWithTheLink(t *testing.T) {
 func TestConnectionsAreNotSetUpWithoutTheServersSettings(t *testing.T) {
 	f := newConnectionFixture(t)
 	for _, h := range []*ConnectionHandler{
-		NewConnectionHandler(f.pool, "", ""),
-		NewConnectionHandler(f.pool, testPrincipal, ""),
-		NewConnectionHandler(f.pool, "", testTemplate),
+		NewConnectionHandler(f.pool, f.jobs, "", ""),
+		NewConnectionHandler(f.pool, f.jobs, testPrincipal, ""),
+		NewConnectionHandler(f.pool, f.jobs, "", testTemplate),
 	} {
 		rec := f.do(t, h.Create, f.owner, "", validBody)
 		if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "not set up") {
@@ -231,7 +237,7 @@ func TestGivingTheRoleSavesItWithItsAccountAndStaysPending(t *testing.T) {
 	created := f.create(t, f.owner, validBody)
 
 	rec := f.do(t, f.handler.SetRole, f.owner, created.ID.String(), `{"role_arn":"`+testRole+`"}`)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
 	got := decodeConnection(t, rec)
@@ -272,7 +278,7 @@ func TestGivingADifferentRoleDiscardsWhatWasLearnedAboutTheOldOne(t *testing.T) 
 	}
 
 	rec := f.do(t, f.handler.SetRole, f.owner, created.ID.String(), `{"role_arn":"arn:aws:iam::210987654321:role/hatch-control"}`)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
 	row := f.row(t, created.ID, f.owner)
@@ -316,5 +322,95 @@ func TestEveryConnectionGetsItsOwnExternalId(t *testing.T) {
 	b := f.row(t, f.create(t, f.owner, validBody).ID, f.owner)
 	if a.ExternalID == b.ExternalID {
 		t.Fatal("two connections share an ExternalId")
+	}
+}
+
+// checks returns the queued verification jobs as (connection id, role) pairs.
+func (f connectionFixture) checks(t *testing.T) [][2]string {
+	t.Helper()
+	rows, err := f.pool.Query(context.Background(), `SELECT args->>'connection_id', args->>'role_arn' FROM river_job WHERE kind = 'verify_connection' ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out [][2]string
+	for rows.Next() {
+		var pair [2]string
+		if err := rows.Scan(&pair[0], &pair[1]); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, pair)
+	}
+	return out
+}
+
+func TestGivingTheRoleQueuesACheckOfThatRole(t *testing.T) {
+	f := newConnectionFixture(t)
+	created := f.create(t, f.owner, validBody)
+	if len(f.checks(t)) != 0 {
+		t.Fatal("creating a connection queued a check before there is a role to check")
+	}
+
+	f.do(t, f.handler.SetRole, f.owner, created.ID.String(), `{"role_arn":"`+testRole+`"}`)
+	got := f.checks(t)
+	if len(got) != 1 || got[0] != [2]string{created.ID.String(), testRole} {
+		t.Fatalf("queued checks = %v", got)
+	}
+
+	// A refused role queues nothing.
+	f.do(t, f.handler.SetRole, f.owner, created.ID.String(), `{"role_arn":"nope"}`)
+	if n := len(f.checks(t)); n != 1 {
+		t.Errorf("a refused role queued a check: %d jobs", n)
+	}
+}
+
+func TestCheckingAgainQueuesOneCheckAndNeedsARole(t *testing.T) {
+	f := newConnectionFixture(t)
+	created := f.create(t, f.owner, validBody)
+
+	rec := f.do(t, f.handler.Verify, f.owner, created.ID.String(), "")
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "role ARN") {
+		t.Fatalf("without a role: status %d: %s", rec.Code, rec.Body)
+	}
+	if len(f.checks(t)) != 0 {
+		t.Fatal("a check was queued without a role")
+	}
+
+	if _, err := f.q.SetCloudConnectionRole(context.Background(), dbpkg.SetCloudConnectionRoleParams{
+		ID: created.ID, UserID: f.owner.ID, RoleArn: ptr(testRole), AwsAccountID: ptr("123456789012"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if rec := f.do(t, f.handler.Verify, f.owner, created.ID.String(), ""); rec.Code != http.StatusAccepted {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body)
+		}
+	}
+	if n := len(f.checks(t)); n != 1 {
+		t.Errorf("three clicks queued %d checks, want 1", n)
+	}
+}
+
+func TestCheckingAgainIsOnlyForTheOwnerAndOnlyWhenSetUp(t *testing.T) {
+	f := newConnectionFixture(t)
+	created := f.create(t, f.owner, validBody)
+	if _, err := f.q.SetCloudConnectionRole(context.Background(), dbpkg.SetCloudConnectionRoleParams{
+		ID: created.ID, UserID: f.owner.ID, RoleArn: ptr(testRole), AwsAccountID: ptr("123456789012"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := f.do(t, f.handler.Verify, f.other, created.ID.String(), ""); rec.Code != http.StatusNotFound {
+		t.Errorf("another user: status %d", rec.Code)
+	}
+	off := NewConnectionHandler(f.pool, f.jobs, "", "")
+	if rec := f.do(t, off.Verify, f.owner, created.ID.String(), ""); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("not set up: status %d", rec.Code)
+	}
+	if rec := f.do(t, off.SetRole, f.owner, created.ID.String(), `{"role_arn":"`+testRole+`"}`); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("giving a role when not set up: status %d", rec.Code)
+	}
+	if n := len(f.checks(t)); n != 0 {
+		t.Errorf("%d checks were queued", n)
 	}
 }
