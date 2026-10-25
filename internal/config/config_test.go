@@ -497,3 +497,17 @@ func TestAWSConnectionSettingsAreOptionalAndGoTogether(t *testing.T) {
 		})
 	}
 }
+
+// A separate worker process verifies connections, so it reads the settings too.
+func TestTheWorkerReadsTheAWSConnectionSettingsAsWell(t *testing.T) {
+	setEnv(t, with(with(allVars, "HATCH_AWS_PRINCIPAL_ARN", "arn:aws:iam::111122223333:role/hatch-server"), "HATCH_CONNECT_TEMPLATE_URL", "https://hatch-templates.s3.amazonaws.com/v1/hatch-connect.yaml"))
+	cfg, err := Load(RoleWorker)
+	if err != nil || cfg.AWSPrincipalARN == "" || cfg.ConnectTemplateURL == "" {
+		t.Fatalf("the worker did not read the settings: %+v, %v", cfg, err)
+	}
+
+	setEnv(t, with(allVars, "HATCH_AWS_PRINCIPAL_ARN", "arn:aws:iam::111122223333:role/hatch-server"))
+	if _, err := Load(RoleWorker); err == nil || !strings.Contains(err.Error(), "go together") {
+		t.Fatalf("a worker started with half the settings: %v", err)
+	}
+}
