@@ -25,6 +25,8 @@ reversed; do not rewrite history in old records, mark them superseded instead.
 | [0017](0017-structured-logging-with-slog.md) | Structured logging with log/slog | Accepted |
 | [0018](0018-built-in-proxy-for-the-local-target.md) | A built-in reverse proxy for the local target; Caddy later | Accepted |
 | [0019](0019-rollback-runs-a-kept-image-again.md) | Rollback runs a kept image again | Accepted |
+| [0020](0020-the-connection-role-trusts-a-configured-principal.md) | The connection role trusts a configured principal | Accepted |
+| [0021](0021-http-only-without-a-domain.md) | Apps are reachable over HTTP without a domain | Accepted |
 
 Template:
 
