@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	awsconn "github.com/YHQZ1/hatch/internal/cloud/aws"
 	"github.com/YHQZ1/hatch/internal/githubapp"
 )
 
@@ -73,6 +74,13 @@ type Config struct {
 	// deploy nothing (ADR 0010).
 	GitHubWebhookSecret string
 	ALBArn              string
+
+	// AWSPrincipalARN is the AWS identity this Hatch assumes roles from, and
+	// ConnectTemplateURL is where the hatch-connect template is published
+	// (ADRs 0020 and 0022). Both are optional and go together: without them
+	// users cannot connect an AWS account, and the rest of Hatch works as before.
+	AWSPrincipalARN    string
+	ConnectTemplateURL string
 
 	// LocalProxyAddr is where the built-in proxy serves apps (TargetLocal).
 	LocalProxyAddr string
@@ -206,6 +214,21 @@ func Load(role Role) (*Config, error) {
 			r.problems = append(r.problems, fmt.Sprintf("GITHUB_WEBHOOK_SECRET must be at least %d characters, such as the output of `openssl rand -hex 32`", minWebhookSecretLength))
 		}
 		cfg.ALBArn = getEnv("ALB_ARN", "")
+
+		cfg.AWSPrincipalARN = strings.TrimSpace(getEnv("HATCH_AWS_PRINCIPAL_ARN", ""))
+		cfg.ConnectTemplateURL = strings.TrimSpace(getEnv("HATCH_CONNECT_TEMPLATE_URL", ""))
+		switch {
+		case cfg.AWSPrincipalARN == "" && cfg.ConnectTemplateURL == "":
+		case cfg.AWSPrincipalARN == "" || cfg.ConnectTemplateURL == "":
+			r.problems = append(r.problems, "HATCH_AWS_PRINCIPAL_ARN and HATCH_CONNECT_TEMPLATE_URL go together: set both to let users connect an AWS account, or neither")
+		default:
+			if err := awsconn.ValidatePrincipalARN(cfg.AWSPrincipalARN); err != nil {
+				r.problems = append(r.problems, "HATCH_AWS_PRINCIPAL_ARN: "+err.Error())
+			}
+			if err := awsconn.ValidateTemplateURL(cfg.ConnectTemplateURL); err != nil {
+				r.problems = append(r.problems, "HATCH_CONNECT_TEMPLATE_URL: "+err.Error())
+			}
+		}
 	}
 
 	if err := r.err(); err != nil {

@@ -181,6 +181,7 @@ func setEnv(t *testing.T, vars map[string]string) {
 		"ENVIRONMENT", "DATA_ENCRYPTION_KEY", "AWS_REGION", "ALB_HTTPS_LISTENER_ARN",
 		"DEPLOYMENT_URL_SCHEME", "BUILD_TIMEOUT", "PORT", "FRONTEND_URL",
 		"CORS_ALLOWED_ORIGINS", "ALB_ARN", "LOCAL_PROXY_ADDR",
+		"HATCH_AWS_PRINCIPAL_ARN", "HATCH_CONNECT_TEMPLATE_URL",
 	} {
 		t.Setenv(key, "")
 	}
@@ -458,5 +459,41 @@ func TestTheWebhookSecretIsOptionalButNotGuessable(t *testing.T) {
 	setEnv(t, with(allVars, "GITHUB_WEBHOOK_SECRET", "short"))
 	if _, err := Load(RoleServe); err == nil || !strings.Contains(err.Error(), "GITHUB_WEBHOOK_SECRET must be at least 16") {
 		t.Fatalf("a short secret was accepted, or the error does not say why: %v", err)
+	}
+}
+
+func TestAWSConnectionSettingsAreOptionalAndGoTogether(t *testing.T) {
+	const principal = "arn:aws:iam::111122223333:role/hatch-server"
+	const template = "https://hatch-templates.s3.amazonaws.com/v1/hatch-connect.yaml"
+
+	setEnv(t, allVars)
+	cfg, err := Load(RoleServe)
+	if err != nil || cfg.AWSPrincipalARN != "" || cfg.ConnectTemplateURL != "" {
+		t.Fatalf("serve should load with neither setting: %+v, %v", cfg, err)
+	}
+
+	setEnv(t, with(with(allVars, "HATCH_AWS_PRINCIPAL_ARN", " "+principal+" "), "HATCH_CONNECT_TEMPLATE_URL", template))
+	cfg, err = Load(RoleServe)
+	if err != nil || cfg.AWSPrincipalARN != principal || cfg.ConnectTemplateURL != template {
+		t.Fatalf("both settings (the principal trimmed) were refused or changed: %+v, %v", cfg, err)
+	}
+
+	tests := []struct {
+		name string
+		vars map[string]string
+		want string
+	}{
+		{"only the principal", with(allVars, "HATCH_AWS_PRINCIPAL_ARN", principal), "go together"},
+		{"only the template", with(allVars, "HATCH_CONNECT_TEMPLATE_URL", template), "go together"},
+		{"a principal that is not an ARN", with(with(allVars, "HATCH_AWS_PRINCIPAL_ARN", "hatch"), "HATCH_CONNECT_TEMPLATE_URL", template), "HATCH_AWS_PRINCIPAL_ARN"},
+		{"a template over http", with(with(allVars, "HATCH_AWS_PRINCIPAL_ARN", principal), "HATCH_CONNECT_TEMPLATE_URL", "http://example.com/t.yaml"), "HATCH_CONNECT_TEMPLATE_URL"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setEnv(t, tc.vars)
+			if _, err := Load(RoleServe); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want it to mention %q", err, tc.want)
+			}
+		})
 	}
 }
