@@ -18,6 +18,29 @@ type ActivityLog struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type CloudConnection struct {
+	ID               uuid.UUID  `json:"id"`
+	UserID           uuid.UUID  `json:"user_id"`
+	Provider         string     `json:"provider"`
+	Status           string     `json:"status"`
+	Region           string     `json:"region"`
+	StackName        string     `json:"stack_name"`
+	ExternalID       string     `json:"external_id"`
+	PrincipalArn     string     `json:"principal_arn"`
+	MonthlyBudgetUsd int32      `json:"monthly_budget_usd"`
+	BudgetEmail      string     `json:"budget_email"`
+	CertificateArn   *string    `json:"certificate_arn"`
+	RoleArn          *string    `json:"role_arn"`
+	AwsAccountID     *string    `json:"aws_account_id"`
+	TemplateVersion  *string    `json:"template_version"`
+	ServesHttps      *bool      `json:"serves_https"`
+	StackOutputs     []byte     `json:"stack_outputs"`
+	LastError        *string    `json:"last_error"`
+	LastVerifiedAt   *time.Time `json:"last_verified_at"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+}
+
 type Deployment struct {
 	ID             uuid.UUID  `json:"id"`
 	ProjectID      uuid.UUID  `json:"project_id"`

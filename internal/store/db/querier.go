@@ -18,7 +18,9 @@ type Querier interface {
 	CancelDeploymentByIDAndUserID(ctx context.Context, arg CancelDeploymentByIDAndUserIDParams) (Deployment, error)
 	// Gives a deployment the environment another one ran with, values as stored.
 	CopyDeploymentEnvVars(ctx context.Context, arg CopyDeploymentEnvVarsParams) error
+	CountCloudConnectionsByUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	CreateActivityLog(ctx context.Context, arg CreateActivityLogParams) (ActivityLog, error)
+	CreateCloudConnection(ctx context.Context, arg CreateCloudConnectionParams) (CloudConnection, error)
 	CreateDeployment(ctx context.Context, arg CreateDeploymentParams) (Deployment, error)
 	CreateEnvVar(ctx context.Context, arg CreateEnvVarParams) (EnvVar, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
@@ -29,6 +31,7 @@ type Querier interface {
 	CreateRollbackDeployment(ctx context.Context, id uuid.UUID) (Deployment, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DeleteCloudConnection(ctx context.Context, arg DeleteCloudConnectionParams) (int64, error)
 	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) (int64, error)
 	DeleteProject(ctx context.Context, id uuid.UUID) error
 	DeleteProjectByIDAndUserID(ctx context.Context, arg DeleteProjectByIDAndUserIDParams) error
@@ -44,6 +47,9 @@ type Querier interface {
 	ForgetImages(ctx context.Context, arg ForgetImagesParams) error
 	GetActiveDeploymentByProjectIDAndUserID(ctx context.Context, arg GetActiveDeploymentByProjectIDAndUserIDParams) (Deployment, error)
 	GetActivityLogsByUserID(ctx context.Context, userID uuid.UUID) ([]ActivityLog, error)
+	// Every read and write is scoped by user, so one user can never see or change
+	// another's connection by guessing an id.
+	GetCloudConnectionForUser(ctx context.Context, arg GetCloudConnectionForUserParams) (CloudConnection, error)
 	GetDeploymentByID(ctx context.Context, id uuid.UUID) (Deployment, error)
 	GetDeploymentByIDAndUserID(ctx context.Context, arg GetDeploymentByIDAndUserIDParams) (Deployment, error)
 	GetDeploymentLogTail(ctx context.Context, arg GetDeploymentLogTailParams) ([]GetDeploymentLogTailRow, error)
@@ -78,6 +84,7 @@ type Querier interface {
 	// Locks the row so that two requests do not spend the same single-use refresh
 	// token. Call it inside a transaction.
 	GetUserByIDForUpdate(ctx context.Context, id uuid.UUID) (User, error)
+	ListCloudConnectionsByUser(ctx context.Context, userID uuid.UUID) ([]CloudConnection, error)
 	MarkDeploymentFailed(ctx context.Context, arg MarkDeploymentFailedParams) (Deployment, error)
 	MarkProjectDeleteFailed(ctx context.Context, arg MarkProjectDeleteFailedParams) error
 	MarkProjectDeleting(ctx context.Context, arg MarkProjectDeletingParams) (Project, error)
@@ -90,6 +97,9 @@ type Querier interface {
 	// or running are never touched. Called until it deletes nothing, so a large
 	// backlog is removed in small transactions.
 	PruneDeploymentLogs(ctx context.Context, arg PruneDeploymentLogsParams) (int64, error)
+	// Giving a different role starts verification over: what was learned about the
+	// old one no longer applies.
+	SetCloudConnectionRole(ctx context.Context, arg SetCloudConnectionRoleParams) (CloudConnection, error)
 	// Moves a deployment to a new status and clears its failure. A canceled
 	// deployment stays canceled unless the new status is 'canceled'.
 	SetDeploymentStatus(ctx context.Context, arg SetDeploymentStatusParams) error
