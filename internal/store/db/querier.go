@@ -47,6 +47,10 @@ type Querier interface {
 	ForgetImages(ctx context.Context, arg ForgetImagesParams) error
 	GetActiveDeploymentByProjectIDAndUserID(ctx context.Context, arg GetActiveDeploymentByProjectIDAndUserIDParams) (Deployment, error)
 	GetActivityLogsByUserID(ctx context.Context, userID uuid.UUID) ([]ActivityLog, error)
+	// The two below are what the verification job writes. Both only apply while the
+	// connection still has the role that was checked: if the user has given another
+	// one since, that result is about a role nobody is asking about any more.
+	GetCloudConnection(ctx context.Context, id uuid.UUID) (CloudConnection, error)
 	// Every read and write is scoped by user, so one user can never see or change
 	// another's connection by guessing an id.
 	GetCloudConnectionForUser(ctx context.Context, arg GetCloudConnectionForUserParams) (CloudConnection, error)
@@ -97,6 +101,8 @@ type Querier interface {
 	// or running are never touched. Called until it deletes nothing, so a large
 	// backlog is removed in small transactions.
 	PruneDeploymentLogs(ctx context.Context, arg PruneDeploymentLogsParams) (int64, error)
+	RecordCloudConnectionError(ctx context.Context, arg RecordCloudConnectionErrorParams) (int64, error)
+	RecordCloudConnectionVerified(ctx context.Context, arg RecordCloudConnectionVerifiedParams) (int64, error)
 	// Giving a different role starts verification over: what was learned about the
 	// old one no longer applies.
 	SetCloudConnectionRole(ctx context.Context, arg SetCloudConnectionRoleParams) (CloudConnection, error)

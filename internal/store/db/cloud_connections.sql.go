@@ -96,6 +96,41 @@ func (q *Queries) DeleteCloudConnection(ctx context.Context, arg DeleteCloudConn
 	return result.RowsAffected(), nil
 }
 
+const getCloudConnection = `-- name: GetCloudConnection :one
+SELECT id, user_id, provider, status, region, stack_name, external_id, principal_arn, monthly_budget_usd, budget_email, certificate_arn, role_arn, aws_account_id, template_version, serves_https, stack_outputs, last_error, last_verified_at, created_at, updated_at FROM cloud_connections WHERE id = $1
+`
+
+// The two below are what the verification job writes. Both only apply while the
+// connection still has the role that was checked: if the user has given another
+// one since, that result is about a role nobody is asking about any more.
+func (q *Queries) GetCloudConnection(ctx context.Context, id uuid.UUID) (CloudConnection, error) {
+	row := q.db.QueryRow(ctx, getCloudConnection, id)
+	var i CloudConnection
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Provider,
+		&i.Status,
+		&i.Region,
+		&i.StackName,
+		&i.ExternalID,
+		&i.PrincipalArn,
+		&i.MonthlyBudgetUsd,
+		&i.BudgetEmail,
+		&i.CertificateArn,
+		&i.RoleArn,
+		&i.AwsAccountID,
+		&i.TemplateVersion,
+		&i.ServesHttps,
+		&i.StackOutputs,
+		&i.LastError,
+		&i.LastVerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getCloudConnectionForUser = `-- name: GetCloudConnectionForUser :one
 SELECT id, user_id, provider, status, region, stack_name, external_id, principal_arn, monthly_budget_usd, budget_email, certificate_arn, role_arn, aws_account_id, template_version, serves_https, stack_outputs, last_error, last_verified_at, created_at, updated_at FROM cloud_connections WHERE id = $1 AND user_id = $2
 `
@@ -178,6 +213,63 @@ func (q *Queries) ListCloudConnectionsByUser(ctx context.Context, userID uuid.UU
 		return nil, err
 	}
 	return items, nil
+}
+
+const recordCloudConnectionError = `-- name: RecordCloudConnectionError :execrows
+UPDATE cloud_connections
+SET status = 'error', last_error = $3, updated_at = now()
+WHERE id = $1 AND role_arn = $2
+`
+
+type RecordCloudConnectionErrorParams struct {
+	ID        uuid.UUID `json:"id"`
+	RoleArn   *string   `json:"role_arn"`
+	LastError *string   `json:"last_error"`
+}
+
+func (q *Queries) RecordCloudConnectionError(ctx context.Context, arg RecordCloudConnectionErrorParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordCloudConnectionError, arg.ID, arg.RoleArn, arg.LastError)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const recordCloudConnectionVerified = `-- name: RecordCloudConnectionVerified :execrows
+UPDATE cloud_connections
+SET status = 'connected',
+    aws_account_id = $3,
+    template_version = $4,
+    serves_https = $5,
+    stack_outputs = $6,
+    last_error = NULL,
+    last_verified_at = now(),
+    updated_at = now()
+WHERE id = $1 AND role_arn = $2
+`
+
+type RecordCloudConnectionVerifiedParams struct {
+	ID              uuid.UUID `json:"id"`
+	RoleArn         *string   `json:"role_arn"`
+	AwsAccountID    *string   `json:"aws_account_id"`
+	TemplateVersion *string   `json:"template_version"`
+	ServesHttps     *bool     `json:"serves_https"`
+	StackOutputs    []byte    `json:"stack_outputs"`
+}
+
+func (q *Queries) RecordCloudConnectionVerified(ctx context.Context, arg RecordCloudConnectionVerifiedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordCloudConnectionVerified,
+		arg.ID,
+		arg.RoleArn,
+		arg.AwsAccountID,
+		arg.TemplateVersion,
+		arg.ServesHttps,
+		arg.StackOutputs,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setCloudConnectionRole = `-- name: SetCloudConnectionRole :one
