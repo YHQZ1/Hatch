@@ -1,0 +1,599 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Hatch connection. Creates what Hatch needs to build and run apps in this
+  account: a role Hatch can assume, a VPC, an ECS cluster, a load balancer, an
+  image repository, a build project, a log group and a monthly budget alert.
+  Everything is named hatch-* and tagged hatch:managed=true. Deleting the stack
+  removes it.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: Connection }
+        Parameters: [HatchPrincipalArn, ExternalId]
+      - Label: { default: Spending }
+        Parameters: [MonthlyBudgetUsd, BudgetEmail]
+      - Label: { default: HTTPS (optional) }
+        Parameters: [CertificateArn]
+
+Parameters:
+  HatchPrincipalArn:
+    Type: String
+    Description: The AWS identity Hatch assumes the hatch-control role from. Hatch fills this in.
+    AllowedPattern: 'arn:aws[a-z-]*:iam::[0-9]{12}:(root|(role|user)/.+)'
+    ConstraintDescription: Must be the ARN of an IAM role, IAM user or account root.
+  ExternalId:
+    Type: String
+    Description: Proves to AWS that the request to assume the role comes from this connection. Hatch fills this in; do not change it.
+    MinLength: 32
+    MaxLength: 128
+    AllowedPattern: '[A-Za-z0-9_+=,.@:/-]+'
+    ConstraintDescription: 32 to 128 letters, digits and _+=,.@:/-
+  MonthlyBudgetUsd:
+    Type: Number
+    Description: Monthly spending limit for this AWS account, in US dollars. You are emailed at 50%, 80% and 100% of it.
+    MinValue: 1
+    Default: 10
+  BudgetEmail:
+    Type: String
+    Description: Where the budget alerts are sent.
+    AllowedPattern: '[^@\s]+@[^@\s]+\.[^@\s]+'
+    ConstraintDescription: Must be an email address.
+  CertificateArn:
+    Type: String
+    Description: >-
+      Optional. An ACM certificate in this region for your apps' domain. Without
+      one, apps are served over HTTP on the load balancer's own address.
+    Default: ""
+    AllowedPattern: '(arn:aws[a-z-]*:acm:[a-z0-9-]+:[0-9]{12}:certificate/.+)?'
+    ConstraintDescription: Must be an ACM certificate ARN, or empty.
+
+Conditions:
+  HasCertificate: !Not [!Equals [!Ref CertificateArn, ""]]
+
+Mappings:
+  Hatch:
+    Template:
+      # Bumped whenever this file changes in a way an existing stack must pick up.
+      # Hatch compares it with the HatchTemplateVersion output.
+      Version: "1"
+  Network:
+    Vpc:
+      Cidr: 10.0.0.0/16
+      SubnetA: 10.0.0.0/24
+      SubnetB: 10.0.1.0/24
+
+Resources:
+  # ── Network ──────────────────────────────────────────────────────────────
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !FindInMap [Network, Vpc, Cidr]
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - { Key: Name, Value: hatch-vpc }
+        - { Key: "hatch:managed", Value: "true" }
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - { Key: Name, Value: hatch-igw }
+        - { Key: "hatch:managed", Value: "true" }
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  # Tasks get public addresses so they can pull images without a NAT gateway,
+  # which would add a standing hourly cost. The app security group still lets
+  # nothing in except the load balancer.
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [Network, Vpc, SubnetA]
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - { Key: Name, Value: hatch-public-a }
+        - { Key: "hatch:managed", Value: "true" }
+
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [Network, Vpc, SubnetB]
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - { Key: Name, Value: hatch-public-b }
+        - { Key: "hatch:managed", Value: "true" }
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - { Key: Name, Value: hatch-public }
+        - { Key: "hatch:managed", Value: "true" }
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  SubnetBRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: hatch-alb
+      GroupDescription: Hatch load balancer. Open to the internet on 80 and 443.
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: HTTP }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS }
+      Tags:
+        - { Key: Name, Value: hatch-alb }
+        - { Key: "hatch:managed", Value: "true" }
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: hatch-apps
+      GroupDescription: Hatch apps. Accepts traffic only from the load balancer.
+      VpcId: !Ref Vpc
+      Tags:
+        - { Key: Name, Value: hatch-apps }
+        - { Key: "hatch:managed", Value: "true" }
+
+  # A separate rule, not an inline ingress, so the two groups do not refer to
+  # each other and the stack can be created and deleted in order.
+  AppFromAlb:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppSecurityGroup
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+      IpProtocol: tcp
+      FromPort: 1
+      ToPort: 65535
+      Description: From the Hatch load balancer
+
+  # ── Load balancer ────────────────────────────────────────────────────────
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: hatch-alb
+      Type: application
+      Scheme: internet-facing
+      Subnets: [!Ref SubnetA, !Ref SubnetB]
+      SecurityGroups: [!Ref AlbSecurityGroup]
+      Tags:
+        - { Key: "hatch:managed", Value: "true" }
+
+  # Hatch adds one host-header rule per app to the listener its apps use. With a
+  # certificate that is the HTTPS listener and plain HTTP only redirects to it;
+  # without one it is this HTTP listener. Anything that matches no app gets a 404.
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - !If
+          - HasCertificate
+          - Type: redirect
+            RedirectConfig: { Protocol: HTTPS, Port: "443", StatusCode: HTTP_301 }
+          - Type: fixed-response
+            FixedResponseConfig:
+              StatusCode: "404"
+              ContentType: text/plain
+              MessageBody: No app is served at this address.
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasCertificate
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: "404"
+            ContentType: text/plain
+            MessageBody: No app is served at this address.
+
+  # ── Compute, images, logs ────────────────────────────────────────────────
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: hatch
+      CapacityProviders: [FARGATE]
+      Tags:
+        - { Key: "hatch:managed", Value: "true" }
+
+  Repository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: hatch-apps
+      # Without this the stack cannot be deleted while the repository holds
+      # images, and the images are what Hatch leaves behind.
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Expire untagged images after a day",
+                "selection": { "tagStatus": "untagged", "countType": "sinceImagePushed", "countUnit": "days", "countNumber": 1 },
+                "action": { "type": "expire" }
+              },
+              {
+                "rulePriority": 2,
+                "description": "A backstop: Hatch removes images itself, this caps what a failure could leave",
+                "selection": { "tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 200 },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - { Key: "hatch:managed", Value: "true" }
+
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /hatch/apps
+      RetentionInDays: 14
+      Tags:
+        - { Key: "hatch:managed", Value: "true" }
+
+  # ── Roles ────────────────────────────────────────────────────────────────
+  # ECS uses this to pull images, write logs, and read the app secrets Hatch
+  # stores under hatch/ in Secrets Manager.
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: hatch-task-execution
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: read-hatch-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:hatch/*
+      Tags:
+        - { Key: "hatch:managed", Value: "true" }
+
+  # CodeBuild uses this to write its logs and push images to the one repository.
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: hatch-codebuild
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+      Policies:
+        - PolicyName: build-and-push
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource: !GetAtt Repository.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/hatch-build
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/hatch-build:*
+      Tags:
+        - { Key: "hatch:managed", Value: "true" }
+
+  # The role Hatch assumes. It can only be assumed by the configured principal
+  # presenting this connection's ExternalId, and can only change hatch-* things.
+  # It has no IAM write access beyond passing the two roles above.
+  ControlRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: hatch-control
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { AWS: !Ref HatchPrincipalArn }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "sts:ExternalId": !Ref ExternalId }
+      Policies:
+        - PolicyName: hatch-control
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Reads. None of these can change anything; most have no
+              # resource-level scoping in IAM.
+              - Sid: ReadOnly
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - ecs:DescribeClusters
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - ecs:DescribeTasks
+                  - ecs:ListServices
+                  - ecs:ListTasks
+                  - ecs:ListTaskDefinitions
+                  - elasticloadbalancing:DescribeListeners
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeRules
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - elasticloadbalancing:DescribeTargetHealth
+                  - elasticloadbalancing:DescribeTags
+                  - ecr:DescribeImages
+                  - ecr:DescribeRepositories
+                  - ecr:GetAuthorizationToken
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:GetMetricStatistics
+                  - tag:GetResources
+                Resource: "*"
+
+              # Task definitions are not scoped by resource when registered, so
+              # the name prefix is enforced on the family where IAM allows it
+              # (deregistering) and by the tag Hatch must send when registering.
+              - Sid: TaskDefinitions
+                Effect: Allow
+                Action: ecs:RegisterTaskDefinition
+                Resource: "*"
+                Condition:
+                  StringEquals: { "aws:RequestTag/hatch:managed": "true" }
+              - Sid: DeregisterTaskDefinitions
+                Effect: Allow
+                Action: ecs:DeregisterTaskDefinition
+                Resource: !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/hatch-*:*
+
+              - Sid: ServicesInTheHatchCluster
+                Effect: Allow
+                Action:
+                  - ecs:CreateService
+                  - ecs:UpdateService
+                  - ecs:DeleteService
+                  - ecs:TagResource
+                Resource: !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/hatch/hatch-*
+
+              - Sid: TargetGroups
+                Effect: Allow
+                Action:
+                  - elasticloadbalancing:CreateTargetGroup
+                  - elasticloadbalancing:ModifyTargetGroup
+                  - elasticloadbalancing:DeleteTargetGroup
+                  - elasticloadbalancing:AddTags
+                Resource: !Sub arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/hatch-*/*
+
+              # Rules are added to Hatch's own load balancer only.
+              - Sid: ListenerRules
+                Effect: Allow
+                Action:
+                  - elasticloadbalancing:CreateRule
+                  - elasticloadbalancing:ModifyRule
+                  - elasticloadbalancing:DeleteRule
+                  - elasticloadbalancing:AddTags
+                Resource:
+                  - !Sub arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:listener/app/hatch-alb/*/*
+                  - !Sub arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:listener-rule/app/hatch-alb/*/*/*
+
+              - Sid: ImagesInTheHatchRepository
+                Effect: Allow
+                Action:
+                  - ecr:BatchDeleteImage
+                  - ecr:BatchGetImage
+                  - ecr:ListImages
+                Resource: !GetAtt Repository.Arn
+
+              - Sid: BuildsInTheHatchProject
+                Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:StopBuild
+                  - codebuild:BatchGetBuilds
+                Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/hatch-build
+
+              - Sid: ReadLogs
+                Effect: Allow
+                Action:
+                  - logs:DescribeLogStreams
+                  - logs:FilterLogEvents
+                  - logs:GetLogEvents
+                Resource:
+                  - !GetAtt AppLogGroup.Arn
+                  - !Sub ${AppLogGroup.Arn}:*
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/hatch-build
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/hatch-build:*
+
+              - Sid: AppSecrets
+                Effect: Allow
+                Action:
+                  - secretsmanager:CreateSecret
+                  - secretsmanager:DeleteSecret
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:PutSecretValue
+                  - secretsmanager:TagResource
+                  - secretsmanager:UpdateSecret
+                Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:hatch/*
+
+              # The one IAM action: handing the two Hatch roles to the service
+              # that needs each. No other role can be passed.
+              - Sid: PassTheHatchRolesOnly
+                Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !GetAtt TaskExecutionRole.Arn
+                  - !GetAtt CodeBuildRole.Arn
+                Condition:
+                  StringEquals:
+                    "iam:PassedToService": [ecs-tasks.amazonaws.com, codebuild.amazonaws.com]
+      Tags:
+        - { Key: "hatch:managed", Value: "true" }
+
+  # ── Build project ────────────────────────────────────────────────────────
+  # Hatch passes the source and the image tag for each build. Phase 3 settles how
+  # the source is supplied and the stack version is raised when it does; this
+  # buildspec builds and pushes whatever is in the build's working directory.
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: hatch-build
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      TimeoutInMinutes: 30
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "${IMAGE_URI%%/*}"
+            build:
+              commands:
+                - docker build -t "$IMAGE_URI" -f "${DOCKERFILE_PATH:-Dockerfile}" .
+            post_build:
+              commands:
+                - docker push "$IMAGE_URI"
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:7.0
+        PrivilegedMode: true
+      Tags:
+        - { Key: "hatch:managed", Value: "true" }
+
+  # ── Spending ─────────────────────────────────────────────────────────────
+  # It watches the whole account, not only Hatch's resources: a budget filtered
+  # by tag needs the tag activated for cost allocation and shows nothing until
+  # it is, which is a guardrail that never fires. Hatch enforces its own cap on
+  # top of this alert (docs/04-cost-guardrails.md).
+  Budget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: hatch-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 50
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - { SubscriptionType: EMAIL, Address: !Ref BudgetEmail }
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - { SubscriptionType: EMAIL, Address: !Ref BudgetEmail }
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - { SubscriptionType: EMAIL, Address: !Ref BudgetEmail }
+
+Outputs:
+  HatchTemplateVersion:
+    Description: Which version of this template the stack was made from.
+    Value: !FindInMap [Hatch, Template, Version]
+  ControlRoleArn:
+    Description: The role Hatch assumes.
+    Value: !GetAtt ControlRole.Arn
+  Region:
+    Value: !Ref "AWS::Region"
+  ClusterName:
+    Value: !Ref Cluster
+  VpcId:
+    Value: !Ref Vpc
+  SubnetIds:
+    Value: !Join [",", [!Ref SubnetA, !Ref SubnetB]]
+  AppSecurityGroupId:
+    Value: !Ref AppSecurityGroup
+  LoadBalancerArn:
+    Value: !Ref LoadBalancer
+  LoadBalancerDnsName:
+    Description: The address apps are served at, as a subdomain of this.
+    Value: !GetAtt LoadBalancer.DNSName
+  # The listener Hatch adds app rules to: HTTPS when there is a certificate.
+  AppListenerArn:
+    Value: !If [HasCertificate, !Ref HttpsListener, !Ref HttpListener]
+  ServesHttps:
+    Description: Whether apps are served over HTTPS ("true") or plain HTTP ("false").
+    Value: !If [HasCertificate, "true", "false"]
+  RepositoryUri:
+    Value: !GetAtt Repository.RepositoryUri
+  BuildProjectName:
+    Value: !Ref BuildProject
+  AppLogGroupName:
+    Value: !Ref AppLogGroup
+  TaskExecutionRoleArn:
+    Value: !GetAtt TaskExecutionRole.Arn
+  CodeBuildRoleArn:
+    Value: !GetAtt CodeBuildRole.Arn
