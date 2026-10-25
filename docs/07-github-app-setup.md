@@ -107,7 +107,12 @@ pushed branch.
 On a laptop GitHub cannot reach `localhost`. A relay such as
 [smee.io](https://smee.io) forwards deliveries to
 `http://localhost:8080/api/webhooks/github`; set the App's Webhook URL to the
-relay's address.
+relay's address. Run it with
+`npx smee-client --url <your smee URL> --target http://localhost:8080/api/webhooks/github`.
+The relay drops its connection now and then and does not replay what it missed,
+so a delivery that never shows up in Hatch's request log can be sent again from
+the App's **Advanced, Recent Deliveries**. A green tick there only means the
+relay answered; the `make dev` log shows what Hatch answered.
 
 **Older projects:** before this, Hatch registered a webhook on each
 repository. Those no longer match anything and GitHub will report their

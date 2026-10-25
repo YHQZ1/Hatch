@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -121,13 +122,31 @@ const (
 	outcomeShutdown                // Hatch is stopping; the job will be retried
 )
 
+// stoppingKey carries the flag Run raises when shutdown begins.
+type stoppingKey struct{}
+
+// withStopping returns a context whose jobs can ask whether Hatch has begun to
+// stop, and the flag to raise. A job's own context is only canceled once the
+// grace period is over, so until then a build can die for shutdown's sake (the
+// terminal or a process manager signals its docker child as well) while its
+// context still looks healthy.
+func withStopping(ctx context.Context) (context.Context, *atomic.Bool) {
+	flag := new(atomic.Bool)
+	return context.WithValue(ctx, stoppingKey{}, flag), flag
+}
+
+func isStopping(ctx context.Context) bool {
+	flag, _ := ctx.Value(stoppingKey{}).(*atomic.Bool)
+	return flag != nil && flag.Load()
+}
+
 // outcomeOf tells a timeout and a shutdown apart from a failure. parent is the
 // context River gave the job; run is the one derived for the work.
 func outcomeOf(parent, run context.Context) outcome {
 	switch {
 	case errors.Is(run.Err(), context.DeadlineExceeded):
 		return outcomeTimedOut
-	case parent.Err() != nil:
+	case parent.Err() != nil || isStopping(parent):
 		return outcomeShutdown
 	default:
 		return outcomeRunning

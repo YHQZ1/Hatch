@@ -113,6 +113,9 @@ func (w *buildWorker) buildFailed(parent, run context.Context, args BuildArgs, e
 		w.failDeployment(context.Background(), id, "timeout", timeout)
 		return river.JobCancel(timeout)
 	case outcomeShutdown:
+		// The builder has just logged "Build failed: ..." for the signal that
+		// ended it; say that this is not a verdict on the build.
+		w.logs.Publish(context.Background(), idText, "Hatch is stopping, so this build was interrupted. It starts again from the beginning when Hatch next runs.")
 		return err
 	}
 

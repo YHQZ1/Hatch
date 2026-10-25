@@ -211,6 +211,7 @@ func (b *Builder) executeAndStream(ctx context.Context, id string, cmd *exec.Cmd
 		return fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
+	ownProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
