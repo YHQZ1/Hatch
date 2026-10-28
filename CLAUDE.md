@@ -19,9 +19,12 @@ Read, in order:
 
 ## Hard rules
 
-- **No AWS access exists, and none is needed until Phase 6.** Never run
-  commands, scripts, or tests that create real cloud resources. All AWS code
-  goes behind interfaces and is tested with fakes.
+- **Never create, change or delete real cloud resources yourself** (ADR 0023).
+  The maintainer has an AWS account for capped real-AWS testing, but they run
+  the console steps and the teardown, or approve each command by name. Do not
+  read, ask for or print credentials. CI and `make check` never use AWS. All AWS
+  code goes behind interfaces and is tested with fakes; a test that needs a real
+  account is opt-in and says what it creates.
 - **Every cloud resource Hatch creates must be recorded in the resource
   inventory and tagged** (`hatch:managed=true`). See ADR 0007.
 - **User code never runs on the control plane** in the AWS provider. See

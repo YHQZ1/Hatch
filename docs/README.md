@@ -24,8 +24,10 @@ Last updated: 2026-10-21
 - **Phase:** 0, Foundation (see [Roadmap](05-roadmap.md#current-status)).
 - **Production-ready:** no. The current code is a working prototype of the
   old hosted model.
-- **AWS access:** none. All development must work without an AWS account
-  until Phase 6 (see [Roadmap](05-roadmap.md#testing-without-aws)).
+- **AWS access:** the maintainer has an account for capped real-AWS testing
+  ([0023](decisions/0023-real-aws-testing-starts-before-phase-6.md)). Nothing has
+  been run against it yet. CI and the default tests work without AWS (see
+  [Roadmap](05-roadmap.md#testing-without-aws)).
 
 ## Rules for these docs
 

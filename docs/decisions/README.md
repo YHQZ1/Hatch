@@ -28,6 +28,7 @@ reversed; do not rewrite history in old records, mark them superseded instead.
 | [0020](0020-the-connection-role-trusts-a-configured-principal.md) | The connection role trusts a configured principal | Accepted |
 | [0021](0021-http-only-without-a-domain.md) | Apps are reachable over HTTP without a domain | Accepted |
 | [0022](0022-the-connect-template-is-published-to-a-public-bucket.md) | The hatch-connect template is published to a public bucket | Accepted |
+| [0023](0023-real-aws-testing-starts-before-phase-6.md) | Real AWS testing starts before Phase 6, in a capped account | Accepted |
 
 Template:
 

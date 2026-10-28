@@ -32,4 +32,6 @@ shared behavioural test suite against every provider.
   features (for example, health checks through the ALB) need local
   equivalents or graceful absence.
 - Real AWS behaviour (IAM, throttling, eventual consistency) is only verified
-  in Phase 6, so fakes must model the important failure modes.
+  in Phase 6, so fakes must model the important failure modes. _Superseded in
+  part by [0023](0023-real-aws-testing-starts-before-phase-6.md): an AWS account
+  is available, and capped real-AWS testing starts earlier._
